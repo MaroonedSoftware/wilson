@@ -254,9 +254,12 @@ describe('HostProber', () => {
             await connectLoopbackWorker(server.apiUrl, 'token', { env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: 'worker-token' } });
             await eventually(() => server.connections.get(name) !== undefined);
 
-            const host = await new HostProber(hosts, new HostConnector(FAKE_SSH, undefined, server.connections)).probe(name);
+            const host = await new HostProber(hosts, new HostConnector(FAKE_SSH, undefined, server.connections), undefined, server.connections).probe(
+                name,
+            );
 
             expect(host.probe?.ok).toBe(true);
+            expect(host.connection?.platform).toBe(process.platform);
             expect(host.probe?.engineVersion).toBe('9.9.9');
             expect(host.probe?.detail).toContain('claude 9.9.9 has not been through the engine probes');
         } finally {

@@ -1,6 +1,7 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { copyFile, mkdir, readFile, realpath, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, realpath, rename, rm, stat, statfs, unlink, writeFile } from 'node:fs/promises';
+import { cpus, freemem, loadavg, totalmem, uptime } from 'node:os';
 import { dirname } from 'node:path';
 import { promisify } from 'node:util';
 import {
@@ -11,7 +12,9 @@ import {
     type CallOp,
     type FromWorker,
     type ToWorker,
+    type WorkerDiskStats,
     type WorkerError,
+    type WorkerStats,
 } from '@wilson/worker-protocol';
 
 const execFileAsync = promisify(execFile);
@@ -137,6 +140,8 @@ export class WorkerExecutor {
         switch (call.op) {
             case 'ping':
                 return 'pong';
+            case 'stats':
+                return this.stats(call.paths);
             case 'readFile':
                 this.guard(call.path);
                 return readFile(call.path, 'utf8');
@@ -188,6 +193,34 @@ export class WorkerExecutor {
                 this.guard(call.path);
                 return this.clone(call.url, call.path, call.token);
         }
+    }
+
+    private async stats(paths: readonly string[]): Promise<WorkerStats> {
+        return {
+            cpus: cpus().length,
+            loadAverage: loadavg()[0] ?? 0,
+            memoryTotalBytes: totalmem(),
+            memoryFreeBytes: freemem(),
+            uptimeSeconds: Math.floor(uptime()),
+            disks: await this.disks(paths),
+        };
+    }
+
+    /**
+     * One entry per volume, told apart by device number. A root not made yet says nothing about any
+     * volume, and one this worker refuses (a project served since its last `welcome`) is left out too,
+     * so the rest of the reading still arrives.
+     */
+    private async disks(paths: readonly string[]): Promise<WorkerDiskStats[]> {
+        const volumes = new Map<number, WorkerDiskStats>();
+        for (const path of paths) {
+            if (this.options.checkPath?.(path)) continue;
+            const found = await stat(path).catch(() => undefined);
+            if (!found || volumes.has(found.dev)) continue;
+            const volume = await statfs(path).catch(() => undefined);
+            if (volume) volumes.set(found.dev, { path, totalBytes: volume.blocks * volume.bsize, freeBytes: volume.bavail * volume.bsize });
+        }
+        return [...volumes.values()];
     }
 
     /**

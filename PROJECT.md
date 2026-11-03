@@ -290,7 +290,11 @@ There are two kinds of host, fixed when one is registered:
   machine and no key for it, which is what lets the daemon live in a container on a NAS while the
   stages run on a VM or a laptop. A worker's engine signs in with the token the host is assigned
   (`wilson host engine-token`), sent with each engine start and kept by the worker for no longer than
-  that, or else the worker's own `CLAUDE_CODE_OAUTH_TOKEN`.
+  that, or else the worker's own `CLAUDE_CODE_OAUTH_TOKEN`. A worker host's `connection` in the API
+  is its open connection right now, where `probe` is only what was found the last time one ran.
+  `GET /api/hosts/{name}/runs` is what was placed there lately, read from `stage.placed` events.
+  Its `connection.metrics` is the machine as the worker last answered (`WorkerStatsSampler`, every
+  thirty seconds), held on the connection with no history.
 
 A stage marked `isolated` runs only on a host an operator has vouched for (`wilson host isolated`,
 behind step-up), never on this machine, and waits when there is none. It is for an engine that cannot

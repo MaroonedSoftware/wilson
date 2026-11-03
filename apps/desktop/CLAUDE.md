@@ -181,6 +181,8 @@ as many events as are showing, so one from the feed does not take back what Show
 `HostsViewModel` is `routes/hosts.tsx` and `HostRules` its wording. The feed says nothing of hosts, so the
 page reads every ten seconds, and panels are kept by name across a read, as a redraw would lose a form
 half filled in or close a menu. As on the web, there is no minting of a worker's token: `wilson host` does that.
+Only a worker has a connection to show (`HostRules.Connection`), which is the present, where the probe badge is the past.
+The machine's reading comes with the host, as the daemon samples it every thirty seconds, so it is never older than that and a bit. Recent runs are read with the hosts, one request a host, and the newest five show until asked for the twenty the API gives.
 
 ## Settings
 
@@ -361,6 +363,18 @@ was not seen, as nothing runs a stage there.
 2026-11-02, hosts: with `tools/Walk`, registering, a taken name refused, drain, disable, serving a project,
 a real probe failing, an engine token assigned to a worker, and removing after being asked. A running slot
 was a `wilson.leases` row written by hand. A probe that passes needs a machine, so it was not walked.
+
+2026-11-03, a worker's connection: with `tools/Walk`, a worker never connected, then a socket connecting to the
+real endpoint and saying hello, found by the page's own reading and drawn, then dropped and found gone. That socket
+is `Walker.ConnectWorkerAsync`, so a real worker program was not behind it, and its token was written to the row.
+
+2026-11-03, a host's recent runs: with `tools/Walk`, none, then each ending and a running one in order, showing all
+and fewer, and a run opening its card. The runs were `wilson.card_events` rows written by hand, as nothing runs a stage there.
+
+2026-11-03, a machine's reading: with `tools/Walk`, none for an SSH host or a worker not connected, then the daemon's
+own sampling reaching the page from `Walker.ConnectWorkerAsync`'s made-up numbers, a low disk flagged, and gone with the connection.
+Read through the API, not on this page: the real `apps/worker` on this Mac, its disk agreeing with `df`. macOS counts little as free, so a worker
+run natively there reads as nearly out of memory; `my-mac` is in Docker, on Linux, where it was not seen.
 
 2026-11-02, a new project: with `tools/Walk`, on the throwaway API and its own scratch repo, the folder
 picker, a missing folder opening its parent, the roots following the code root, a taken name refused

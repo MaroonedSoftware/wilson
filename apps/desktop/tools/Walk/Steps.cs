@@ -566,12 +566,48 @@ internal static class Steps
         var workerPanel = hosts.Hosts.First(found => found.Name == worker);
         workerPanel.EngineToken = token;
         await walk.UntilAsync("an engine token assigned", () => workerPanel.Host?.EngineToken == token);
+        await walk.UntilAsync("a worker nobody has started reading as not connected", () => workerPanel.NotConnected && workerPanel.ConnectionState == "not connected" && workerPanel.MachineNote is not null);
+
+        using (await Walker.ConnectWorkerAsync(walk.Shell.Connection!.Origin, worker))
+        {
+            await walk.UntilAsync("the page's own reading finding the connection", () => workerPanel.Connected);
+            Console.WriteLine($"     worker: {workerPanel.ConnectionState}; {workerPanel.Summary}");
+            await walk.UntilAsync("the daemon's own sampling reaching the page", () => workerPanel.Machine is not null && workerPanel.Disks.Count == 2);
+            Console.WriteLine($"     machine: {workerPanel.MachineRead}: {workerPanel.Machine}; {string.Join("; ", workerPanel.Disks.Select(disk => $"{disk.Text} low={disk.Low}"))}");
+            walk.Shot("11-hosts-worker-connected");
+        }
+
+        await walk.UntilAsync("the page's own reading finding it gone", () => workerPanel.NotConnected && workerPanel.Machine is null && workerPanel.Disks.Count == 0);
 
         var project = panel.Projects[0].Project;
         Walker.Sql($"insert into wilson.leases (resource_key, project, card_id, acquired_at) values ('host:{name}:slot:0', '{project}', '0001', now() - interval '12 minutes')");
         await hosts.ReadAsync(CancellationToken.None);
         await walk.UntilAsync("a slot in use", () => panel.Running.Count == 1, 5);
+        await walk.UntilAsync("no runs yet said so", () => panel.NoRuns, 5);
+
+        // Rows only, as nothing here runs a stage: oldest first, so the card holding the slot is newest.
+        foreach (var (card, stage, ending, minutes) in new[]
+        {
+            ("0003", "testing", "stage.host-lost", 400), ("0002", "review", "stage.interrupted", 300), ("0002", "implementing", "stage.failed", 200),
+            ("0003", "implementing", "stage.stale", 150), ("0002", "testing", "stage.passed", 100), ("0003", "review", "stage.passed", 60),
+        })
+        {
+            Walker.Sql($"insert into wilson.card_events (project, card_id, stage, type, payload, created_at) values ('{project}', '{card}', '{stage}', 'stage.placed', '{{\"host\": \"{name}\"}}', now() - interval '{minutes} minutes'), ('{project}', '{card}', '{stage}', '{ending}', '{{}}', now() - interval '{minutes - 12} minutes')");
+        }
+
+        Walker.Sql($"insert into wilson.card_events (project, card_id, stage, type, payload, created_at) values ('{project}', '0001', 'implementing', 'stage.placed', '{{\"host\": \"{name}\"}}', now() - interval '12 minutes')");
+        await hosts.ReadAsync(CancellationToken.None);
+        await walk.UntilAsync("the newest runs, the running one first", () => panel.Runs.Count == 5 && panel.Runs[0] is { Outcome: "running", CardId: "0001" } && panel.MoreRuns);
         walk.Shot("11-hosts");
+        panel.ToggleRunsCommand.Execute(null);
+        await walk.UntilAsync("every run, once asked", () => panel.Runs.Count == 7 && panel.RunsToggle == "Show fewer");
+        Console.WriteLine($"     runs: {string.Join("; ", panel.Runs.Select(run => $"{run.Outcome} {run.Card} {run.Detail}"))}");
+        walk.Shot("11-hosts-runs");
+        panel.ToggleRunsCommand.Execute(null);
+        panel.OpenRunCommand.Execute(panel.Runs[1]);
+        await walk.UntilAsync("a run opening its card", () => walk.Shell.Page is CardViewModel { Id: "0003" });
+        walk.Shell.Back();
+        await walk.UntilAsync("back from the run's card", () => walk.Shell.Page == hosts);
 
         panel.OpenCardCommand.Execute(panel.Running[0]);
         await walk.UntilAsync("a slot opening its card", () => walk.Shell.Page is CardViewModel { Id: "0001" });

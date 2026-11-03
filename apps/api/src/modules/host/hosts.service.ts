@@ -2,19 +2,25 @@ import { isAbsolute, posix } from 'node:path';
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
 import { ProjectRepository } from '#modules/board/project.repository.js';
+import type { WorkerConnection } from '#modules/worker/worker.connection.js';
+import { WorkerConnections } from '#modules/worker/worker.connections.js';
 import type {
     CreateHostRequest,
     Host,
+    HostConnection,
+    HostRun,
     PutHostProjectRequest,
     PutHostIsolatedRequest,
     PutHostSshTargetRequest,
     UpdateHostRequest,
 } from '../../generated/hosts.js';
-import { HostRepository, type HostPatch, type HostRow } from './host.repository.js';
+import { HostRepository, type HostPatch, type HostRow, type HostRunRow } from './host.repository.js';
 
 /** The range `wilson.hosts.slots` allows, checked here so a caller gets a 400 rather than a 500. */
 const MIN_SLOTS = 1;
 const MAX_SLOTS = 8;
+/** How many of a host's runs `/api/hosts/{name}/runs` returns. */
+const RECENT_RUNS = 20;
 
 /**
  * The host registry behind `/api/hosts` (`hosts.ck`): registering a machine a stage can run on,
@@ -29,14 +35,22 @@ export class HostsService {
     constructor(
         private readonly hosts: HostRepository,
         private readonly projects: ProjectRepository,
+        // Optional so a test can build a service without one; unset, no worker reads as connected.
+        private readonly connections?: WorkerConnections,
     ) {}
 
     async list(): Promise<Host[]> {
-        return (await this.hosts.list()).map(toHost);
+        return (await this.hosts.list()).map(row => toHost(row, this.connections));
     }
 
     async get(name: string): Promise<Host> {
-        return toHost(await this.require(name));
+        return toHost(await this.require(name), this.connections);
+    }
+
+    /** The stages most recently placed on host `name`, newest first. Refuses an unregistered name with 404. */
+    async runs(name: string): Promise<HostRun[]> {
+        const host = await this.require(name);
+        return (await this.hosts.runs(name, RECENT_RUNS)).map(run => toRun(run, host));
     }
 
     /**
@@ -155,24 +169,61 @@ export class HostsService {
     }
 }
 
-/** A row as the API returns it. */
-export const toHost = (row: HostRow): Host => ({
-    name: row.name,
-    kind: row.kind,
-    ...(row.sshTarget !== undefined && { sshTarget: row.sshTarget }),
-    slots: row.slots,
-    enabled: row.enabled,
-    draining: row.draining,
-    isolated: row.isolated,
-    ...(row.lifetimeMinutes !== undefined && { lifetimeMinutes: row.lifetimeMinutes }),
-    commandEnv: row.commandEnv,
-    ...(row.projectsRoot !== undefined && { projectsRoot: row.projectsRoot }),
-    projects: row.projects,
-    running: row.running,
-    ...(row.probe && { probe: row.probe }),
-    ...(row.workerToken && { workerToken: row.workerToken }),
-    ...(row.engineToken && { engineToken: row.engineToken }),
+/** What each event that can follow a `stage.placed` says became of the stage. Another `stage.placed` says nothing. */
+const RUN_OUTCOMES: Record<string, HostRun['outcome']> = {
+    'stage.passed': 'passed',
+    'stage.failed': 'failed',
+    'stage.poisoned': 'failed',
+    'stage.dead': 'failed',
+    'stage.host-lost': 'lost',
+    'stage.interrupted': 'interrupted',
+    'stage.stale': 'abandoned',
+};
+
+/** A run as the API returns it. With no event after it, only a slot still held here tells running from never heard of again. */
+const toRun = (run: HostRunRow, host: HostRow): HostRun => {
+    const outcome = run.nextType === undefined ? undefined : RUN_OUTCOMES[run.nextType];
+    const holding = run.nextType === undefined && host.running.some(use => use.project === run.project && use.cardId === run.cardId);
+    return {
+        project: run.project,
+        cardId: run.cardId,
+        stage: run.stage,
+        startedAt: run.startedAt,
+        ...(outcome && { endedAt: run.nextAt }),
+        outcome: outcome ?? (holding ? 'running' : 'unknown'),
+    };
+};
+
+/** The fields of a worker's open connection the API shows. */
+const toConnection = ({ connectedAt, hello, latestStats }: WorkerConnection): HostConnection => ({
+    since: connectedAt,
+    workerVersion: hello.workerVersion,
+    platform: hello.platform,
+    ...(latestStats && { metrics: latestStats }),
 });
+
+/** A row as the API returns it, with its worker's connection when `connections` holds an open one. */
+export const toHost = (row: HostRow, connections?: WorkerConnections): Host => {
+    const connection = connections?.get(row.name);
+    return {
+        name: row.name,
+        kind: row.kind,
+        ...(row.sshTarget !== undefined && { sshTarget: row.sshTarget }),
+        slots: row.slots,
+        enabled: row.enabled,
+        draining: row.draining,
+        isolated: row.isolated,
+        ...(row.lifetimeMinutes !== undefined && { lifetimeMinutes: row.lifetimeMinutes }),
+        commandEnv: row.commandEnv,
+        ...(row.projectsRoot !== undefined && { projectsRoot: row.projectsRoot }),
+        projects: row.projects,
+        running: row.running,
+        ...(row.probe && { probe: row.probe }),
+        ...(connection && { connection: toConnection(connection) }),
+        ...(row.workerToken && { workerToken: row.workerToken }),
+        ...(row.engineToken && { engineToken: row.engineToken }),
+    };
+};
 
 const notFound = (name: string) => httpError(404).withDetails({ reason: `host "${name}" is not registered` });
 

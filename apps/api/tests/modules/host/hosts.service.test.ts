@@ -5,6 +5,7 @@ import type { DB } from '#modules/data/db.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { HostRepository } from '#modules/host/host.repository.js';
 import { HostsService } from '#modules/host/hosts.service.js';
+import { eventually, FakeWorker, startWorkerServer } from '#tests/support/fake.worker.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 
 /**
@@ -206,5 +207,152 @@ describe('HostsService', () => {
         const failed = await service.get(name);
         expect(failed.probe).toMatchObject({ ok: false, detail: 'ssh: connect timed out' });
         expect(failed.probe).not.toHaveProperty('expiresAt');
+    });
+
+    describe("a host's runs", () => {
+        const event = async (project: string, cardId: string, stage: string, type: string, host?: string): Promise<void> => {
+            await db
+                .insertInto('wilson.cardEvents')
+                .values({ project, cardId, stage, type, payload: JSON.stringify(host ? { host, slot: `host:${host}:slot:0` } : {}) })
+                .execute();
+        };
+
+        it('says how each stage placed there ended, newest first', async () => {
+            const name = uniqueProject();
+            await service.create({ name });
+            const project = await registerProject();
+            const endings: Array<[string, string]> = [
+                ['stage.passed', 'passed'],
+                ['stage.failed', 'failed'],
+                ['stage.poisoned', 'failed'],
+                ['stage.dead', 'failed'],
+                ['stage.host-lost', 'lost'],
+                ['stage.interrupted', 'interrupted'],
+                ['stage.stale', 'abandoned'],
+            ];
+            for (const [index, [type]] of endings.entries()) {
+                const card = String(index).padStart(4, '0');
+                await event(project, card, 'implementing', 'stage.placed', name);
+                await event(project, card, 'implementing', 'tool.executed');
+                await event(project, card, 'implementing', type);
+            }
+
+            const runs = await service.runs(name);
+
+            expect(runs.map(run => [run.cardId, run.outcome])).toEqual(
+                endings.map(([, outcome], index) => [String(index).padStart(4, '0'), outcome]).reverse(),
+            );
+            expect(runs.every(run => run.endedAt !== undefined && run.stage === 'implementing' && run.project === project)).toBe(true);
+        });
+
+        it('shows a stage still holding a slot as running, and one nothing more was said of as unknown', async () => {
+            const name = uniqueProject();
+            await service.create({ name });
+            const project = await registerProject();
+            await event(project, '0001', 'implementing', 'stage.placed', name);
+            await event(project, '0002', 'implementing', 'stage.placed', name);
+            await db.insertInto('wilson.cards').values({ project, id: '0002', title: 'Placed', stage: 'implementing', body: 'body' }).execute();
+            await db
+                .insertInto('wilson.leases')
+                .values({ resourceKey: `host:${name}:slot:0`, project, cardId: '0002' })
+                .execute();
+
+            const runs = await service.runs(name);
+
+            expect(runs.map(run => [run.cardId, run.outcome, run.endedAt])).toEqual([
+                ['0002', 'running', undefined],
+                ['0001', 'unknown', undefined],
+            ]);
+        });
+
+        it("never takes a retry's ending for the attempt before it", async () => {
+            const name = uniqueProject();
+            await service.create({ name });
+            const project = await registerProject();
+            await event(project, '0001', 'implementing', 'stage.placed', name);
+            await event(project, '0001', 'implementing', 'stage.placed', name);
+            await event(project, '0001', 'implementing', 'stage.passed');
+
+            expect((await service.runs(name)).map(run => run.outcome)).toEqual(['passed', 'unknown']);
+        });
+
+        it('leaves out other hosts and other stages of the card, and stops at twenty', async () => {
+            const name = uniqueProject();
+            const other = uniqueProject();
+            await service.create({ name });
+            await service.create({ name: other });
+            const project = await registerProject();
+            await event(project, '0001', 'implementing', 'stage.placed', other);
+            await event(project, '0001', 'review', 'stage.passed');
+            expect(await service.runs(name)).toEqual([]);
+            expect((await service.runs(other)).map(run => run.outcome)).toEqual(['unknown']);
+
+            for (let index = 0; index < 21; index++) await event(project, String(index).padStart(4, '0'), 'implementing', 'stage.placed', name);
+            const runs = await service.runs(name);
+            expect(runs).toHaveLength(20);
+            expect(runs[0]?.cardId).toBe('0020');
+        });
+
+        it('refuses a host that is not registered', async () => {
+            await expect(service.runs(uniqueProject())).rejects.toThrow();
+        });
+    });
+
+    describe("a worker host's connection", () => {
+        it('shows who is connected and since when, and stops once the worker has gone', async () => {
+            const name = uniqueProject();
+            await service.create({ name, kind: 'worker' });
+            const server = await startWorkerServer({ token: (await hosts.find(name))! });
+            const watching = new HostsService(hosts, projects, server.connections);
+            try {
+                expect(await watching.get(name)).not.toHaveProperty('connection');
+
+                const before = DateTime.now();
+                const worker = await FakeWorker.connect(server.url, 'token');
+                await eventually(() => server.connections.get(name) !== undefined);
+
+                const { connection } = await watching.get(name);
+                expect(connection).toMatchObject({ workerVersion: '0.0.1-test', platform: 'linux' });
+                expect(connection!.since.toMillis()).toBeGreaterThanOrEqual(before.toMillis());
+                expect((await watching.list()).find(host => host.name === name)?.connection).toEqual(connection);
+
+                worker.socket.close();
+                await eventually(() => server.connections.get(name) === undefined);
+                expect(await watching.get(name)).not.toHaveProperty('connection');
+            } finally {
+                await server.close();
+            }
+        });
+
+        it('carries the latest reading of the machine once there is one', async () => {
+            const name = uniqueProject();
+            await service.create({ name, kind: 'worker' });
+            const server = await startWorkerServer({ token: (await hosts.find(name))! });
+            const watching = new HostsService(hosts, projects, server.connections);
+            try {
+                await FakeWorker.connect(server.url, 'token');
+                await eventually(() => server.connections.get(name) !== undefined);
+                expect((await watching.get(name)).connection).not.toHaveProperty('metrics');
+
+                const sampledAt = DateTime.now();
+                const stats = { cpus: 4, loadAverage: 1.5, memoryTotalBytes: 8, memoryFreeBytes: 2, uptimeSeconds: 60, disks: [] };
+                server.connections.get(name)!.latestStats = { ...stats, sampledAt };
+
+                expect((await watching.get(name)).connection?.metrics).toEqual({ ...stats, sampledAt });
+            } finally {
+                await server.close();
+            }
+        });
+
+        it('is absent on an SSH host', async () => {
+            const name = uniqueProject();
+            const server = await startWorkerServer({});
+            try {
+                const host = await new HostsService(hosts, projects, server.connections).create({ name });
+                expect(host).not.toHaveProperty('connection');
+            } finally {
+                await server.close();
+            }
+        });
     });
 });

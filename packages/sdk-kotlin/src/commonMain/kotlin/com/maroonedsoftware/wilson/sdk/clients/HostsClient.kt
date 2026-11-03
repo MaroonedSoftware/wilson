@@ -3,6 +3,7 @@ package com.maroonedsoftware.wilson.sdk.clients
 
 import com.maroonedsoftware.wilson.sdk.models.CreateHostRequest
 import com.maroonedsoftware.wilson.sdk.models.Host
+import com.maroonedsoftware.wilson.sdk.models.HostRun
 import com.maroonedsoftware.wilson.sdk.models.IssuedWorkerToken
 import com.maroonedsoftware.wilson.sdk.models.PutHostEngineTokenRequest
 import com.maroonedsoftware.wilson.sdk.models.PutHostIsolatedRequest
@@ -68,6 +69,18 @@ class HostsClient(private val http: SdkHttp) {
         http.execute(HttpMethod.Delete) {
             path("api", "hosts", segment(name))
         }
+    }
+
+    /**
+     * List host runs
+     * The stages most recently placed on a host, newest first, at most twenty.
+     * @throws SdkError on 404
+     */
+    suspend fun listHostRuns(name: String): List<HostRun> {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "hosts", segment(name), "runs")
+        }
+        return http.decodeJson(response)
     }
 
     /**

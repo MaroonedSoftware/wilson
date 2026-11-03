@@ -12,6 +12,11 @@ import { FactorsService } from '#modules/authentication/factors.service.js';
 import { TokenService } from '#modules/authentication/token.service.js';
 import { DevicesService } from '#modules/notify/devices.service.js';
 import { CardStageDeadJob } from '#modules/jobs/card.stage.dead.job.js';
+import { EngineTokensService } from '#modules/host/engine.tokens.service.js';
+import { HostProber } from '#modules/host/host.prober.js';
+import { HostsService } from '#modules/host/hosts.service.js';
+import { WorkerTokensService } from '#modules/host/worker.tokens.service.js';
+import { WorkerConnections } from '#modules/worker/worker.connections.js';
 import { buildConfig, modules } from '#src/cli-bootstrap.js';
 import { buildTestServerConfig } from '#tests/support/test.config.js';
 
@@ -100,6 +105,20 @@ describe('container wiring (card 0112)', () => {
             // The database pool a `useFactory` registration above may have opened is this test's to
             // close — `ServerKitServerBuilder.shutdown` never runs here (this test never calls
             // `start()`), and nothing else in this process will.
+            await container.get(Kysely<DB>).destroy();
+        }
+    });
+
+    // Each takes the connections as an optional argument, so a wiring slip would not fail to resolve:
+    // it would only report every worker as not connected.
+    it('gives every service that returns a host the one set of worker connections the endpoint fills', async () => {
+        const container = await new ServerKitServerBuilder().setup(await buildTestServerConfig(), new ConsoleLogger(), modules);
+        try {
+            const connections = container.get(WorkerConnections);
+            for (const service of [HostsService, HostProber, WorkerTokensService, EngineTokensService]) {
+                expect((container.get(service as never) as { connections?: unknown }).connections).toBe(connections);
+            }
+        } finally {
             await container.get(Kysely<DB>).destroy();
         }
     });

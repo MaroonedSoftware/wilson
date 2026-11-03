@@ -8,7 +8,7 @@ import { PolicyService } from '@maroonedsoftware/policies';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 import { HostProber } from '#modules/host/host.prober.js';
 import { HostsService } from '#modules/host/hosts.service.js';
-import { Host, PutHostProjectRequest, UpdateHostRequest } from '../../../generated/hosts.js';
+import { Host, HostRun, PutHostProjectRequest, UpdateHostRequest } from '../../../generated/hosts.js';
 
 /** The request's scoped container, which a tool resolving per call reads its service and policies from. */
 function requireMcpContainer(context: McpToolContext): Container {
@@ -22,6 +22,7 @@ const ListHostsArgs = z.object({});
 const GetHostArgs = z.object({ name: z.string() });
 const UpdateHostArgs = z.object({ name: z.string(), body: UpdateHostRequest });
 const RemoveHostArgs = z.object({ name: z.string() });
+const ListHostRunsArgs = z.object({ name: z.string() });
 const ProbeHostArgs = z.object({ name: z.string() });
 const SetHostProjectArgs = z.object({ name: z.string(), project: z.string(), body: PutHostProjectRequest });
 const RemoveHostProjectArgs = z.object({ name: z.string(), project: z.string() });
@@ -114,6 +115,30 @@ export class RemoveHostMcpTool implements McpToolHandler {
 }
 
 /**
+ * from [hosts.ck](../../../../data/contracts/hosts.ck) `GET /api/hosts/{name}/runs`
+ */
+@Injectable()
+export class ListHostRunsMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'list_host_runs',
+        description: 'The stages most recently placed on a host, newest first, at most twenty.',
+        inputSchema: z.toJSONSchema(ListHostRunsArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(z.object({ items: z.array(HostRun) }), { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
+        const { name } = await parseAndValidate(args, ListHostRunsArgs);
+        const result = await container.get(HostsService).runs(name);
+        const resultJson = JSON.stringify({ items: result });
+        return { content: [{ type: 'text', text: resultJson }], structuredContent: JSON.parse(resultJson) };
+    }
+}
+
+/**
  * from [hosts.ck](../../../../data/contracts/hosts.ck) `POST /api/hosts/{name}/probe`
  */
 @Injectable()
@@ -189,6 +214,7 @@ export function registerHostsMcpCatalog(map: McpToolHandlerMap, container: Conta
     map.set('get_host', container.get(GetHostMcpTool));
     map.set('update_host', container.get(UpdateHostMcpTool));
     map.set('remove_host', container.get(RemoveHostMcpTool));
+    map.set('list_host_runs', container.get(ListHostRunsMcpTool));
     map.set('probe_host', container.get(ProbeHostMcpTool));
     map.set('set_host_project', container.get(SetHostProjectMcpTool));
     map.set('remove_host_project', container.get(RemoveHostProjectMcpTool));
@@ -200,6 +226,7 @@ export function registerHostsMcpToolClasses(registry: Registry): void {
     registry.register(GetHostMcpTool).useClass(GetHostMcpTool).asSingleton();
     registry.register(UpdateHostMcpTool).useClass(UpdateHostMcpTool).asSingleton();
     registry.register(RemoveHostMcpTool).useClass(RemoveHostMcpTool).asSingleton();
+    registry.register(ListHostRunsMcpTool).useClass(ListHostRunsMcpTool).asSingleton();
     registry.register(ProbeHostMcpTool).useClass(ProbeHostMcpTool).asSingleton();
     registry.register(SetHostProjectMcpTool).useClass(SetHostProjectMcpTool).asSingleton();
     registry.register(RemoveHostProjectMcpTool).useClass(RemoveHostProjectMcpTool).asSingleton();

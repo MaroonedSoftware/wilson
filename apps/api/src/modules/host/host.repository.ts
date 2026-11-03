@@ -1,7 +1,7 @@
 import { Injectable } from 'injectkit';
 // A value import, not `import type`: `@Injectable()`'s `design:paramtypes` metadata has to name
 // `Kysely` as a value, the reason `ProjectRepository` gives for the same line.
-import { Kysely } from 'kysely';
+import { Kysely, sql } from 'kysely';
 import type { DateTime } from 'luxon';
 import type { DB } from '#modules/data/db.js';
 import { hostSlotKey } from './placement.js';
@@ -77,6 +77,29 @@ export interface HostRow {
     engineToken?: string;
 }
 
+/** One `stage.placed` event naming a host, with the first event after it that says how the stage went. */
+export interface HostRunRow {
+    project: string;
+    cardId: string;
+    stage: string;
+    startedAt: DateTime;
+    /** That first event's type, absent when none has come yet. May be another `stage.placed`: a retry that nothing announced. */
+    nextType?: string;
+    nextAt?: DateTime;
+}
+
+/** What can end a placed stage's run. `stage.placed` is among them so one run's ending is never taken from a later run's. */
+const RUN_ENDINGS = [
+    'stage.placed',
+    'stage.passed',
+    'stage.failed',
+    'stage.poisoned',
+    'stage.dead',
+    'stage.host-lost',
+    'stage.interrupted',
+    'stage.stale',
+];
+
 /**
  * The columns `update` may set; the probe's own columns are written only by `recordProbe`.
  * `lifetimeMinutes: null` clears it, the one place "explicitly emptied" differs from "left alone".
@@ -93,6 +116,49 @@ export type HostPatch = Partial<Pick<HostRow, 'sshTarget' | 'slots' | 'enabled' 
 @Injectable()
 export class HostRepository {
     constructor(private readonly db: Kysely<DB>) {}
+
+    /** The stages most recently placed on host `name`, newest first. */
+    async runs(name: string, limit: number): Promise<HostRunRow[]> {
+        const rows = await this.db
+            .selectFrom('wilson.cardEvents as placed')
+            .leftJoinLateral(
+                eb =>
+                    eb
+                        .selectFrom('wilson.cardEvents as later')
+                        .select(['later.type', 'later.createdAt'])
+                        .whereRef('later.project', '=', 'placed.project')
+                        .whereRef('later.cardId', '=', 'placed.cardId')
+                        .whereRef('later.stage', '=', 'placed.stage')
+                        .whereRef('later.id', '>', 'placed.id')
+                        .where('later.type', 'in', RUN_ENDINGS)
+                        .orderBy('later.id')
+                        .limit(1)
+                        .as('next'),
+                join => join.onTrue(),
+            )
+            .select([
+                'placed.project',
+                'placed.cardId',
+                'placed.stage',
+                'placed.createdAt as startedAt',
+                'next.type as nextType',
+                'next.createdAt as nextAt',
+            ])
+            .where('placed.type', '=', 'stage.placed')
+            .where(sql`placed.payload ->> 'host'`, '=', name)
+            .where('placed.stage', 'is not', null)
+            .orderBy('placed.id', 'desc')
+            .limit(limit)
+            .execute();
+        return rows.map(row => ({
+            project: row.project,
+            cardId: row.cardId,
+            stage: row.stage!,
+            startedAt: row.startedAt,
+            ...(row.nextType && { nextType: row.nextType }),
+            ...(row.nextAt && { nextAt: row.nextAt }),
+        }));
+    }
 
     /** Every host, name ascending, each with its projects in project order. */
     async list(): Promise<HostRow[]> {
