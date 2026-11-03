@@ -636,12 +636,17 @@ describe('BoardService', () => {
             await expect(service.diff('0001')).rejects.toBe(boom);
         });
 
-        it('resolves the branch the same way list/getById do, and diffs it against main', async () => {
+        it('resolves the branch the same way list/getById do, and diffs its head commit against main', async () => {
             const found = card('0002', { title: 'Fix the thing', branch: undefined });
             const boardRepository = { read: async () => found } as unknown as BoardRepository;
             let seenArgs: [string, string] | undefined;
+            let seenBranch: string | undefined;
             const fakeWorktrees = {
                 resolveBranch: worktrees.resolveBranch.bind(worktrees),
+                branchHead: async (branch: string) => {
+                    seenBranch = branch;
+                    return 'head-sha';
+                },
                 patchSinceFork: async (branch: string, targetRef: string) => {
                     seenArgs = [branch, targetRef];
                     return { ok: true as const, base: 'base-sha', files: [], truncated: false };
@@ -651,7 +656,8 @@ describe('BoardService', () => {
 
             await service.diff('0002');
 
-            expect(seenArgs).toEqual([worktrees.resolveBranch(found), 'main']);
+            expect(seenBranch).toBe(worktrees.resolveBranch(found));
+            expect(seenArgs).toEqual(['head-sha', 'main']);
         });
 
         it("carries patchSinceFork's own 400 refusal through unchanged, for a card whose branch has never been cut", async () => {
@@ -659,6 +665,7 @@ describe('BoardService', () => {
             const boardRepository = { read: async () => found } as unknown as BoardRepository;
             const fakeWorktrees = {
                 resolveBranch: () => 'card/0001-never-cut',
+                branchHead: async () => undefined,
                 patchSinceFork: async () => ({ ok: false as const, reason: 'card/0001-never-cut has no branch yet' }),
             } as unknown as WorktreeManager;
             const service = new BoardService(boardRepository, noHistory, config, fakeWorktrees);
@@ -675,6 +682,7 @@ describe('BoardService', () => {
             const files = [{ path: 'src/a.ts', status: 'modified' as const, patch: '@@ -1 +1 @@\n-a\n+b\n', truncated: false }];
             const fakeWorktrees = {
                 resolveBranch: () => 'card/0001',
+                branchHead: async () => 'head-sha',
                 patchSinceFork: async () => ({ ok: true as const, base: 'base-sha', files, truncated: false }),
             } as unknown as WorktreeManager;
             const service = new BoardService(boardRepository, noHistory, config, fakeWorktrees);

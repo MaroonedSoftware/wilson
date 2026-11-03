@@ -147,6 +147,14 @@ export class WorktreeManager {
         return card.frontmatter.branch ?? this.branchName(card.frontmatter.id, card.frontmatter.title);
     }
 
+    /** The commit `branch` points at in the code root, or `undefined` when it has never been cut. */
+    async branchHead(branch: string): Promise<string | undefined> {
+        return git(this.config.codeRoot, ['rev-parse', '--verify', '--quiet', `${branch}^{commit}`]).then(
+            ({ stdout }) => stdout.trim() || undefined,
+            () => undefined,
+        );
+    }
+
     /**
      * Create a worktree for a card, reclaiming any stale one first.
      *

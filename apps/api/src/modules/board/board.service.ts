@@ -2,6 +2,7 @@ import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
 import { EventLog } from '#modules/events/event.log.js';
 import { stageEnteredAt } from '#modules/events/time.in.stage.js';
+import { CardBranchDiffSource } from '#modules/review/review.diff.source.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import type {
     ActivityEvent,
@@ -235,8 +236,7 @@ export class BoardService {
             throw err;
         }
 
-        const branch = this.worktrees.resolveBranch(card);
-        const result = await this.worktrees.patchSinceFork(branch, 'main');
+        const result = await new CardBranchDiffSource(this.worktrees).read(card);
         if (!result.ok) {
             throw httpError(400).withDetails({ reason: result.reason });
         }
