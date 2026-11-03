@@ -61,6 +61,22 @@
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
                                 </StackPanel>
+                                <StackPanel Spacing="2">
+                                    <TextBlock FontWeight="SemiBold" FontSize="13" Text="Recent runs" />
+                                    <TextBlock Classes="quiet" Text="Nothing has been placed here yet." IsVisible="{Binding NoRuns}" />
+                                    <ItemsControl ItemsSource="{Binding Runs}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:HostRunRow">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <TextBlock Classes="quiet" Classes.good="{Binding Good}" Classes.caution="{Binding Caution}" Classes.error="{Binding Bad}" Text="{Binding Outcome}" Width="76" VerticalAlignment="Center" />
+                                                    <Button Classes="section" Padding="4,1" Content="{Binding Card}" Command="{Binding Panel.OpenRunCommand}" CommandParameter="{Binding}" />
+                                                    <TextBlock Classes="quiet" Text="{Binding Detail}" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Classes="ghost" Padding="8,3" Content="{Binding RunsToggle}" Command="{Binding ToggleRunsCommand}" IsVisible="{Binding MoreRuns}" HorizontalAlignment="Left" />
+                                </StackPanel>
                                 <StackPanel Spacing="4">
                                     <TextBlock FontWeight="SemiBold" FontSize="13" Text="Projects" />
                                     <TextBlock Classes="quiet" Text="Serves no project yet, so no stage is placed here." IsVisible="{Binding NoProjects}" />

@@ -182,6 +182,7 @@ as many events as are showing, so one from the feed does not take back what Show
 page reads every ten seconds, and panels are kept by name across a read, as a redraw would lose a form
 half filled in or close a menu. As on the web, there is no minting of a worker's token: `wilson host` does that.
 Only a worker has a connection to show (`HostRules.Connection`), which is the present, where the probe badge is the past.
+Recent runs are read with the hosts, one request a host, and the newest five show until asked for the twenty the API gives.
 
 ## Settings
 
@@ -346,6 +347,9 @@ was a `wilson.leases` row written by hand. A probe that passes needs a machine, 
 2026-11-03, a worker's connection: with `tools/Walk`, a worker never connected, then a socket connecting to the
 real endpoint and saying hello, found by the page's own reading and drawn, then dropped and found gone. That socket
 is `Walker.ConnectWorkerAsync`, so a real worker program was not behind it, and its token was written to the row.
+
+2026-11-03, a host's recent runs: with `tools/Walk`, none, then each ending and a running one in order, showing all
+and fewer, and a run opening its card. The runs were `wilson.card_events` rows written by hand, as nothing runs a stage there.
 
 2026-11-02, a new project: with `tools/Walk`, on the throwaway API and its own scratch repo, the folder
 picker, a missing folder opening its parent, the roots following the code root, a taken name refused

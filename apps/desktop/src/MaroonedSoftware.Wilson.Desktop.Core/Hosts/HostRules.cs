@@ -82,6 +82,43 @@ public static class HostRules
         return string.Join(" · ", parts);
     }
 
+    /// <summary>How a run ended, in a word or two. "No word" is a run nothing ever said the end of, such as a daemon killed during it.</summary>
+    public static string Outcome(HostRun run)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+
+        return run.Outcome switch
+        {
+            HostRunOutcome.Running => "running",
+            HostRunOutcome.Passed => "passed",
+            HostRunOutcome.Failed => "failed",
+            HostRunOutcome.Lost => "host lost",
+            HostRunOutcome.Interrupted => "interrupted",
+            HostRunOutcome.Abandoned => "abandoned",
+            _ => "no word",
+        };
+    }
+
+    /// <summary>"implementing · 14m, ended 2h 3m ago", or when it started while there is no end to say.</summary>
+    public static string RunDetail(HostRun run, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+
+        if (run.EndedAt is not { } ended)
+        {
+            return $"{run.Stage} · started {Relative(run.StartedAt, now)}";
+        }
+
+        var minutes = (long)Math.Floor((ended - run.StartedAt).TotalMinutes + 0.5);
+        var took = minutes switch
+        {
+            < 1 => "under a minute",
+            < 60 => $"{minutes}m",
+            _ => $"{minutes / 60}h {minutes % 60}m",
+        };
+        return $"{run.Stage} · {took}, ended {Relative(ended, now)}";
+    }
+
     public static string Slots(Host host)
     {
         ArgumentNullException.ThrowIfNull(host);

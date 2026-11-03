@@ -68,6 +68,40 @@ public sealed class HostRulesTests
         Assert.StartsWith("worker 1.2.3 on linux · ", HostRules.Summary(connected, Now));
     }
 
+    private static HostRun Run(HostRunOutcome outcome, int startedMinutesAgo = 60, int? endedMinutesAgo = null) => new()
+    {
+        Project = "wilson",
+        CardId = "0012",
+        Stage = "implementing",
+        StartedAt = Now.AddMinutes(-startedMinutesAgo),
+        EndedAt = endedMinutesAgo is { } ended ? Now.AddMinutes(-ended) : null,
+        Outcome = outcome,
+    };
+
+    [Theory]
+    [InlineData(HostRunOutcome.Running, "running")]
+    [InlineData(HostRunOutcome.Passed, "passed")]
+    [InlineData(HostRunOutcome.Failed, "failed")]
+    [InlineData(HostRunOutcome.Lost, "host lost")]
+    [InlineData(HostRunOutcome.Interrupted, "interrupted")]
+    [InlineData(HostRunOutcome.Abandoned, "abandoned")]
+    [InlineData(HostRunOutcome.Unknown, "no word")]
+    [InlineData(HostRunOutcome.Unknown2, "no word")]
+    public void Outcome_is_a_word_or_two(HostRunOutcome outcome, string expected) =>
+        Assert.Equal(expected, HostRules.Outcome(Run(outcome)));
+
+    [Fact]
+    public void RunDetail_says_how_long_a_run_took_once_it_has_ended()
+    {
+        Assert.Equal("implementing · 45m, ended 15m ago", HostRules.RunDetail(Run(HostRunOutcome.Passed, 60, 15), Now));
+        Assert.Equal("implementing · 1h 30m, ended 30m ago", HostRules.RunDetail(Run(HostRunOutcome.Failed, 120, 30), Now));
+        Assert.Equal("implementing · under a minute, ended 5m ago", HostRules.RunDetail(Run(HostRunOutcome.Passed, 5, 5), Now));
+    }
+
+    [Fact]
+    public void RunDetail_says_when_it_started_while_there_is_no_end() =>
+        Assert.Equal("implementing · started 1h 0m ago", HostRules.RunDetail(Run(HostRunOutcome.Running), Now));
+
     [Fact]
     public void Summary_of_an_ssh_host_names_its_target() =>
         Assert.Equal("ssh agent-1.local", HostRules.Summary(Host(), Now));
