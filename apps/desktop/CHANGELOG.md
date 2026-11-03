@@ -1,5 +1,11 @@
 # @wilson/desktop
 
+## 0.8.0
+
+### Minor Changes
+
+- 4444b59: Hide the Dock icon while the window is closed. Reopen Wilson from the menu-bar icon, or by opening the app again.
+
 ## 0.7.0
 
 ### Minor Changes
