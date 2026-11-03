@@ -194,6 +194,21 @@ while draining and every minute otherwise, from sign-in on, for the header's bad
 and names, never a token, so nothing here can show one. `AccountRules` is `lib/accounts.ts`, and limits are
 read with the page rather than every minute as the web app reads them. `ChatEngineControl` is a draft and a Save.
 
+## Running `claude setup-token`
+
+Measured on Claude Code 2.1.317, started with a minimal environment as an app opened from Finder would be:
+
+- It needs a terminal. With its output on a pipe it printed nothing and waited until killed after 4 minutes.
+  In a pseudo-terminal it opened the browser and finished about 9 seconds after starting, once authorized.
+- .NET has no pseudo-terminal, and forking from a managed process is unsafe, so `/usr/bin/script -q /dev/null` provides one.
+  It passes the exit code through, and takes a pipe as stdin.
+- At 400 columns the token, 107 characters starting `sk-ant-at01-`, sits on a line of its own. Prose comes
+  out with cursor moves in place of spaces. The sign-in link is printed too, so it can be opened in another browser.
+- A fresh `CLAUDE_CONFIG_DIR` keeps it off the login on this Mac. It wrote only under that folder, and made no Keychain item.
+- The output is for people to read and is no interface, so a token that cannot be found is a reason to fall back on
+  pasting. A token must never reach a log, an error or a `ToString`.
+- `npm` installs `claude` as a native binary, but under nvm's folder, which is not on an app's `PATH`.
+
 ## Feed activity
 
 `CardFeedLog` is `lib/feed.ts`'s `activity` and `toolLog`: display state kept per connection, never
