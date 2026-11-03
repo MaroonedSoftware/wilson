@@ -190,8 +190,9 @@ replaces. `SettingControls.cs` holds its three shapes, each with the web control
 the attempt beside what is really stored. `ShellViewModel.Drain` is `lib/drain.ts`: read every five seconds
 while draining and every minute otherwise, from sign-in on, for the header's badge on every page.
 
-`EngineTokenControl` and `WorkerTokensControl` are write-only: the API gives back where a sign-in comes from
-and names, never a token, so nothing here can show one. `ChatEngineControl` is a draft and a Save.
+`MachineSignInControl` and `AccountsControl` are write-only: the API gives back where a sign-in comes from
+and names, never a token, so nothing here can show one. `AccountRules` is `lib/accounts.ts`, and limits are
+read with the page rather than every minute as the web app reads them. `ChatEngineControl` is a draft and a Save.
 
 ## Feed activity
 

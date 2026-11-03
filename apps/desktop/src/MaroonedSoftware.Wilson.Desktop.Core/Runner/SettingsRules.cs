@@ -38,7 +38,7 @@ public static class SettingsRules
     /// <summary>What running on an engine means.</summary>
     public static string ChatEngineHint(ChatEngineSettingEngine engine) =>
         (engine == ChatEngineSettingEngine.Cli
-            ? "Runs on the Claude subscription the stages use, from the engine credentials above. No API key needed."
+            ? "Runs on the Claude subscription the stages use, from the accounts above. No API key needed."
             : "Runs against the provider's API key in apps/api/.env, billed per token.")
         + " Applies to chats started afterwards. A chat keeps the engine it started on.";
 
