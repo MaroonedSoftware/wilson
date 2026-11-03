@@ -578,7 +578,7 @@ export function CardDetailView({
                         </Stack>
                     </Tabs.Panel>
                     <Tabs.Panel value="diff" pt="sm">
-                        <DiffPane diff={diff} error={diffError} />
+                        <DiffPane diff={diff} error={diffError} reviewable={card.stage === 'ready'} />
                     </Tabs.Panel>
                 </Tabs>
             )}

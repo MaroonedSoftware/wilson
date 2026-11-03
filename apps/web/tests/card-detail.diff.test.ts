@@ -15,7 +15,7 @@ import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/rea
 import { MantineProvider } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BoardClient, SdkError } from '@wilson/sdk';
+import { BoardClient, ReviewClient, SdkError } from '@wilson/sdk';
 import type { BoardColumns, CardDetail, CardDiff } from '@wilson/sdk';
 import { routeTree } from '#src/routeTree.gen.js';
 
@@ -69,6 +69,8 @@ beforeEach(() => {
     vi.spyOn(BoardClient.prototype, 'listCardVersions').mockResolvedValue([]);
     vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);
     vi.spyOn(BoardClient.prototype, 'getCardUsage').mockResolvedValue({ total: { attempts: 0, inputTokens: 0, outputTokens: 0 }, stages: [] });
+    vi.spyOn(ReviewClient.prototype, 'readAReview').mockResolvedValue({ comments: [] });
+    vi.spyOn(ReviewClient.prototype, 'openAReview').mockResolvedValue({ comments: [] });
     vi.stubGlobal('EventSource', FakeEventSource);
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     Element.prototype.scrollIntoView = vi.fn();
