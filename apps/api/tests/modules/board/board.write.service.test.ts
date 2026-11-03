@@ -1995,6 +1995,37 @@ describe('BoardWriteService', () => {
             expect(stored.frontmatter.retries).toEqual({ testing: 1 });
         });
 
+        it('calls a merge unproven, naming the missing stage, when the config has no testing stage', async () => {
+            const worktrees = mergeWorktrees();
+            const noTesting = new StaticStageConfigStore(
+                [
+                    'stages:',
+                    '  - name: ready',
+                    '    mode: manual',
+                    '    model: claude-opus',
+                    '    instructions: wait for a human',
+                    '    onPass: merged',
+                    '    onFail: ready',
+                    '',
+                ].join('\n'),
+            );
+            const { board, service } = freshMergeBoard(worktrees, noTesting);
+            await board.create(card('0123', { stage: 'ready' }), 'seed');
+
+            const result = await service.merge('0123');
+
+            expect(result.merged).toBe(false);
+            expect(result.reason).toContain('could not prove the merge');
+            expect(result.reason).toContain('no "testing" stage');
+            expect(result.reason).not.toContain('fails the suite');
+            expect(worktrees.create).not.toHaveBeenCalled();
+            expect(worktrees.landMerge).not.toHaveBeenCalled();
+
+            const stored = await board.read('0123');
+            expect(stored.frontmatter.stage).toBe('ready');
+            expect(stored.frontmatter.needsHuman).toBe(true);
+        });
+
         it('does not land a merge whose suite fails, and leaves the card flagged in ready', async () => {
             const failing = await scriptExiting(1);
             const mergeStages = mergeStageConfigs(`node ${failing}`);
