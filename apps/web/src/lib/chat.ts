@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ChatOperation, ChatPendingAction, ChatThread, ChatTurnResult } from '@wilson/sdk';
+import type { ChatOperation, ChatPendingAction, ChatPendingQuestion, ChatQuestionAnswer, ChatThread, ChatTurnResult } from '@wilson/sdk';
 import { API_BASE } from './sdk.js';
 import { useWilsonSdk } from './sdk-context.js';
 
@@ -13,7 +13,7 @@ export function useChatThreads(enabled: boolean) {
     return useQuery({ queryKey: CHAT_THREADS_KEY, queryFn: () => wilson.chat.listChatThreads(), enabled });
 }
 
-/** One thread with its messages and the changes it proposed. Undefined `id` reads nothing. */
+/** One thread with its messages, the changes it proposed, and the questions it asked. Undefined `id` reads nothing. */
 export function useChatThread(id: string | undefined) {
     const wilson = useWilsonSdk();
     return useQuery({ queryKey: chatThreadKey(id ?? ''), queryFn: () => wilson.chat.getAChatThread(id!), enabled: id !== undefined });
@@ -65,6 +65,24 @@ export function useDecideChatAction(threadId: string | undefined) {
     });
 }
 
+/**
+ * Answers a question `ask_user` asked. Unlike `useDecideChatAction`'s confirm branch, answering a
+ * question changes nothing the app shows — only the conversation — so this invalidates
+ * `chatThreadKey(threadId)` alone rather than every query; the follow-up turn the server starts off
+ * the submission arrives through the stream like any other answer, and the stored thread (refetched
+ * off that same key) is the record. `threadId` is required, not optional as `useDecideChatAction`'s
+ * is, because the request path needs it; the caller has it off `question.threadId`.
+ */
+export function useAnswerChatQuestions(threadId: string) {
+    const wilson = useWilsonSdk();
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ questionId, answers }: { questionId: string; answers: ChatQuestionAnswer[] }): Promise<ChatPendingQuestion> =>
+            wilson.chat.answerChatQuestions(threadId, questionId, { answers }),
+        onSettled: () => void queryClient.invalidateQueries({ queryKey: chatThreadKey(threadId) }),
+    });
+}
+
 export function useArchiveChatThread() {
     const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
@@ -93,8 +111,9 @@ export interface ChatTurnInProgress {
 /**
  * Listens to a thread's turn in progress (`GET /api/chat/threads/{id}/stream`, `routes.setup.ts`'s
  * `ChatStreamRouter`). The stream is ephemeral and the stored thread is the record: on `done` or
- * `failed` this clears what it gathered and refetches the thread, which by then holds the answer.
- * Undefined `threadId` opens nothing.
+ * `failed` this clears what it gathered and refetches the thread, which by then holds the answer. A
+ * question the turn asked arrives the same way a proposal does — an event naming that it happened,
+ * with the stored thread still the record of it. Undefined `threadId` opens nothing.
  */
 export function useChatStream(threadId: string | undefined): ChatTurnInProgress {
     const queryClient = useQueryClient();
@@ -119,6 +138,7 @@ export function useChatStream(threadId: string | undefined): ChatTurnInProgress 
             setOperations(previous => [...previous, operation]);
         });
         source.addEventListener('proposed', () => void queryClient.invalidateQueries({ queryKey: chatThreadKey(threadId) }));
+        source.addEventListener('asked', () => void queryClient.invalidateQueries({ queryKey: chatThreadKey(threadId) }));
         source.addEventListener('done', finish);
         source.addEventListener('failed', finish);
 

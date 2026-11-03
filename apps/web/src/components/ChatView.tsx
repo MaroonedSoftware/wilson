@@ -2,9 +2,10 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useScrollIntoView } from '@mantine/hooks';
 import { ActionIcon, Alert, Box, Center, Chip, Group, ScrollArea, Skeleton, Stack, Text, Title, Tooltip } from '@mantine/core';
 import { IconPlus } from '@tabler/icons-react';
-import type { ChatMessage, ChatPendingAction } from '@wilson/sdk';
+import type { ChatMessage, ChatPendingAction, ChatPendingQuestion } from '@wilson/sdk';
 import { ChatComposer } from '#src/components/ChatComposer.js';
 import { ChatActionCard, isAwaiting } from '#src/components/ChatActionCard.js';
+import { ChatQuestionCard, isUnanswered } from '#src/components/ChatQuestionCard.js';
 import { AnswerInProgress, Message, UserMessage } from '#src/components/ChatMessages.js';
 import { ThreadList, ThreadMenu } from '#src/components/ChatThreads.js';
 import {
@@ -30,13 +31,17 @@ export const SUGGESTIONS = [
     'What did the board spend today?',
 ];
 
-type Entry = { kind: 'message'; at: number; message: ChatMessage } | { kind: 'action'; at: number; action: ChatPendingAction };
+type Entry =
+    | { kind: 'message'; at: number; message: ChatMessage }
+    | { kind: 'action'; at: number; action: ChatPendingAction }
+    | { kind: 'question'; at: number; question: ChatPendingQuestion };
 
-/** Messages and proposed changes in the order they happened, so a change sits beside the answer that proposed it. */
-const timeline = (messages: ChatMessage[], actions: ChatPendingAction[]): Entry[] =>
+/** Messages, proposed changes and asked questions in the order they happened, so each sits beside the answer that raised it. */
+const timeline = (messages: ChatMessage[], actions: ChatPendingAction[], questions: ChatPendingQuestion[]): Entry[] =>
     [
         ...messages.map((message): Entry => ({ kind: 'message', at: message.createdAt.toMillis(), message })),
         ...actions.map((action): Entry => ({ kind: 'action', at: action.createdAt.toMillis(), action })),
+        ...questions.map((question): Entry => ({ kind: 'question', at: question.createdAt.toMillis(), question })),
     ].sort((a, b) => a.at - b.at);
 
 export interface ChatViewProps {
@@ -66,14 +71,15 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
     const [typed, setTyped] = useState('');
     const { scrollIntoView, targetRef, scrollableRef } = useScrollIntoView<HTMLDivElement, HTMLDivElement>({ duration: 0 });
 
-    const entries = thread.data ? timeline(thread.data.messages, thread.data.actions) : [];
+    const entries = thread.data ? timeline(thread.data.messages, thread.data.actions, thread.data.questions) : [];
     const draft = draftWithoutSuggestions(live.text);
     const awaiting = thread.data?.actions.some(isAwaiting) ?? false;
+    const unanswered = thread.data?.questions.some(isUnanswered) ?? false;
     const busy = start.isPending || send.isPending;
-    // What to ask next follows from the latest answer, until the chat is working again or a change waits on the person.
+    // What to ask next follows from the latest answer, until the chat is working again, a change waits on the person, or a question does.
     const last = thread.data?.messages.at(-1);
     const answering = busy || live.text !== '' || live.operations.length > 0;
-    const followUps = last?.role === 'assistant' && !answering && !awaiting ? (last.suggestions ?? []) : [];
+    const followUps = last?.role === 'assistant' && !answering && !awaiting && !unanswered ? (last.suggestions ?? []) : [];
     useEffect(() => scrollIntoView({ alignment: 'end' }), [entries.length, draft, send.isPending, followUps.length]);
 
     // A thread that no longer exists (archived elsewhere, or a stale id from another database) is let
@@ -149,13 +155,16 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
             <ScrollArea style={{ flex: 1 }} viewportRef={scrollableRef} type="auto">
                 <Stack gap="md" px="md" py="lg" mx="auto" maw={COLUMN_WIDTH} aria-live="polite">
                     {thread.isLoading && <Skeleton height={48} />}
-                    {entries.map(entry =>
-                        entry.kind === 'message' ? (
-                            <Message key={`m${entry.message.seq}`} message={entry.message} />
-                        ) : (
-                            <ChatActionCard key={`a${entry.action.id}`} action={entry.action} />
-                        ),
-                    )}
+                    {entries.map(entry => {
+                        switch (entry.kind) {
+                            case 'message':
+                                return <Message key={`m${entry.message.seq}`} message={entry.message} />;
+                            case 'action':
+                                return <ChatActionCard key={`a${entry.action.id}`} action={entry.action} />;
+                            case 'question':
+                                return <ChatQuestionCard key={`q${entry.question.id}`} question={entry.question} />;
+                        }
+                    })}
                     {send.isPending && <UserMessage text={send.variables.text} />}
                     {/* The answer in progress: to a message just sent, or the follow-up to a confirmed change. */}
                     {answering && <AnswerInProgress text={draft} operations={live.operations} />}
@@ -190,7 +199,11 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
                     onSend={sendDraft}
                     disabled={busy}
                     autoFocus={variant === 'page'}
-                    {...(awaiting ? { placeholder: 'Confirm or decline above, or ask for something else…' } : {})}
+                    {...(unanswered
+                        ? { placeholder: 'Answer above, or ask for something else…' }
+                        : awaiting
+                          ? { placeholder: 'Confirm or decline above, or ask for something else…' }
+                          : {})}
                     {...(followUps[0] ? { suggestion: followUps[0] } : {})}
                 />
             </Stack>
