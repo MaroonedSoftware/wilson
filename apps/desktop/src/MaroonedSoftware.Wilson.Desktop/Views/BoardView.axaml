@@ -70,6 +70,7 @@
                                                         <TextBlock Text="{Binding Flag}" Foreground="{DynamicResource Flag}" FontSize="12" TextWrapping="Wrap" IsVisible="{Binding Flag, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                                         <TextBlock Text="{Binding Blocked}" Foreground="{DynamicResource Caution}" FontSize="12" TextWrapping="Wrap" IsVisible="{Binding Blocked, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                                         <TextBlock Classes="quiet" Text="{Binding Deps}" IsVisible="{Binding Deps, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                        <TextBlock Classes="quiet" Text="{Binding Ended}" IsVisible="{Binding Ended, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                                         <TextBlock Classes="quiet" Text="{Binding Pieces}" IsVisible="{Binding Pieces, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                                         <TextBlock Classes="quiet" Text="{Binding InStage}" IsVisible="{Binding InStage, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                                         <TextBlock Classes="quiet" Classes.stale="{Binding Stale}" Text="{Binding LastEvent}" IsVisible="{Binding LastEvent, Converter={x:Static ObjectConverters.IsNotNull}}" />

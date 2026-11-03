@@ -16,6 +16,8 @@ public sealed partial class BoardTile(CardSummary card, string? flag, string? bl
 
     public CardFace? Face { get; } = BoardRules.Face(card);
 
+    public string? Ended { get; } = BoardRules.Ended(card);
+
     public string? Flag => flag;
 
     public string? Blocked => blocked;
