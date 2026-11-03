@@ -7,8 +7,9 @@ import { ChatAttachmentRepository, type StoredChatAttachment } from './chat.atta
 import { ChatThreadRepository } from './chat.thread.repository.js';
 
 /**
- * The largest image a chat takes. Lower than a card's, because a model's limit is on the base64 form of
- * an image, and 5 MB of base64 is 3.75 MB of image. The desktop app scales down to fit before it uploads.
+ * The largest image a chat takes, cautious because the 'api' engine sends bytes straight to a provider.
+ * 3.75 MB is 5 MB as base64, the form Anthropic's API is believed to measure, which has not been checked
+ * on a real key. The 'cli' engine took 4.5 MB in `chat.images.probe.ts`, and the desktop app scales down to fit.
  */
 export const MAX_CHAT_IMAGE_BYTES = 3.75 * 1024 * 1024;
 

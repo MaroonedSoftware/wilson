@@ -1,4 +1,4 @@
-import { createSdkMcpServer, query, tool, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import { createSdkMcpServer, query, tool, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { Injectable } from 'injectkit';
 import { subscriptionEnv } from '#modules/agent/cli.stage.agent.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
@@ -6,10 +6,13 @@ import { describeUsageLimit, UsageLimitWatch } from '#modules/agent/usage.limit.
 import { EngineAccountsService, LOCAL_ACCOUNT } from '#modules/host/engine.accounts.service.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { MAX_CHAT_STEPS } from './api.chat.engine.js';
-import { ChatEngine, type ChatTurnInput, type ChatTurnOutput } from './chat.engine.js';
+import { ChatEngine, type ChatImage, type ChatTurnInput, type ChatTurnOutput } from './chat.engine.js';
 
 /** The in-process MCP server the chat's tools are served from; the engine sees them as `mcp__wilson-chat__<name>`. */
 export const CHAT_SERVER = 'wilson-chat';
+
+/** Where images were in a transcript, which carries none of them. */
+const imagesNote = (count = 0): string => (count === 0 ? '' : ` [${count === 1 ? 'an image was' : `${count} images were`} attached here]`);
 
 /**
  * A thread with history but no session to resume — one started on the 'api' engine never is, but a
@@ -21,10 +24,33 @@ const withTranscript = (history: ChatTurnInput['history'], text: string): string
         ? text
         : [
               'The conversation so far, for context:',
-              ...history.map(message => `${message.role === 'user' ? 'Person' : 'You'}: ${message.content}`),
+              ...history.map(message => `${message.role === 'user' ? 'Person' : 'You'}: ${message.content}${imagesNote(message.imageCount)}`),
               '',
               `Person: ${text}`,
           ].join('\n\n');
+
+/**
+ * A prompt with images, which only the SDK's streaming input can carry. It stays open until `done`
+ * settles, because the in-process MCP server talks over the same channel and the input ending would
+ * start closing it mid-turn.
+ */
+async function* promptWithImages(text: string, images: ChatImage[], done: Promise<void>): AsyncGenerator<SDKUserMessage> {
+    yield {
+        type: 'user',
+        parent_tool_use_id: null,
+        message: {
+            role: 'user',
+            content: [
+                ...images.map(image => ({
+                    type: 'image' as const,
+                    source: { type: 'base64' as const, media_type: image.contentType, data: image.bytes.toString('base64') },
+                })),
+                ...(text ? [{ type: 'text' as const, text }] : []),
+            ],
+        },
+    };
+    await done;
+}
 
 /** The tools this message offers or attempts that are not served from {@link CHAT_SERVER}. */
 const foreignTools = (message: SDKMessage): string[] => {
@@ -66,6 +92,7 @@ export class CliChatEngine extends ChatEngine {
         thread,
         history,
         text,
+        images = [],
         system,
         tools,
         model,
@@ -85,8 +112,11 @@ export class CliChatEngine extends ChatEngine {
             ),
         });
 
+        const said = thread.engineSessionId ? text : withTranscript(history, text);
+        let finish = () => {};
+        const finished = new Promise<void>(resolve => (finish = resolve));
         const stream = query({
-            prompt: thread.engineSessionId ? text : withTranscript(history, text),
+            prompt: images.length > 0 ? promptWithImages(said, images, finished) : said,
             options: {
                 // Sessions are stored per working directory, so every turn of every thread runs from
                 // the same one, or `resume` would not find the session the last turn left.
@@ -109,25 +139,29 @@ export class CliChatEngine extends ChatEngine {
         let written = '';
         let sessionId: string | undefined;
         let usage: ChatTurnOutput['usage'];
-        for await (const message of stream) {
-            usageWatch.observe(message);
-            if (onlyOwnTools) assertOwnTools(message);
-            if ('session_id' in message && message.session_id) sessionId = message.session_id;
-            if (message.type === 'stream_event' && message.event.type === 'content_block_delta' && message.event.delta.type === 'text_delta') {
-                streamed += message.event.delta.text;
-                onText?.(message.event.delta.text);
-            } else if (message.type === 'assistant') {
-                written += message.message.content.map(part => (part.type === 'text' ? part.text : '')).join('');
-            } else if (message.type === 'result') {
-                if (usageWatch.limit) {
-                    await this.accounts?.recordLimit(usageWatch.limit);
-                    throw new Error(describeUsageLimit(usageWatch.limit));
+        try {
+            for await (const message of stream) {
+                usageWatch.observe(message);
+                if (onlyOwnTools) assertOwnTools(message);
+                if ('session_id' in message && message.session_id) sessionId = message.session_id;
+                if (message.type === 'stream_event' && message.event.type === 'content_block_delta' && message.event.delta.type === 'text_delta') {
+                    streamed += message.event.delta.text;
+                    onText?.(message.event.delta.text);
+                } else if (message.type === 'assistant') {
+                    written += message.message.content.map(part => (part.type === 'text' ? part.text : '')).join('');
+                } else if (message.type === 'result') {
+                    if (usageWatch.limit) {
+                        await this.accounts?.recordLimit(usageWatch.limit);
+                        throw new Error(describeUsageLimit(usageWatch.limit));
+                    }
+                    if (message.subtype !== 'success')
+                        throw new Error(`the engine stopped (${message.subtype}): ${message.errors.join('; ') || 'no reason given'}`);
+                    usage = message.usage ? { outputTokens: message.usage.output_tokens } : undefined;
+                    break;
                 }
-                if (message.subtype !== 'success')
-                    throw new Error(`the engine stopped (${message.subtype}): ${message.errors.join('; ') || 'no reason given'}`);
-                usage = message.usage ? { outputTokens: message.usage.output_tokens } : undefined;
-                break;
             }
+        } finally {
+            finish();
         }
 
         // The streamed deltas are the answer as the person watched it arrive; the completed blocks

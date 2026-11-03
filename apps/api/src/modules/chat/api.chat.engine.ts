@@ -1,10 +1,29 @@
 import { Injectable } from 'injectkit';
 import { stepCountIs, streamText, tool, type ModelMessage, type ToolSet } from 'ai';
 import { ModelRegistry } from '#modules/agent/model.registry.js';
-import { ChatEngine, type ChatTurnInput, type ChatTurnOutput } from './chat.engine.js';
+import { ChatEngine, type ChatImage, type ChatTurnInput, type ChatTurnOutput } from './chat.engine.js';
 
 /** Tool-loop steps one turn may take: plenty for a few searches, reads and a proposal, and a stop for a model that loops. */
 export const MAX_CHAT_STEPS = 20;
+
+/**
+ * What a person said, as the AI SDK takes it: a plain string unless there are images to send or a note
+ * about ones that are not resent.
+ */
+const userMessage = (text: string, images: ChatImage[] = [], imageCount = images.length): ModelMessage => {
+    const left = imageCount - images.length;
+    if (images.length === 0 && left === 0) return { role: 'user', content: text };
+    return {
+        role: 'user',
+        content: [
+            ...images.map(image => ({ type: 'file' as const, data: image.bytes, mediaType: image.contentType })),
+            ...(left > 0
+                ? [{ type: 'text' as const, text: `[${left === 1 ? 'An earlier image was' : `${left} earlier images were`} attached here.]` }]
+                : []),
+            ...(text ? [{ type: 'text' as const, text }] : []),
+        ],
+    };
+};
 
 /**
  * The thread so far, as the AI SDK takes it. An answer replays its own `engineMessages` (the turn's
@@ -14,7 +33,7 @@ export const MAX_CHAT_STEPS = 20;
 const replay = (history: ChatTurnInput['history']): ModelMessage[] =>
     history.flatMap((message): ModelMessage[] =>
         message.role === 'user'
-            ? [{ role: 'user', content: message.content }]
+            ? [userMessage(message.content, message.images, message.imageCount)]
             : Array.isArray(message.engineMessages)
               ? (message.engineMessages as ModelMessage[])
               : [{ role: 'assistant', content: message.content }],
@@ -31,7 +50,7 @@ export class ApiChatEngine extends ChatEngine {
         super();
     }
 
-    async turn({ history, text, system, tools, provider, model, maxSteps = MAX_CHAT_STEPS, onText }: ChatTurnInput): Promise<ChatTurnOutput> {
+    async turn({ history, text, images, system, tools, provider, model, maxSteps = MAX_CHAT_STEPS, onText }: ChatTurnInput): Promise<ChatTurnOutput> {
         const toolSet: ToolSet = Object.fromEntries(
             tools.map(chatTool => [
                 chatTool.name,
@@ -46,7 +65,7 @@ export class ApiChatEngine extends ChatEngine {
         const result = streamText({
             model: this.models.resolve(provider, model),
             instructions: system,
-            messages: [...replay(history), { role: 'user', content: text }],
+            messages: [...replay(history), userMessage(text, images)],
             tools: toolSet,
             stopWhen: stepCountIs(maxSteps),
         });

@@ -183,6 +183,74 @@ describe('CliChatEngine', () => {
         expect(promptOf()).toContain('Person: which one?');
     });
 
+    describe('images', () => {
+        const image = { contentType: 'image/png' as const, bytes: Buffer.from([1, 2, 3]) };
+        const firstMessageOfPrompt = async () => {
+            const prompt = promptOf() as unknown as AsyncIterable<{ message: { content: unknown } }>;
+            const iterator = prompt[Symbol.asyncIterator]();
+            return (await iterator.next()).value as { type: string; parent_tool_use_id: null; message: { role: string; content: unknown } };
+        };
+
+        it('sends images as base64 blocks through streaming input, ahead of the text', async () => {
+            engineReplying([{ type: 'result', subtype: 'success', session_id: 's-1' }]);
+
+            await turn({ images: [image] });
+
+            expect(await firstMessageOfPrompt()).toEqual({
+                type: 'user',
+                parent_tool_use_id: null,
+                message: {
+                    role: 'user',
+                    content: [
+                        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AQID' } },
+                        { type: 'text', text: 'what is in review?' },
+                    ],
+                },
+            });
+        });
+
+        it('leaves out an empty text block when only images were sent', async () => {
+            engineReplying([{ type: 'result', subtype: 'success', session_id: 's-1' }]);
+
+            await turn({ text: '', images: [image] });
+
+            expect((await firstMessageOfPrompt()).message.content).toHaveLength(1);
+        });
+
+        it('keeps a plain string prompt when there are no images', async () => {
+            engineReplying([{ type: 'result', subtype: 'success', session_id: 's-1' }]);
+
+            await turn({ images: [] });
+
+            expect(promptOf()).toBe('what is in review?');
+        });
+
+        it('says where images were in a transcript, which carries none of them', async () => {
+            engineReplying([{ type: 'result', subtype: 'success', session_id: 's-1' }]);
+
+            await turn({
+                history: [
+                    { role: 'user', content: 'look at this', imageCount: 2 },
+                    { role: 'assistant', content: 'Seen.' },
+                ] as never,
+                text: 'and now?',
+            });
+
+            expect(promptOf()).toContain('Person: look at this [2 images were attached here]');
+        });
+
+        it('closes the input once the turn is over, however it ended', async () => {
+            engineReplying([{ type: 'result', subtype: 'error_during_execution', errors: ['boom'], session_id: 's-1' }]);
+
+            await expect(turn({ images: [image] })).rejects.toThrow('boom');
+
+            const prompt = promptOf() as unknown as AsyncIterable<unknown>;
+            const iterator = prompt[Symbol.asyncIterator]();
+            await iterator.next();
+            await expect(iterator.next()).resolves.toMatchObject({ done: true });
+        });
+    });
+
     it('signs the engine in with a saved token', async () => {
         engineReplying([{ type: 'result', subtype: 'success', session_id: 's-1' }]);
         const accounts = { local: async () => ({ name: 'local', token: 'saved-token' }) } as unknown as EngineAccountsService;
