@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { MemoryHost } from '#tests/support/memory.host.js';
 
 describe('MemoryHost', () => {
