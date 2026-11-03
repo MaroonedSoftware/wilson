@@ -8,6 +8,7 @@ import { BoardWriteService } from '#modules/board/board.write.service.js';
 import type { Card } from '#modules/board/card.js';
 import { Notifier } from '#modules/notify/notifier.js';
 import type { CardNotification } from '#modules/notify/notification.js';
+import { isTerminal } from '#modules/stages/terminal.js';
 import type { CardSourceItem } from './card.source.js';
 
 /**
@@ -104,6 +105,8 @@ export class InboundCardWriter {
         const existing = await this.findByExternalRef(source, item.externalId);
         if (!existing) return;
         if (existing.frontmatter.sourceClosed) return;
+        // Finished is finished: a ticket closing after the fact must not overwrite how the card ended.
+        if (isTerminal(existing.frontmatter.stage)) return;
 
         const cardId = existing.frontmatter.id;
         const stage = existing.frontmatter.stage;

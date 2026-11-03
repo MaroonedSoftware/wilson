@@ -297,6 +297,20 @@ describe('InboundCardWriter — a closed item (card 0200)', () => {
         expect(card!.frontmatter.sourceClosed).toBe(true);
     });
 
+    it.each(['merged', 'poisoned', 'dropped', 'split'])('leaves a %s card as it is, and notifies nobody', async stage => {
+        const { board, writer } = freshWriter(undefined, fakeLogger(), 'https://hooks.example/notify');
+        await writer.apply('github', item({ externalId: 'ENG-1' }));
+        const [created] = await board.list();
+        await board.write(created!.frontmatter.id, 'finish it', c => ({ ...c, frontmatter: { ...c.frontmatter, stage } }));
+
+        await writer.apply('github', item({ externalId: 'ENG-1', closed: true }));
+
+        const [card] = await board.list();
+        expect(card!.frontmatter.stage).toBe(stage);
+        expect(card!.frontmatter.sourceClosed).toBeUndefined();
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it('flags a matching card at ready and notifies once, but leaves it at ready rather than dropping it', async () => {
         const { board, writer, config } = freshWriter(undefined, fakeLogger(), 'https://hooks.example/notify');
         await writer.apply('github', item({ externalId: 'ENG-1' }));
