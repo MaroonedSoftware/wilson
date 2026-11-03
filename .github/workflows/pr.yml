@@ -75,6 +75,37 @@ jobs:
                   BRANCH: ${{ github.head_ref }}
               run: .github/scripts/changeset.check.sh
 
+    # Which of the path-scoped checks below this pull request needs.
+    changes:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        outputs:
+            android: ${{ steps.detect.outputs.android }}
+            desktop: ${{ steps.detect.outputs.desktop }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v7
+              with:
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - name: Detect what changed
+              id: detect
+              env:
+                  BASE: ${{ github.event.pull_request.base.sha }}
+                  HEAD: ${{ github.event.pull_request.head.sha }}
+              run: .github/scripts/changes.detect.sh
+
+    android:
+        needs: changes
+        if: needs.changes.outputs.android == 'true'
+        uses: ./.github/workflows/android.yml
+
+    desktop:
+        needs: changes
+        if: needs.changes.outputs.desktop == 'true'
+        uses: ./.github/workflows/desktop.yml
+
     # The one check a ruleset on main should require. Job names inside a called workflow come out as
     # `build / build` and `build / test`, and that list will grow; requiring this instead means the
     # ruleset never goes stale.
@@ -82,7 +113,7 @@ jobs:
     # `always()`, because a job whose need failed is skipped rather than failed, and a skipped
     # required check reads as a pass.
     ci-ok:
-        needs: [build, image, changeset]
+        needs: [build, image, changeset, changes, android, desktop]
         if: always()
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -92,8 +123,11 @@ jobs:
                   BUILD: ${{ needs.build.result }}
                   IMAGE: ${{ needs.image.result }}
                   CHANGESET: ${{ needs.changeset.result }}
+                  CHANGES: ${{ needs.changes.result }}
+                  ANDROID: ${{ needs.android.result }}
+                  DESKTOP: ${{ needs.desktop.result }}
               run: |
-                  echo "build=$BUILD image=$IMAGE changeset=$CHANGESET"
+                  echo "build=$BUILD image=$IMAGE changeset=$CHANGESET changes=$CHANGES android=$ANDROID desktop=$DESKTOP"
                   if [ "$BUILD" != success ]; then
                       echo "::error::The build ended $BUILD."
                       exit 1
@@ -104,5 +138,18 @@ jobs:
                   fi
                   if [ "$CHANGESET" = failure ] || [ "$CHANGESET" = cancelled ]; then
                       echo "::error::The changeset check ended $CHANGESET."
+                      exit 1
+                  fi
+                  # Android and Desktop skip when nothing of theirs changed, and also when this fails.
+                  if [ "$CHANGES" != success ]; then
+                      echo "::error::Working out what changed ended $CHANGES."
+                      exit 1
+                  fi
+                  if [ "$ANDROID" = failure ] || [ "$ANDROID" = cancelled ]; then
+                      echo "::error::The Android check ended $ANDROID."
+                      exit 1
+                  fi
+                  if [ "$DESKTOP" = failure ] || [ "$DESKTOP" = cancelled ]; then
+                      echo "::error::The Desktop check ended $DESKTOP."
                       exit 1
                   fi

@@ -1,5 +1,6 @@
 name: Desktop
 
+# Pull requests reach this through `pr.yml`, which decides whether it is needed and counts it in `ci-ok`.
 on:
     push:
         branches: [main]
@@ -9,13 +10,7 @@ on:
             - apps/api/data/contracts/**
             - packages/sdk-csharp/**
             - .github/workflows/desktop.yml
-    pull_request:
-        paths:
-            - apps/desktop/**
-            - apps/android/app/src/test/resources/api/**
-            - apps/api/data/contracts/**
-            - packages/sdk-csharp/**
-            - .github/workflows/desktop.yml
+    workflow_call:
 
 permissions:
     contents: read
