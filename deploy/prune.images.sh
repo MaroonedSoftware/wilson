@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Removes old `slim-<sha>` tags of Wilson's image from a host, so that a deploy has room to pull. Each
-# deploy leaves one behind, about 1.6 GB, and on Unraid they share a fixed-size disk with every other
-# container. Keeps any tag a container uses, and the newest few as rollbacks. It removes tags by name
-# and deliberately runs no `docker prune`: a volume can hold data with no container attached.
+# Removes old builds of Wilson's image from a host, so that a deploy has room to pull. Each deploy
+# leaves one behind, about 1.6 GB, and on Unraid they share a fixed-size disk with every other
+# container. Keeps any image a container uses, and the newest few `slim-<sha>` tags as rollbacks. Also
+# removes this image's untagged builds, which pulling `slim` leaves behind and nothing can pull by name.
+# It removes images one at a time and deliberately runs no `docker prune`: a volume can hold data with
+# no container attached, and other projects' untagged images are not this script's to judge.
 #
 #   ssh root@192.168.1.69 'DRY_RUN=1 bash -s' < deploy/prune.images.sh
 #   ssh root@192.168.1.69 'bash -s' < deploy/prune.images.sh
@@ -29,5 +31,16 @@ for ref in $(docker images "$IMAGE" --format '{{.Repository}}:{{.Tag}}' | grep -
     else
         # No -f: if something started using it just now, docker refuses and this says so.
         docker rmi "$ref" >/dev/null && echo "removed: $ref" || echo "could not remove: $ref"
+    fi
+done
+
+# `$2 == image`, because the filter answers for every image on the host.
+for id in $(docker images --filter dangling=true --no-trunc --format '{{.ID}} {{.Repository}}' | awk -v image="$IMAGE" '$2 == image { print $1 }'); do
+    if grep -qxF "$id" <<<"$in_use"; then
+        echo "in use: $id"
+    elif [ -n "$DRY_RUN" ]; then
+        echo "would remove: $id"
+    else
+        docker rmi "$id" >/dev/null && echo "removed: $id" || echo "could not remove: $id"
     fi
 done
