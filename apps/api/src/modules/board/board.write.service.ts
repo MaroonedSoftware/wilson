@@ -255,6 +255,10 @@ export class BoardWriteService {
      * `needsHuman` is never set. The body write and the transition commit together through
      * `writeWithEvent`, one `transition.written` event carrying `by: 'human'` and a reason naming
      * the count, mirroring `reReviewOnOverlap`'s own runner-authored transition below.
+     *
+     * A pinned card's pin moves past the findings, as the runner's own kickback does: the next stage
+     * reads the plan at the pin, so left where it was, it would never see what the human wrote. A card
+     * with no pin gets none, decided from `current` under the row lock.
      */
     async recordFindings(id: string, request: RecordFindingsRequest): Promise<CardDetail> {
         const before = await this.readOrThrow(id);
@@ -277,14 +281,19 @@ export class BoardWriteService {
             suggestion: finding.suggestion,
         }));
 
+        let advancesPin = false;
+
         await this.boardRepository.writeWithEvent(
             id,
             `Record ${request.findings.length} human finding(s) on ${id}`,
-            current => ({
-                ...current,
-                frontmatter: { ...current.frontmatter, stage: target },
-                body: withFindings(current.body, findings, [], HUMAN_FINDINGS_NOTE),
-            }),
+            current => {
+                advancesPin = Boolean(current.frontmatter.planVersionId);
+                return {
+                    ...current,
+                    frontmatter: { ...current.frontmatter, stage: target },
+                    body: withFindings(current.body, findings, [], HUMAN_FINDINGS_NOTE),
+                };
+            },
             {
                 project: this.boardConfig.project,
                 cardId: id,
@@ -297,6 +306,7 @@ export class BoardWriteService {
                     reason: `${request.findings.length} human finding(s) left on the diff`,
                 },
             },
+            { repinIf: () => advancesPin },
         );
 
         return toCardDetail(await this.boardRepository.read(id));
