@@ -94,6 +94,10 @@ RUN if [ -n "$WORKER_PACKAGES" ]; then \
 # A stage commits here, and the worker's user has no identity of its own. A system setting so that it
 # holds whatever environment a command runs with.
 RUN git config --system user.name Wilson && git config --system user.email wilson@localhost
+# The engine a stage on the `codex` adapter runs, at the version CODEX_BINARY_VERSION names
+# (apps/api/src/modules/agent/codex.engine.version.ts). Only here: such a stage runs on a worker.
+ARG CODEX_VERSION=0.166.0
+RUN npm install -g "@openai/codex@${CODEX_VERSION}" && npm cache clean --force
 # Where a host's projects go. Made here so that a new named volume starts out owned by the worker's user.
 RUN install -d -o node -g node /srv/projects
 VOLUME /srv/projects

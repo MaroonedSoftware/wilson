@@ -300,7 +300,9 @@ such as a container worker with nothing else inside, since no probe can test it.
 The `codex` adapter runs OpenAI's Codex engine through `codex app-server`, and only for a stage marked
 `isolated`. `ScopeGuard` and `CommandAllowlist` answer the engine's approval requests, but Codex runs
 commands it considers safe without asking, so reads through it are not limited to the worktree. Its
-sandbox's network is all or nothing, set by the stage's `networkAccess`, and off by default.
+sandbox's network is all or nothing, set by the stage's `networkAccess`, and off by default. The worker
+image installs the version the adapter was built against, and a worker passes the engine none of its
+Claude credentials.
 
 A worker never connects to Postgres, and must not. pg-boss's queue is in the board's database, so a
 worker subscribed to it would hold a credential for `wilson.cards` and `wilson.stage_configs` on the

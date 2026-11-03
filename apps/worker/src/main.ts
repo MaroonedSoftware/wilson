@@ -32,7 +32,10 @@ const client = new WorkerClient({
     url: required('WILSON_URL'),
     token: required('WILSON_WORKER_TOKEN'),
     version,
-    executor: { ...(process.env.WILSON_CLAUDE && { claudeCommand: process.env.WILSON_CLAUDE }) },
+    executor: {
+        ...(process.env.WILSON_CODEX && { codexCommand: process.env.WILSON_CODEX }),
+        ...(process.env.WILSON_CLAUDE && { claudeCommand: process.env.WILSON_CLAUDE }),
+    },
     logger: { info: log('info'), warn: log('warn'), error: log('error') },
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { commandEnvironment, engineEnvironment, inheritedEnvironment } from '../src/worker.env.js';
+import { commandEnvironment, codexEnvironment, engineEnvironment, inheritedEnvironment } from '../src/worker.env.js';
 
 const own = { PATH: '/worker/bin', HOME: '/home/worker', GITHUB_TOKEN: 'worker-gh', CLAUDE_CODE_OAUTH_TOKEN: 'worker-engine', SECRET: 'worker-only' };
 
@@ -80,5 +80,21 @@ describe('inheritedEnvironment', () => {
 
     it('never forwards an API key Wilson sent in env', () => {
         expect(engineEnvironment({ ANTHROPIC_API_KEY: 'from-wilson' }, {})).toEqual({});
+    });
+});
+
+describe('codexEnvironment', () => {
+    it('carries the passthrough names and CODEX_HOME, and no credential of any kind', () => {
+        expect(
+            codexEnvironment({
+                PATH: '/usr/bin',
+                HOME: '/home/worker',
+                CODEX_HOME: '/codex',
+                CLAUDE_CODE_OAUTH_TOKEN: 'claude',
+                ANTHROPIC_API_KEY: 'anthropic',
+                OPENAI_API_KEY: 'openai',
+                WILSON_WORKER_TOKEN: 'worker',
+            }),
+        ).toEqual({ PATH: '/usr/bin', HOME: '/home/worker', CODEX_HOME: '/codex' });
     });
 });

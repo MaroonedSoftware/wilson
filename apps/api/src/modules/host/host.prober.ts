@@ -2,6 +2,7 @@ import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
 import { DateTime } from 'luxon';
 import { CLAUDE_BINARY_VERSION } from '#modules/agent/cli.engine.version.js';
+import { CODEX_BINARY_VERSION } from '#modules/agent/codex.engine.version.js';
 import type { Host } from '../../generated/hosts.js';
 import type { ExecFailure, ExecutionHost } from './execution.host.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
@@ -105,6 +106,15 @@ export class HostProber {
             } else if (loggedIn === undefined) {
                 notes.push(`could not tell whether claude is signed in there${status instanceof Error ? `: ${reason(status)}` : ''}`);
             }
+        }
+
+        // Only where a `codex` stage could run. Noted rather than a problem: the host still serves everything else.
+        if (row.isolated) {
+            const codex = await run(host, 'codex', ['--version']);
+            const version = codex instanceof Error ? undefined : codex.trim().split(/\s+/).at(-1);
+            if (codex instanceof Error) notes.push(`codex is not runnable there, so a codex stage cannot run there: ${reason(codex)}`);
+            else if (version !== CODEX_BINARY_VERSION)
+                notes.push(`codex ${version} is not the version this adapter was built against (${CODEX_BINARY_VERSION})`);
         }
 
         for (const project of row.projects) {

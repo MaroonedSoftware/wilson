@@ -27,10 +27,15 @@ beforeAll(async () => {
     );
     await chmod(fakeClaude, 0o755);
 
+    const fakeCodex = join(root, 'fake-codex');
+    await writeFile(fakeCodex, '#!/bin/sh\necho "codex $* token=${CLAUDE_CODE_OAUTH_TOKEN-none}"; cat\n', 'utf8');
+    await chmod(fakeCodex, 0o755);
+
     server = await startWorkerServer({ token: workerRow('unraid-vm', [{ project: 'p', codeRoot: root, worktreeRoot: root, runRoot: root }]) });
     await connectLoopbackWorker(server.apiUrl, 'token', {
         env: { PATH: process.env.PATH, HOME: '/home/worker', CLAUDE_CODE_OAUTH_TOKEN: 'worker-token' },
         claudeCommand: fakeClaude,
+        codexCommand: fakeCodex,
     });
     await eventually(() => server.connections.get('unraid-vm') !== undefined);
     host = new WorkerExecutionHost(server.connections.get('unraid-vm')!);
@@ -106,6 +111,21 @@ describe('WorkerExecutionHost', () => {
         expect(engine.exitCode).toBe(0);
         await eventually(() => stdout.includes('got:hello'));
         expect(stdout).toBe('token=worker-token args=--print\ngot:hello\n');
+    });
+});
+
+describe('WorkerExecutionHost.spawnCodex', () => {
+    it('starts codex on the worker, with no Claude credential, and its stdio carried back here', async () => {
+        const engine = host.spawnCodex({ command: 'codex', args: ['app-server'], cwd: root, env: { CLAUDE_CODE_OAUTH_TOKEN: 'from-wilson' } });
+        let stdout = '';
+        engine.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
+        const exited = new Promise<number | null>(resolve => engine.on('exit', code => resolve(code)));
+
+        engine.stdin.end('hello\n');
+
+        expect(await exited).toBe(0);
+        await eventually(() => stdout.includes('hello'));
+        expect(stdout).toBe('codex app-server token=none\nhello\n');
     });
 });
 

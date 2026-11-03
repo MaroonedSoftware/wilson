@@ -1,4 +1,4 @@
-import type { ChildProcess } from 'node:child_process';
+import type { ChildProcess, ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
@@ -145,6 +145,33 @@ export class WorkerExecutionHost implements ExecutionHost {
         );
         const engine = new WorkerEngineProcess(this.connection, id, started);
         return engine as unknown as ChildProcess;
+    }
+
+    /** Start `codex app-server` on the worker. Nothing of this machine's travels: see the `spawn` message. */
+    spawnCodex(options: ClaudeSpawnOptions): ChildProcessWithoutNullStreams {
+        const id = randomUUID();
+        const started = Promise.resolve()
+            .then(() =>
+                this.connection.stream(
+                    id,
+                    {
+                        type: 'spawn',
+                        id,
+                        engine: 'codex',
+                        command: options.command,
+                        args: options.args,
+                        ...(options.cwd && { cwd: options.cwd }),
+                        env: {},
+                    },
+                    message => engine.receive(message),
+                ),
+            )
+            .catch((err: Error) => {
+                engine.stderr.write(`${err.message}\n`);
+                engine.receive({ type: 'exit', id, code: null, signal: null, error: { message: err.message } });
+            });
+        const engine = new WorkerEngineProcess(this.connection, id, started);
+        return engine as unknown as ChildProcessWithoutNullStreams;
     }
 
     async runClaude(args: string[], timeoutMs: number): Promise<ExecResult> {

@@ -159,6 +159,28 @@ describe('SshHost', () => {
         }
     });
 
+    it('starts codex in the folder asked for with none of this machine’s environment', async () => {
+        process.env.CLAUDE_CODE_OAUTH_TOKEN = 'this-machine';
+        try {
+            const child = host.spawnCodex({
+                command: 'sh',
+                args: ['-c', 'read line; printf "%s|%s|%s|%s" "$line" "$(pwd)" "${CLAUDE_CODE_OAUTH_TOKEN-unset}" "${DATABASE_URL-unset}"'],
+                cwd: root,
+                env: { DATABASE_URL: 'postgres://secret', CLAUDE_CODE_OAUTH_TOKEN: 'sent' },
+            });
+
+            let out = '';
+            child.stdout.on('data', (chunk: Buffer) => (out += chunk.toString()));
+            child.stdin.end('hello\n');
+            const code = await new Promise<number | null>(resolve => child.on('exit', resolve));
+
+            expect(code).toBe(0);
+            expect(out).toBe(`hello|${root}|unset|unset`);
+        } finally {
+            delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+        }
+    });
+
     it('starts claude with the SDK’s own variables only, in the folder asked for, over stdio', async () => {
         const child = host.spawnClaude({
             command: 'sh',
