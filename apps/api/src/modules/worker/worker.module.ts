@@ -1,6 +1,7 @@
 import { Registry } from 'injectkit';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { WorkerConnections } from './worker.connections.js';
+import { WorkerStatsSampler } from './worker.stats.sampler.js';
 
 /**
  * The worker connections registry, a singleton so the endpoint that fills it and the probe and
@@ -11,5 +12,6 @@ export const WorkerModule: ServerKitModule = {
     name: 'Worker',
     setup: async (registry: Registry) => {
         registry.register(WorkerConnections).useInstance(new WorkerConnections());
+        registry.register(WorkerStatsSampler).useClass(WorkerStatsSampler).asSingleton();
     },
 };

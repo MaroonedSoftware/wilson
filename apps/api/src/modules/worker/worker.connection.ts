@@ -1,7 +1,8 @@
 import type { EngineAccount } from '#modules/host/execution.host.js';
 import { randomUUID } from 'node:crypto';
+import { DateTime } from 'luxon';
 import type { WebSocket } from 'ws';
-import { parseFrame, FromWorker, type CallOp, type CallResults, type ToWorker, type WorkerError } from '@wilson/worker-protocol';
+import { parseFrame, FromWorker, type CallOp, type CallResults, type ToWorker, type WorkerError, type WorkerStats } from '@wilson/worker-protocol';
 import type { ExecFailure } from '#modules/host/execution.host.js';
 
 /** What a worker said about itself in its `hello`. */
@@ -60,6 +61,9 @@ export class WorkerConnection {
     private alive = true;
     private readonly keepalive: NodeJS.Timeout;
     private readonly closeListeners = new Set<(reason: string) => void>();
+    readonly connectedAt = DateTime.now();
+    /** The latest answer to a `stats` call, kept here so it goes when the connection does. */
+    latestStats?: WorkerStats & { sampledAt: DateTime };
 
     constructor(
         readonly hostName: string,

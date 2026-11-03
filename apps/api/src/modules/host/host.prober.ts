@@ -6,6 +6,7 @@ import { CODEX_BINARY_VERSION } from '#modules/agent/codex.engine.version.js';
 import type { Host } from '../../generated/hosts.js';
 import type { ExecFailure, ExecutionHost } from './execution.host.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
+import { WorkerConnections } from '#modules/worker/worker.connections.js';
 import { HostConnector, WorkerNotConnectedError } from './host.connector.js';
 import { HostRepository, type HostProbeRow, type HostRow } from './host.repository.js';
 import { toHost } from './hosts.service.js';
@@ -46,6 +47,8 @@ export class HostProber {
         private readonly connector: HostConnector,
         // Optional so a test can build a prober without one; unset, every clone must already be there.
         private readonly projects?: ProjectRepository,
+        // Optional for the same reason; unset, the host returned reads as not connected.
+        private readonly connections?: WorkerConnections,
     ) {}
 
     async probe(name: string): Promise<Host> {
@@ -54,7 +57,7 @@ export class HostProber {
         if (!row.enabled) throw httpError(409).withDetails({ reason: `host "${name}" is disabled; enable it before probing it` });
 
         await this.hosts.recordProbe(name, await this.inspect(row));
-        return toHost((await this.hosts.find(name))!);
+        return toHost((await this.hosts.find(name))!, this.connections);
     }
 
     /** Run every check against `row`'s host and say what was found. Writes nothing. */

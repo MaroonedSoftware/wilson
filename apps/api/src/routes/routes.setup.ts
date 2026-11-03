@@ -14,6 +14,7 @@ import { onCredentialRevoked } from '#modules/authentication/credential.revocati
 import { sessionOf } from '#modules/authentication/request.session.js';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { onChatEvent } from '#modules/chat/chat.feed.js';
+import { onReviewEvent } from '#modules/review/review.feed.js';
 import { ChatThreadRepository } from '#modules/chat/chat.thread.repository.js';
 import { runAsProject } from '#modules/board/project.context.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
@@ -37,6 +38,7 @@ import { HostsRouter } from './hosts.router.js';
 import { LearningsRouter } from './learnings.router.js';
 import { OnboardingRouter } from './onboarding.router.js';
 import { ProjectsRouter } from './projects.router.js';
+import { ReviewRouter } from './review.router.js';
 import { SettingsRouter } from './settings.router.js';
 import { StagesRouter } from './stages.router.js';
 
@@ -150,7 +152,7 @@ const ProjectContextRouter = () => {
 /**
  * Open an SSE stream that ends when the credential it was opened with is revoked. A revoked token
  * fails on its next request, and a stream never makes one, so without this an open stream would go
- * on delivering after sign-out or a key's revocation. Each of the three stream routes opens through here.
+ * on delivering after sign-out or a key's revocation. Each of the stream routes opens through here.
  */
 const openAuthenticatedStream = (ctx: unknown, signal: AbortSignal | undefined): SseStream => {
     const stream = openSseStream(ctx as SseContext, { signal });
@@ -300,16 +302,33 @@ export const ChatStreamRouter = (signal?: AbortSignal) => {
 };
 
 /**
+ * A review's turn in progress, over `/api/cards/:id/review/stream`: the answer's text as it is written,
+ * then `done` or `failed`. Ephemeral like the chat's: the stored turns (`GET .../review/turns`) are the
+ * record, so a client reads those, then listens here for what is still arriving. Project-scoped, as
+ * `PlanStreamRouter` is, since two projects' cards can share an id.
+ */
+export const ReviewStreamRouter = (signal?: AbortSignal) => {
+    const router = ServerKitRouter();
+    router.get('/api/cards/:id/review/stream', requirePolicy({ policy: VIEW_POLICY }), async ctx => {
+        const id = String(ctx.params.id);
+        const board = ctx.container.get(BoardConfig);
+        const stream = openAuthenticatedStream(ctx, signal);
+        stream.onClose(onReviewEvent(board.project, id, ({ event, data }) => stream.event({ event, data })));
+    });
+    return router;
+};
+
+/**
  * Every router the server mounts, in one place — adding a router later is one line here.
  *
  * The `*.router.ts` files beside this one are generated from `data/contracts/*.ck` and must not be
  * edited; regenerate with `pnpm codegen`. This file is the only hand-written thing in the directory.
  *
- * Every route is generated, with three deliberate exceptions: `FeedRouter`, `PlanStreamRouter` and
- * `ChatStreamRouter` above. Card 0019 wrote the health route by hand and said why that was
+ * Every route is generated, with four deliberate exceptions: `FeedRouter`, `PlanStreamRouter`,
+ * `ChatStreamRouter` and `ReviewStreamRouter` above. Card 0019 wrote the health route by hand and said why that was
  * temporary — the health and board routes are generated now, so that rule holds. An SSE stream is different in kind, not just
  * unfinished codegen: ContractKit emits JSON handlers, and there is no JSON handler to generate for
- * a response that never resolves. All three are built here, in this hand-written file, rather
+ * a response that never resolves. All four are built here, in this hand-written file, rather
  * than as new files beside it, so the "every file here but this one is generated" invariant the
  * tests enforce stays true. `ProjectContextRouter`, also above, is a fourth hand-written entry, but
  * not a route: it carries no `.get`/`.post` of its own, and that invariant is about generated
@@ -318,7 +337,7 @@ export const ChatStreamRouter = (signal?: AbortSignal) => {
  * `ProjectContextRouter` is listed first, deliberately: see its own doc comment for why array order
  * is exactly what makes it run ahead of the other five without being merged into any of them.
  *
- * Takes the server's lifecycle signal and threads it to the three SSE routers; the others have no
+ * Takes the server's lifecycle signal and threads it to the four SSE routers; the others have no
  * long-lived connection to drain and stay untouched by it.
  *
  * Left untyped as `ServerKitRouterType[]`: that type is the erased, invariant `Router<unknown,
@@ -342,7 +361,9 @@ export const routers = (signal?: AbortSignal) => [
     FactorsRouter,
     DevicesRouter,
     CodeRouter,
+    ReviewRouter,
     FeedRouter(signal),
     PlanStreamRouter(signal),
     ChatStreamRouter(signal),
+    ReviewStreamRouter(signal),
 ];

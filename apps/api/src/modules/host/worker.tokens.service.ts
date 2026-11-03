@@ -2,6 +2,7 @@ import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
 import { DateTime } from 'luxon';
 import type { IssuedWorkerToken } from '../../generated/hosts.js';
+import { WorkerConnections } from '#modules/worker/worker.connections.js';
 import { HostRepository, type HostRow } from './host.repository.js';
 import { toHost } from './hosts.service.js';
 import { hashWorkerToken, mintWorkerToken, WORKER_TOKEN_PREFIX } from './worker.token.js';
@@ -16,7 +17,11 @@ import { hashWorkerToken, mintWorkerToken, WORKER_TOKEN_PREFIX } from './worker.
  */
 @Injectable()
 export class WorkerTokensService {
-    constructor(private readonly hosts: HostRepository) {}
+    constructor(
+        private readonly hosts: HostRepository,
+        // Optional so a test can build a service without one; unset, the host returned reads as not connected.
+        private readonly connections?: WorkerConnections,
+    ) {}
 
     /**
      * Mint a token for worker host `name`, replacing any it had. Refuses an unknown host with 404 and
@@ -27,7 +32,7 @@ export class WorkerTokensService {
         const row = await this.requireWorker(name);
         const minted = mintWorkerToken();
         await this.hosts.setWorkerToken(row.name, { hash: minted.hash, hint: minted.hint, issuedAt: DateTime.now() });
-        return { token: minted.token, host: toHost((await this.hosts.find(row.name))!) };
+        return { token: minted.token, host: toHost((await this.hosts.find(row.name))!, this.connections) };
     }
 
     /** Forget worker host `name`'s token. Refuses an unknown host with 404 and an `ssh` host with 400. */

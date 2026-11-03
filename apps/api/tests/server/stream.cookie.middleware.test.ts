@@ -29,6 +29,12 @@ describe('streamCookieMiddleware', () => {
         expect(ctx.req.headers.authorization).toBe('Bearer token');
     });
 
+    it('promotes it on a card review stream', async () => {
+        const ctx = contextFor('GET', '/api/cards/0042/review/stream', { cookie: 'token' });
+        await run(ctx);
+        expect(ctx.req.headers.authorization).toBe('Bearer token');
+    });
+
     it('leaves an explicit Authorization header alone', async () => {
         const ctx = contextFor('GET', '/api/feed', { cookie: 'token', authorization: 'Bearer header' });
         await run(ctx);

@@ -85,6 +85,50 @@ describe('CliChatEngine', () => {
         expect(options.env).not.toHaveProperty('ANTHROPIC_API_KEY');
     });
 
+    it('takes a step limit, and reports what the turn cost', async () => {
+        engineReplying([{ type: 'result', subtype: 'success', session_id: 's-1', usage: { output_tokens: 42 } }]);
+
+        const output = await turn({ maxSteps: 40 });
+
+        expect(optionsOf().maxTurns).toBe(40);
+        expect(output.usage).toEqual({ outputTokens: 42 });
+    });
+
+    describe('holding the engine to its own tools', () => {
+        const own = `mcp__${CHAT_SERVER}__dispatch_readonly`;
+        const init = (tools: string[]) => ({ type: 'system', subtype: 'init', tools, session_id: 's-1' });
+        const attempt = (name: string) => ({
+            type: 'assistant',
+            message: { content: [{ type: 'tool_use', id: 't', name, input: {} }] },
+            session_id: 's-1',
+        });
+        const done = { type: 'result', subtype: 'success', session_id: 's-1' };
+
+        it('lets a turn through that offers and uses only its own tools', async () => {
+            engineReplying([init([own]), attempt(own), done]);
+
+            await expect(turn({ onlyOwnTools: true })).resolves.toBeDefined();
+        });
+
+        it('fails a turn whose engine offers a built-in tool', async () => {
+            engineReplying([init([own, 'Bash']), done]);
+
+            await expect(turn({ onlyOwnTools: true })).rejects.toThrow('Bash');
+        });
+
+        it('fails a turn whose engine attempts a tool it was not given', async () => {
+            engineReplying([init([own]), attempt('Write'), done]);
+
+            await expect(turn({ onlyOwnTools: true })).rejects.toThrow('Write');
+        });
+
+        it('checks nothing unless asked, so the chat behaves as before', async () => {
+            engineReplying([init([own, 'Bash']), attempt('Write'), done]);
+
+            await expect(turn()).resolves.toBeDefined();
+        });
+    });
+
     it("serves each chat tool's execute through the in-process MCP server", async () => {
         engineReplying([{ type: 'result', subtype: 'success', session_id: 's-1' }]);
         await turn();

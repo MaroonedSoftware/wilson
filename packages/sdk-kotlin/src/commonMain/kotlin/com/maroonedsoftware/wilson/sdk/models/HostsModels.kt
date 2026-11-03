@@ -46,6 +46,15 @@ data class HostSlotUse(
     val since: Instant,
 )
 
+/** A volume holding one of a host's project roots. */
+@Serializable
+data class HostDisk(
+    /** The first project root on this volume. */
+    val path: String,
+    val totalBytes: Long,
+    val freeBytes: Long,
+)
+
 /**
  * What is shown of a worker host's token: its last four characters and when it was minted, never the
  * token itself.
@@ -54,6 +63,22 @@ data class HostSlotUse(
 data class WorkerTokenSummary(
     val hint: String,
     val issuedAt: Instant,
+)
+
+/**
+ * One stage placed on a host, read from the event log. `outcome` is what the next event for that card
+ * and stage says: `running` while the stage still holds a slot here, and `unknown` when nothing ever
+ * said how it ended, such as a daemon killed mid-stage or a retry starting without a word.
+ */
+@Serializable
+data class HostRun(
+    val project: String,
+    val cardId: String,
+    val stage: String,
+    val startedAt: Instant,
+    /** Absent while `running` and when `unknown`. */
+    val endedAt: Instant? = null,
+    val outcome: HostRunOutcome,
 )
 
 /**
@@ -130,6 +155,38 @@ data class PutHostProjectRequest(
 )
 
 /**
+ * How the machine was doing when its worker last answered. In a container this is the container's
+ * view: on Docker Desktop, the memory and cores of its VM rather than of the computer the VM runs on.
+ */
+@Serializable
+data class HostMetrics(
+    val sampledAt: Instant,
+    val cpus: Long,
+    /** Runnable processes averaged over the last minute. */
+    val loadAverage: Double,
+    val memoryTotalBytes: Long,
+    val memoryFreeBytes: Long,
+    val uptimeSeconds: Long,
+    val disks: List<HostDisk>,
+)
+
+/**
+ * A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
+ * machine's present state, though only as far as the keepalive can tell: a connection that has gone
+ * quiet is noticed within about thirty seconds.
+ */
+@Serializable
+data class HostConnection(
+    val since: Instant,
+    /** The worker program's own version, from its `hello`. */
+    val workerVersion: String,
+    /** `process.platform` on the worker's machine, from its `hello`. */
+    val platform: String,
+    /** The latest reading, every thirty seconds or so. Absent until the first one and after one fails. */
+    val metrics: HostMetrics? = null,
+)
+
+/**
  * One registered host. `enabled: false` takes no new stage and is not probed; `draining: true`
  * takes no new stage but lets the ones already there finish.
  */
@@ -170,6 +227,11 @@ data class Host(
     /** The slots in use right now, slot order. `slots` minus this many are free. */
     val running: List<HostSlotUse>,
     val probe: HostProbe? = null,
+    /**
+     * A worker host's open connection, absent while its worker is not connected. Never present on an
+     * `ssh` host, which has no standing connection to report.
+     */
+    val connection: HostConnection? = null,
     /** A worker host's current token, absent until one is minted. Never present on an `ssh` host. */
     val workerToken: WorkerTokenSummary? = null,
     /**
@@ -208,6 +270,36 @@ object HostKindSerializer : SdkEnumSerializer<HostKind>(
     HostKind.UNKNOWN,
     HostKind.SSH to "ssh",
     HostKind.WORKER to "worker",
+)
+
+@Serializable(with = HostRunOutcomeSerializer::class)
+enum class HostRunOutcome {
+    RUNNING,
+    PASSED,
+    FAILED,
+    LOST,
+    INTERRUPTED,
+    ABANDONED,
+    UNKNOWN,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN2,
+}
+
+/** Reads and writes [HostRunOutcome] by its wire spelling. A spelling it does not know reads as [HostRunOutcome.UNKNOWN2]. */
+object HostRunOutcomeSerializer : SdkEnumSerializer<HostRunOutcome>(
+    "HostRunOutcome",
+    HostRunOutcome.UNKNOWN2,
+    HostRunOutcome.RUNNING to "running",
+    HostRunOutcome.PASSED to "passed",
+    HostRunOutcome.FAILED to "failed",
+    HostRunOutcome.LOST to "lost",
+    HostRunOutcome.INTERRUPTED to "interrupted",
+    HostRunOutcome.ABANDONED to "abandoned",
+    HostRunOutcome.UNKNOWN to "unknown",
 )
 
 /**

@@ -3,6 +3,7 @@ import { EncryptionProvider } from '@maroonedsoftware/encryption';
 import { httpError } from '@maroonedsoftware/errors';
 import { ENGINE_TOKEN_VARIABLE, type EngineCredentialVariable } from '@wilson/worker-protocol';
 import { requireEngineToken } from '#modules/settings/engine.token.setting.service.js';
+import { WorkerConnections } from '#modules/worker/worker.connections.js';
 import type { EngineLimit, EngineTokenSummary, PutEngineTokenRequest, UpdateEngineTokenRequest } from '../../generated/engine.tokens.js';
 import type { Host, PutHostEngineTokenRequest } from '../../generated/hosts.js';
 import type { EngineAccount } from './execution.host.js';
@@ -43,6 +44,8 @@ export class EngineTokensService {
         private readonly encryption: EncryptionProvider,
         private readonly hosts: HostRepository,
         private readonly limits: EngineLimitRepository,
+        // Optional so a test can build a service without one; unset, the host returned reads as not connected.
+        private readonly connections?: WorkerConnections,
     ) {}
 
     async list(): Promise<EngineTokenSummary[]> {
@@ -110,13 +113,13 @@ export class EngineTokensService {
             });
         }
         await this.hosts.setEngineToken(hostName, request.name);
-        return toHost((await this.hosts.find(hostName))!);
+        return toHost((await this.hosts.find(hostName))!, this.connections);
     }
 
     /** Send host `hostName`'s engines back to the worker's own sign-in. Refuses an unknown host with 404. */
     async unassign(hostName: string): Promise<Host> {
         if (!(await this.hosts.setEngineToken(hostName, null))) throw hostNotFound(hostName);
-        return toHost((await this.hosts.find(hostName))!);
+        return toHost((await this.hosts.find(hostName))!, this.connections);
     }
 
     /** The token worker host `hostName` is assigned now, or undefined when it has none. */

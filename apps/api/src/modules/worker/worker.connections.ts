@@ -28,6 +28,11 @@ export class WorkerConnections {
         return connection?.open ? connection : undefined;
     }
 
+    /** Every open connection, one per connected host. */
+    all(): WorkerConnection[] {
+        return [...this.byHost.values()].filter(connection => connection.open);
+    }
+
     /** Close every connection: the server is shutting down. Workers reconnect once it is back. */
     closeAll(reason: string): void {
         for (const connection of this.byHost.values()) connection.close(1001, reason);

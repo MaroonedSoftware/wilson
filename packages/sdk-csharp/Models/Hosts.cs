@@ -78,6 +78,20 @@ public sealed record HostSlotUse
     public required DateTimeOffset Since { get; init; }
 }
 
+/// <summary>A volume holding one of a host's project roots.</summary>
+public sealed record HostDisk
+{
+    /// <summary>The first project root on this volume.</summary>
+    [JsonPropertyName("path")]
+    public required string Path { get; init; }
+
+    [JsonPropertyName("totalBytes")]
+    public required long TotalBytes { get; init; }
+
+    [JsonPropertyName("freeBytes")]
+    public required long FreeBytes { get; init; }
+}
+
 /// <summary>
 /// What is shown of a worker host's token: its last four characters and when it was minted, never the
 /// token itself.
@@ -89,6 +103,34 @@ public sealed record WorkerTokenSummary
 
     [JsonPropertyName("issuedAt")]
     public required DateTimeOffset IssuedAt { get; init; }
+}
+
+/// <summary>
+/// One stage placed on a host, read from the event log. `outcome` is what the next event for that card
+/// and stage says: `running` while the stage still holds a slot here, and `unknown` when nothing ever
+/// said how it ended, such as a daemon killed mid-stage or a retry starting without a word.
+/// </summary>
+public sealed record HostRun
+{
+    [JsonPropertyName("project")]
+    public required string Project { get; init; }
+
+    [JsonPropertyName("cardId")]
+    public required string CardId { get; init; }
+
+    [JsonPropertyName("stage")]
+    public required string Stage { get; init; }
+
+    [JsonPropertyName("startedAt")]
+    public required DateTimeOffset StartedAt { get; init; }
+
+    /// <summary>Absent while `running` and when `unknown`.</summary>
+    [JsonPropertyName("endedAt")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? EndedAt { get; init; }
+
+    [JsonPropertyName("outcome")]
+    public required HostRunOutcome Outcome { get; init; }
 }
 
 /// <summary>
@@ -209,6 +251,59 @@ public sealed record PutHostProjectRequest
 }
 
 /// <summary>
+/// How the machine was doing when its worker last answered. In a container this is the container's
+/// view: on Docker Desktop, the memory and cores of its VM rather than of the computer the VM runs on.
+/// </summary>
+public sealed record HostMetrics
+{
+    [JsonPropertyName("sampledAt")]
+    public required DateTimeOffset SampledAt { get; init; }
+
+    [JsonPropertyName("cpus")]
+    public required long Cpus { get; init; }
+
+    /// <summary>Runnable processes averaged over the last minute.</summary>
+    [JsonPropertyName("loadAverage")]
+    public required double LoadAverage { get; init; }
+
+    [JsonPropertyName("memoryTotalBytes")]
+    public required long MemoryTotalBytes { get; init; }
+
+    [JsonPropertyName("memoryFreeBytes")]
+    public required long MemoryFreeBytes { get; init; }
+
+    [JsonPropertyName("uptimeSeconds")]
+    public required long UptimeSeconds { get; init; }
+
+    [JsonPropertyName("disks")]
+    public required List<HostDisk> Disks { get; init; }
+}
+
+/// <summary>
+/// A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
+/// machine's present state, though only as far as the keepalive can tell: a connection that has gone
+/// quiet is noticed within about thirty seconds.
+/// </summary>
+public sealed record HostConnection
+{
+    [JsonPropertyName("since")]
+    public required DateTimeOffset Since { get; init; }
+
+    /// <summary>The worker program's own version, from its `hello`.</summary>
+    [JsonPropertyName("workerVersion")]
+    public required string WorkerVersion { get; init; }
+
+    /// <summary>`process.platform` on the worker's machine, from its `hello`.</summary>
+    [JsonPropertyName("platform")]
+    public required string Platform { get; init; }
+
+    /// <summary>The latest reading, every thirty seconds or so. Absent until the first one and after one fails.</summary>
+    [JsonPropertyName("metrics")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public HostMetrics? Metrics { get; init; }
+}
+
+/// <summary>
 /// One registered host. `enabled: false` takes no new stage and is not probed; `draining: true`
 /// takes no new stage but lets the ones already there finish.
 /// </summary>
@@ -278,6 +373,14 @@ public sealed record Host
     [JsonPropertyName("probe")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public HostProbe? Probe { get; init; }
+
+    /// <summary>
+    /// A worker host's open connection, absent while its worker is not connected. Never present on an
+    /// `ssh` host, which has no standing connection to report.
+    /// </summary>
+    [JsonPropertyName("connection")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public HostConnection? Connection { get; init; }
 
     /// <summary>A worker host's current token, absent until one is minted. Never present on an `ssh` host.</summary>
     [JsonPropertyName("workerToken")]
@@ -360,6 +463,87 @@ public sealed class HostKindConverter : JsonConverter<HostKind>
         HostKind.Ssh => "ssh",
         HostKind.Worker => "worker",
         _ => throw new JsonException($"HostKind.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(HostRunOutcomeConverter))]
+public enum HostRunOutcome
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown2 = 0,
+
+    [JsonStringEnumMemberName("running")]
+    Running,
+
+    [JsonStringEnumMemberName("passed")]
+    Passed,
+
+    [JsonStringEnumMemberName("failed")]
+    Failed,
+
+    [JsonStringEnumMemberName("lost")]
+    Lost,
+
+    [JsonStringEnumMemberName("interrupted")]
+    Interrupted,
+
+    [JsonStringEnumMemberName("abandoned")]
+    Abandoned,
+
+    [JsonStringEnumMemberName("unknown")]
+    Unknown,
+}
+
+/// <summary>
+/// Reads and writes <see cref="HostRunOutcome"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="HostRunOutcome.Unknown2"/> rather than failing the payload.
+/// </summary>
+public sealed class HostRunOutcomeConverter : JsonConverter<HostRunOutcome>
+{
+    public override HostRunOutcome Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for HostRunOutcome, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, HostRunOutcome value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override HostRunOutcome ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, HostRunOutcome value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static HostRunOutcome FromWire(string? text) => text switch
+    {
+        "running" => HostRunOutcome.Running,
+        "passed" => HostRunOutcome.Passed,
+        "failed" => HostRunOutcome.Failed,
+        "lost" => HostRunOutcome.Lost,
+        "interrupted" => HostRunOutcome.Interrupted,
+        "abandoned" => HostRunOutcome.Abandoned,
+        "unknown" => HostRunOutcome.Unknown,
+        _ => HostRunOutcome.Unknown2,
+    };
+
+    private static string ToWire(HostRunOutcome value) => value switch
+    {
+        HostRunOutcome.Running => "running",
+        HostRunOutcome.Passed => "passed",
+        HostRunOutcome.Failed => "failed",
+        HostRunOutcome.Lost => "lost",
+        HostRunOutcome.Interrupted => "interrupted",
+        HostRunOutcome.Abandoned => "abandoned",
+        HostRunOutcome.Unknown => "unknown",
+        _ => throw new JsonException($"HostRunOutcome.{value} has no wire spelling, so it cannot be sent."),
     };
 }
 

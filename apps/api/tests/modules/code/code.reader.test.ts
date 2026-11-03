@@ -223,6 +223,28 @@ describe('CodeReader', () => {
         });
     });
 
+    describe('a pinned reader', () => {
+        it('reads the commit it is bound to, not HEAD, and every read says so', async () => {
+            const pinned = new CodeReader(root, undefined, older);
+
+            expect(await pinned.read({ path: 'README.md' })).toMatchObject({ commit: older, content: 'first version' });
+            expect((await pinned.list({})).commit).toBe(older);
+            expect((await pinned.search({ pattern: 'first version' })).commit).toBe(older);
+        });
+
+        it('refuses any ref, so a caller cannot read past the commit it was given', async () => {
+            const pinned = new CodeReader(root, undefined, older);
+
+            expect((await refusalOf(pinned.read({ path: 'README.md', ref: 'main' }))).reason).toContain('bound to commit');
+        });
+
+        it('still refuses a path on the deny list', async () => {
+            const pinned = new CodeReader(root, undefined, older);
+
+            expect((await refusalOf(pinned.read({ path: '.env' }))).reason).toContain('deny list');
+        });
+    });
+
     describe('reading', () => {
         it('returns content by line, from an offset, up to a limit', async () => {
             expect(await reader.read({ path: 'src/app.ts', offset: 2, limit: 1 })).toEqual({

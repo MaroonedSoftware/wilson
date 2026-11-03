@@ -96,9 +96,10 @@ public sealed partial class HostsViewModel(ShellViewModel shell) : PageViewModel
         {
             var sdk = shell.Connection!.Sdk;
             var hosts = await sdk.Hosts.ListHostsAsync(cancellationToken);
+            var runs = await Task.WhenAll(hosts.Select(host => sdk.Hosts.ListHostRunsAsync(host.Name, cancellationToken)));
             var projects = (await sdk.Projects.ListProjectsAsync(cancellationToken)).Select(project => project.Name).ToList();
             var tokens = (await sdk.EngineTokens.ListEngineTokensAsync(cancellationToken)).Select(token => token.Name).ToList();
-            Draw(hosts, projects, tokens);
+            Draw(hosts, runs, projects, tokens);
             Error = null;
         }
         catch (HttpRequestException failure)
@@ -125,7 +126,7 @@ public sealed partial class HostsViewModel(ShellViewModel shell) : PageViewModel
         }
     }
 
-    private void Draw(List<Host> hosts, List<string> projects, List<string> tokens)
+    private void Draw(List<Host> hosts, List<HostRun>[] runs, List<string> projects, List<string> tokens)
     {
         var now = DateTimeOffset.UtcNow;
         for (var index = Hosts.Count - 1; index >= 0; index--)
@@ -140,12 +141,12 @@ public sealed partial class HostsViewModel(ShellViewModel shell) : PageViewModel
         {
             if (Hosts.FirstOrDefault(panel => panel.Name == host.Name) is { } panel)
             {
-                panel.Draw(host, projects, tokens, now);
+                panel.Draw(host, runs[index], projects, tokens, now);
             }
             else
             {
                 var made = new HostPanelViewModel(shell, this, host.Name);
-                made.Draw(host, projects, tokens, now);
+                made.Draw(host, runs[index], projects, tokens, now);
                 Hosts.Insert(Math.Min(index, Hosts.Count), made);
             }
         }
@@ -160,12 +161,20 @@ public sealed record HostProjectRow(string Project, string CodeRoot, string Root
 /// <summary>A slot in use, as drawn.</summary>
 public sealed record HostSlotRow(string Slot, string Project, string CardId, string Card, string Since, HostPanelViewModel Panel);
 
+/// <summary>A recent run, as drawn.</summary>
+public sealed record HostRunRow(string Outcome, bool Good, bool Caution, bool Bad, string Project, string CardId, string Card, string Detail, HostPanelViewModel Panel);
+
+/// <summary>A volume, as drawn.</summary>
+public sealed record HostDiskRow(string Text, bool Low);
+
 /// <summary>One host. Every action goes through the API and the page shows what came back, so a refused write never shows as applied.</summary>
 public sealed partial class HostPanelViewModel(ShellViewModel shell, HostsViewModel home, string name) : ObservableObject
 {
     private const string WorkerOwn = "The worker's own";
+    private const int FewRuns = 5;
 
     private string? _drawn;
+    private List<HostRunRow> _allRuns = [];
     private bool _drawing;
 
     public string Name { get; } = name;
@@ -173,6 +182,11 @@ public sealed partial class HostPanelViewModel(ShellViewModel shell, HostsViewMo
     public ObservableCollection<HostProjectRow> Projects { get; } = [];
 
     public ObservableCollection<HostSlotRow> Running { get; } = [];
+
+    /// <summary>The newest few, or all the API gave once asked for.</summary>
+    public ObservableCollection<HostRunRow> Runs { get; } = [];
+
+    public ObservableCollection<HostDiskRow> Disks { get; } = [];
 
     public ObservableCollection<string> Serveable { get; } = [];
 
@@ -189,6 +203,15 @@ public sealed partial class HostPanelViewModel(ShellViewModel shell, HostsViewMo
 
     [ObservableProperty]
     private string? _state;
+
+    [ObservableProperty]
+    private string? _connectionState;
+
+    [ObservableProperty]
+    private bool _connected;
+
+    [ObservableProperty]
+    private bool _notConnected;
 
     [ObservableProperty]
     private string? _probe;
@@ -213,6 +236,25 @@ public sealed partial class HostPanelViewModel(ShellViewModel shell, HostsViewMo
 
     [ObservableProperty]
     private bool _noProjects;
+
+    [ObservableProperty]
+    private string? _machine;
+
+    [ObservableProperty]
+    private string? _machineRead;
+
+    [ObservableProperty]
+    private string? _machineNote;
+
+    [ObservableProperty]
+    private bool _noRuns;
+
+    [ObservableProperty]
+    private bool _moreRuns;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RunsToggle))]
+    private bool _showingAllRuns;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Removal))]
@@ -268,6 +310,8 @@ public sealed partial class HostPanelViewModel(ShellViewModel shell, HostsViewMo
 
     public string Removal => ConfirmingRemoval ? "Confirm remove" : "Remove";
 
+    public string RunsToggle => ShowingAllRuns ? "Show fewer" : $"Show all {_allRuns.Count}";
+
     public bool CanOffer => Serveable.Count > 0;
 
     public bool CanServe => !Serving
@@ -318,6 +362,21 @@ public sealed partial class HostPanelViewModel(ShellViewModel shell, HostsViewMo
     }
 
     [RelayCommand]
+    public void OpenRun(HostRunRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        home.OpenCard(row.Project, row.CardId);
+    }
+
+    [RelayCommand]
+    public void ToggleRuns()
+    {
+        ShowingAllRuns = !ShowingAllRuns;
+        DrawRuns();
+    }
+
+    [RelayCommand]
     public async Task ServeAsync()
     {
         Serving = true;
@@ -345,15 +404,19 @@ public sealed partial class HostPanelViewModel(ShellViewModel shell, HostsViewMo
     }
 
     /// <summary>What the server says now. Lists are only redrawn when they changed, as a redraw would close a menu left open.</summary>
-    public void Draw(Host host, IReadOnlyList<string> projects, IReadOnlyList<string> tokens, DateTimeOffset now)
+    public void Draw(Host host, IReadOnlyList<HostRun> runs, IReadOnlyList<string> projects, IReadOnlyList<string> tokens, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(host);
+        ArgumentNullException.ThrowIfNull(runs);
         ArgumentNullException.ThrowIfNull(projects);
         ArgumentNullException.ThrowIfNull(tokens);
 
         _drawing = true;
         Host = host;
         State = HostRules.State(host);
+        ConnectionState = HostRules.Connection(host, now);
+        Connected = host.Connection is not null;
+        NotConnected = host.Kind == HostKind.Worker && host.Connection is null;
         Probe = HostRules.Probe(host, now);
         ProbeDetail = host.Probe is null ? null : host.Probe.Detail ?? "every check passed";
         ProbeFailed = host.Probe is { Ok: false, Detail: not null };
@@ -365,6 +428,24 @@ public sealed partial class HostPanelViewModel(ShellViewModel shell, HostsViewMo
 
         var running = host.Running.Select(use => new HostSlotRow($"slot {use.Slot}:", use.Project, use.CardId, $"{use.Project} {use.CardId}", $"since {HostRules.Relative(use.Since, now)}", this)).ToList();
         Replace(Running, running);
+
+        var metrics = host.Connection?.Metrics;
+        Machine = metrics is null ? null : HostRules.Machine(metrics);
+        MachineRead = metrics is null ? "Machine" : $"Machine, read {HostRules.Relative(metrics.SampledAt, now)}";
+        MachineNote = HostRules.MachineNote(host);
+        Replace(Disks, metrics?.Disks.Select(disk => new HostDiskRow(HostRules.Disk(disk), HostRules.DiskLow(disk))).ToList() ?? []);
+
+        _allRuns = runs.Select(run => new HostRunRow(
+            HostRules.Outcome(run),
+            run.Outcome is HostRunOutcome.Passed or HostRunOutcome.Running,
+            run.Outcome is HostRunOutcome.Interrupted or HostRunOutcome.Abandoned,
+            run.Outcome is HostRunOutcome.Failed or HostRunOutcome.Lost,
+            run.Project,
+            run.CardId,
+            $"{run.Project} {run.CardId}",
+            HostRules.RunDetail(run, now),
+            this)).ToList();
+        DrawRuns();
 
         var fingerprint = System.Text.Json.JsonSerializer.Serialize(new { host.Projects, projects, tokens });
         if (fingerprint != _drawn)
@@ -390,6 +471,14 @@ public sealed partial class HostPanelViewModel(ShellViewModel shell, HostsViewMo
         _ = DoAsync(sdk => value == WorkerOwn
             ? sdk.Hosts.UnassignEngineTokenAsync(Name)
             : sdk.Hosts.AssignEngineTokenAsync(Name, new PutHostEngineTokenRequest { Name = value }));
+    }
+
+    private void DrawRuns()
+    {
+        NoRuns = _allRuns.Count == 0;
+        MoreRuns = _allRuns.Count > FewRuns;
+        OnPropertyChanged(nameof(RunsToggle));
+        Replace(Runs, ShowingAllRuns ? _allRuns : _allRuns.Take(FewRuns).ToList());
     }
 
     private static void Replace<T>(ObservableCollection<T> shown, IReadOnlyList<T> items)

@@ -2881,5 +2881,27 @@ describe('BoardWriteService', () => {
             expect(stored.frontmatter.retries).toEqual({ ready: 2 });
             expect(stored.frontmatter.needsHuman).toBe(false);
         });
+
+        it('advances a pinned card past the findings, since the next stage reads the plan at its pin', async () => {
+            const { board, service } = freshFindingsBoard();
+            await board.create(card('0207', { stage: 'ready' }), 'seed');
+            const pinned = (await board.versions('0207', 1))[0]!.id;
+            await board.write('0207', 'pin', current => ({ ...current, frontmatter: { ...current.frontmatter, planVersionId: pinned } }));
+
+            await service.recordFindings('0207', { findings: [humanFinding({ problem: 'the human said so' })] });
+
+            const stored = await board.read('0207');
+            expect(stored.frontmatter.planVersionId).not.toBe(pinned);
+            expect((await board.readAt('0207', stored.frontmatter.planVersionId!)).body).toContain('the human said so');
+        });
+
+        it('leaves an unpinned card unpinned', async () => {
+            const { board, service } = freshFindingsBoard();
+            await board.create(card('0208', { stage: 'ready' }), 'seed');
+
+            await service.recordFindings('0208', { findings: [humanFinding()] });
+
+            expect((await board.read('0208')).frontmatter.planVersionId).toBeUndefined();
+        });
     });
 });

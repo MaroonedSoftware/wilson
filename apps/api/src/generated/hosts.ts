@@ -48,6 +48,17 @@ export const HostSlotUse = z.strictObject({
 export type HostSlotUse = z.infer<typeof HostSlotUse>;
 
 /**
+ * A volume holding one of a host's project roots.
+ * generated from [HostDisk](../../data/contracts/hosts.ck)
+ */
+export const HostDisk = z.strictObject({
+    path: z.string().describe('The first project root on this volume.'),
+    totalBytes: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    freeBytes: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type HostDisk = z.infer<typeof HostDisk>;
+
+/**
  * What is shown of a worker host's token: its last four characters and when it was minted, never the
  * token itself.
  * generated from [WorkerTokenSummary](../../data/contracts/hosts.ck)
@@ -57,6 +68,22 @@ export const WorkerTokenSummary = z.strictObject({
     issuedAt: _ZodDatetime,
 });
 export type WorkerTokenSummary = z.infer<typeof WorkerTokenSummary>;
+
+/**
+ * One stage placed on a host, read from the event log. `outcome` is what the next event for that card
+ * and stage says: `running` while the stage still holds a slot here, and `unknown` when nothing ever
+ * said how it ended, such as a daemon killed mid-stage or a retry starting without a word.
+ * generated from [HostRun](../../data/contracts/hosts.ck)
+ */
+export const HostRun = z.strictObject({
+    project: z.string(),
+    cardId: z.string(),
+    stage: z.string(),
+    startedAt: _ZodDatetime,
+    endedAt: _ZodDatetime.optional().describe('Absent while `running` and when `unknown`.'),
+    outcome: z.enum(['running', 'passed', 'failed', 'lost', 'interrupted', 'abandoned', 'unknown']),
+});
+export type HostRun = z.infer<typeof HostRun>;
 
 /**
  * `kind` defaults to `ssh`. For an `ssh` host, `sshTarget` defaults to `name`, which is what an agent
@@ -144,6 +171,38 @@ export const PutHostProjectRequest = z.strictObject({
 export type PutHostProjectRequest = z.infer<typeof PutHostProjectRequest>;
 
 /**
+ * How the machine was doing when its worker last answered. In a container this is the container's
+ * view: on Docker Desktop, the memory and cores of its VM rather than of the computer the VM runs on.
+ * generated from [HostMetrics](../../data/contracts/hosts.ck)
+ */
+export const HostMetrics = z.strictObject({
+    sampledAt: _ZodDatetime,
+    cpus: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    loadAverage: z
+        .preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number())
+        .describe('Runnable processes averaged over the last minute.'),
+    memoryTotalBytes: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    memoryFreeBytes: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    uptimeSeconds: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    disks: z.array(HostDisk),
+});
+export type HostMetrics = z.infer<typeof HostMetrics>;
+
+/**
+ * A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
+ * machine's present state, though only as far as the keepalive can tell: a connection that has gone
+ * quiet is noticed within about thirty seconds.
+ * generated from [HostConnection](../../data/contracts/hosts.ck)
+ */
+export const HostConnection = z.strictObject({
+    since: _ZodDatetime,
+    workerVersion: z.string().describe("The worker program's own version, from its `hello`."),
+    platform: z.string().describe("`process.platform` on the worker's machine, from its `hello`."),
+    metrics: HostMetrics.optional().describe('The latest reading, every thirty seconds or so. Absent until the first one and after one fails.'),
+});
+export type HostConnection = z.infer<typeof HostConnection>;
+
+/**
  * One registered host. `enabled: false` takes no new stage and is not probed; `draining: true`
  * takes no new stage but lets the ones already there finish.
  * generated from [Host](../../data/contracts/hosts.ck)
@@ -184,6 +243,9 @@ export const Host = z.strictObject({
     projects: z.array(HostProject),
     running: z.array(HostSlotUse).describe('The slots in use right now, slot order. `slots` minus this many are free.'),
     probe: HostProbe.optional(),
+    connection: HostConnection.optional().describe(
+        "A worker host's open connection, absent while its worker is not connected. Never present on an\n`ssh` host, which has no standing connection to report.",
+    ),
     workerToken: WorkerTokenSummary.optional().describe("A worker host's current token, absent until one is minted. Never present on an `ssh` host."),
     engineToken: z
         .string()

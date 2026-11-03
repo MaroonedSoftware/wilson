@@ -8,7 +8,7 @@
         <StackPanel Margin="16" Spacing="12" MaxWidth="1000" HorizontalAlignment="Left" MinWidth="640">
             <StackPanel Spacing="4">
                 <TextBlock Classes="title" Text="Hosts" />
-                <TextBlock Classes="quiet" TextWrapping="Wrap" Text="Machines a stage with placement any or remote can run on, reached over SSH. A host takes a stage when it is enabled, not draining, serves the card's project, passed its last probe and will not expire first." />
+                <TextBlock Classes="quiet" TextWrapping="Wrap" Text="Machines a stage with placement any or remote can run on, reached over SSH or by a worker that connects in. A host takes a stage when it is enabled, not draining, serves the card's project, passed its last probe and will not expire first." />
             </StackPanel>
             <TextBlock Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
             <TextBlock Classes="quiet" Text="No hosts yet. Register one below, or with wilson host add." IsVisible="{Binding NoHosts}" />
@@ -29,6 +29,9 @@
                                             <TextBlock FontSize="17" FontWeight="SemiBold" Text="{Binding Name}" VerticalAlignment="Center" />
                                             <Border Classes="badge" VerticalAlignment="Center">
                                                 <TextBlock Classes="quiet" Classes.good="{Binding Taking}" Classes.caution="{Binding Holding}" Text="{Binding State}" />
+                                            </Border>
+                                            <Border Classes="badge" VerticalAlignment="Center" IsVisible="{Binding IsWorker}">
+                                                <TextBlock Classes="quiet" Classes.good="{Binding Connected}" Classes.caution="{Binding NotConnected}" Text="{Binding ConnectionState}" />
                                             </Border>
                                             <Border Classes="badge" VerticalAlignment="Center" ToolTip.Tip="{Binding ProbeDetail}">
                                                 <TextBlock Classes="quiet" Classes.error="{Binding ProbeFailed}" Text="{Binding Probe}" />
@@ -57,6 +60,34 @@
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
+                                </StackPanel>
+                                <StackPanel Spacing="2">
+                                    <TextBlock FontWeight="SemiBold" FontSize="13" Text="{Binding MachineRead}" ToolTip.Tip="As the worker sees it. In a container that is the container's view: on Docker Desktop, its VM rather than the computer." />
+                                    <TextBlock Classes="quiet" Text="{Binding MachineNote}" IsVisible="{Binding MachineNote, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    <SelectableTextBlock FontSize="13" Text="{Binding Machine}" TextWrapping="Wrap" IsVisible="{Binding Machine, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    <ItemsControl ItemsSource="{Binding Disks}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:HostDiskRow">
+                                                <TextBlock FontSize="13" Classes.caution="{Binding Low}" Classes.quiet="{Binding Low}" Text="{Binding Text}" TextWrapping="Wrap" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                                <StackPanel Spacing="2">
+                                    <TextBlock FontWeight="SemiBold" FontSize="13" Text="Recent runs" />
+                                    <TextBlock Classes="quiet" Text="Nothing has been placed here yet." IsVisible="{Binding NoRuns}" />
+                                    <ItemsControl ItemsSource="{Binding Runs}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:HostRunRow">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <TextBlock Classes="quiet" Classes.good="{Binding Good}" Classes.caution="{Binding Caution}" Classes.error="{Binding Bad}" Text="{Binding Outcome}" Width="76" VerticalAlignment="Center" />
+                                                    <Button Classes="section" Padding="4,1" Content="{Binding Card}" Command="{Binding Panel.OpenRunCommand}" CommandParameter="{Binding}" />
+                                                    <TextBlock Classes="quiet" Text="{Binding Detail}" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Classes="ghost" Padding="8,3" Content="{Binding RunsToggle}" Command="{Binding ToggleRunsCommand}" IsVisible="{Binding MoreRuns}" HorizontalAlignment="Left" />
                                 </StackPanel>
                                 <StackPanel Spacing="4">
                                     <TextBlock FontWeight="SemiBold" FontSize="13" Text="Projects" />

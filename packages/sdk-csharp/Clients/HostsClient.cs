@@ -81,6 +81,20 @@ public sealed class HostsClient(SdkHttp http)
     }
 
     /// <summary>
+    /// List host runs
+    /// The stages most recently placed on a host, newest first, at most twenty.
+    /// </summary>
+    /// <exception cref="SdkException">On 404.</exception>
+    public async Task<List<HostRun>> ListHostRunsAsync(string name, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "hosts", http.Segment(name), "runs"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<List<HostRun>>(response);
+    }
+
+    /// <summary>
     /// Set host isolated
     /// Where the daemon reaches an `ssh` host. An operation of its own, not a field on
     /// `PATCH /api/hosts/{name}`, for the reason `engine-token` is: the stage work sent to a host, and the

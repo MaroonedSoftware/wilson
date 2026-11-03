@@ -67,6 +67,17 @@ export function reviveHostSlotUse(raw: HostSlotUse): HostSlotUse {
 }
 
 /**
+ * A volume holding one of a host's project roots.
+ * generated from [HostDisk](../../../../apps/api/data/contracts/hosts.ck)
+ */
+export interface HostDisk {
+    /** The first project root on this volume. */
+    path: string;
+    totalBytes: number;
+    freeBytes: number;
+}
+
+/**
  * What is shown of a worker host's token: its last four characters and when it was minted, never the
  * token itself.
  * generated from [WorkerTokenSummary](../../../../apps/api/data/contracts/hosts.ck)
@@ -80,6 +91,32 @@ export interface WorkerTokenSummary {
 export function reviveWorkerTokenSummary(raw: WorkerTokenSummary): WorkerTokenSummary {
     const __o0 = raw as unknown as Record<string, unknown>;
     __o0['issuedAt'] = __dt(__o0['issuedAt'], 'WorkerTokenSummary.issuedAt');
+    return raw;
+}
+
+/**
+ * One stage placed on a host, read from the event log. `outcome` is what the next event for that card
+ * and stage says: `running` while the stage still holds a slot here, and `unknown` when nothing ever
+ * said how it ended, such as a daemon killed mid-stage or a retry starting without a word.
+ * generated from [HostRun](../../../../apps/api/data/contracts/hosts.ck)
+ */
+export interface HostRun {
+    project: string;
+    cardId: string;
+    stage: string;
+    startedAt: DateTime;
+    /** Absent while `running` and when `unknown`. */
+    endedAt?: DateTime;
+    outcome: 'running' | 'passed' | 'failed' | 'lost' | 'interrupted' | 'abandoned' | 'unknown';
+}
+
+/** Rehydrates every wire-encoded scalar in a HostRun into its runtime type. Mutates and returns `raw`. */
+export function reviveHostRun(raw: HostRun): HostRun {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['startedAt'] = __dt(__o0['startedAt'], 'HostRun.startedAt');
+    if (__o0['endedAt'] != null) {
+        __o0['endedAt'] = __dt(__o0['endedAt'], 'HostRun.endedAt');
+    }
     return raw;
 }
 
@@ -165,6 +202,55 @@ export interface PutHostProjectRequest {
 }
 
 /**
+ * How the machine was doing when its worker last answered. In a container this is the container's
+ * view: on Docker Desktop, the memory and cores of its VM rather than of the computer the VM runs on.
+ * generated from [HostMetrics](../../../../apps/api/data/contracts/hosts.ck)
+ */
+export interface HostMetrics {
+    sampledAt: DateTime;
+    cpus: number;
+    /** Runnable processes averaged over the last minute. */
+    loadAverage: number;
+    memoryTotalBytes: number;
+    memoryFreeBytes: number;
+    uptimeSeconds: number;
+    disks: HostDisk[];
+}
+
+/** Rehydrates every wire-encoded scalar in a HostMetrics into its runtime type. Mutates and returns `raw`. */
+export function reviveHostMetrics(raw: HostMetrics): HostMetrics {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['sampledAt'] = __dt(__o0['sampledAt'], 'HostMetrics.sampledAt');
+    return raw;
+}
+
+/**
+ * A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
+ * machine's present state, though only as far as the keepalive can tell: a connection that has gone
+ * quiet is noticed within about thirty seconds.
+ * generated from [HostConnection](../../../../apps/api/data/contracts/hosts.ck)
+ */
+export interface HostConnection {
+    since: DateTime;
+    /** The worker program's own version, from its `hello`. */
+    workerVersion: string;
+    /** `process.platform` on the worker's machine, from its `hello`. */
+    platform: string;
+    /** The latest reading, every thirty seconds or so. Absent until the first one and after one fails. */
+    metrics?: HostMetrics;
+}
+
+/** Rehydrates every wire-encoded scalar in a HostConnection into its runtime type. Mutates and returns `raw`. */
+export function reviveHostConnection(raw: HostConnection): HostConnection {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['since'] = __dt(__o0['since'], 'HostConnection.since');
+    if (__o0['metrics'] != null) {
+        reviveHostMetrics(__o0['metrics'] as never);
+    }
+    return raw;
+}
+
+/**
  * One registered host. `enabled: false` takes no new stage and is not probed; `draining: true`
  * takes no new stage but lets the ones already there finish.
  * generated from [Host](../../../../apps/api/data/contracts/hosts.ck)
@@ -205,6 +291,11 @@ export interface Host {
     /** The slots in use right now, slot order. `slots` minus this many are free. */
     running: HostSlotUse[];
     probe?: HostProbe;
+    /**
+     * A worker host's open connection, absent while its worker is not connected. Never present on an
+     * `ssh` host, which has no standing connection to report.
+     */
+    connection?: HostConnection;
     /** A worker host's current token, absent until one is minted. Never present on an `ssh` host. */
     workerToken?: WorkerTokenSummary;
     /**
@@ -225,6 +316,9 @@ export function reviveHost(raw: Host): Host {
     }
     if (__o0['probe'] != null) {
         reviveHostProbe(__o0['probe'] as never);
+    }
+    if (__o0['connection'] != null) {
+        reviveHostConnection(__o0['connection'] as never);
     }
     if (__o0['workerToken'] != null) {
         reviveWorkerTokenSummary(__o0['workerToken'] as never);

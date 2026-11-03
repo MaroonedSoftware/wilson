@@ -52,6 +52,108 @@ public sealed class HostRulesTests
     }
 
     [Fact]
+    public void Connection_is_only_a_worker_s_and_says_how_long()
+    {
+        Assert.Null(HostRules.Connection(Host(), Now));
+        Assert.Equal("not connected", HostRules.Connection(Host(kind: HostKind.Worker), Now));
+
+        var connected = Host(kind: HostKind.Worker) with { Connection = new HostConnection { Since = Now.AddMinutes(-192), WorkerVersion = "1.2.3", Platform = "linux" } };
+        Assert.Equal("connected 3h 12m ago", HostRules.Connection(connected, Now));
+    }
+
+    [Fact]
+    public void Summary_of_a_connected_worker_names_its_version_and_platform()
+    {
+        var connected = Host(kind: HostKind.Worker) with { Connection = new HostConnection { Since = Now, WorkerVersion = "1.2.3", Platform = "linux" } };
+        Assert.StartsWith("worker 1.2.3 on linux · ", HostRules.Summary(connected, Now));
+    }
+
+    private const long GiB = 1024L * 1024L * 1024L;
+
+    private static HostMetrics Metrics(long uptimeSeconds = 3 * 86400 + 4 * 3600, long cpus = 12) => new()
+    {
+        SampledAt = Now,
+        Cpus = cpus,
+        LoadAverage = 2.345,
+        MemoryTotalBytes = 32 * GiB,
+        MemoryFreeBytes = 8 * GiB,
+        UptimeSeconds = uptimeSeconds,
+        Disks = [],
+    };
+
+    [Fact]
+    public void MachineNote_says_why_there_is_no_reading()
+    {
+        var connection = new HostConnection { Since = Now, WorkerVersion = "1.2.3", Platform = "linux" };
+        var worker = Host(kind: HostKind.Worker);
+
+        Assert.Equal("Not reported for an SSH host.", HostRules.MachineNote(Host()));
+        Assert.Equal("No reading while its worker is not connected.", HostRules.MachineNote(worker));
+        Assert.Equal("No reading yet.", HostRules.MachineNote(worker with { Connection = connection }));
+        Assert.Null(HostRules.MachineNote(worker with { Connection = connection with { Metrics = Metrics() } }));
+    }
+
+    [Fact]
+    public void Machine_says_load_memory_and_uptime() =>
+        Assert.Equal("load 2.3 on 12 cores · 24.0 of 32.0 GiB memory used · up 3d 4h", HostRules.Machine(Metrics()));
+
+    [Theory]
+    [InlineData(600, "up 10m")]
+    [InlineData(3660, "up 1h 1m")]
+    [InlineData(90000, "up 1d 1h")]
+    public void Machine_shortens_uptime_to_two_units(long seconds, string expected) =>
+        Assert.EndsWith(expected, HostRules.Machine(Metrics(seconds)));
+
+    [Fact]
+    public void Machine_says_one_core_singly() =>
+        Assert.Contains("on 1 core ·", HostRules.Machine(Metrics(cpus: 1)));
+
+    [Fact]
+    public void Disk_says_how_much_is_free_and_flags_under_a_tenth()
+    {
+        var disk = new HostDisk { Path = "/srv/projects", TotalBytes = 500 * GiB, FreeBytes = 120 * GiB };
+
+        Assert.Equal("/srv/projects: 120.0 of 500.0 GiB free", HostRules.Disk(disk));
+        Assert.False(HostRules.DiskLow(disk));
+        Assert.False(HostRules.DiskLow(disk with { FreeBytes = 50 * GiB }));
+        Assert.True(HostRules.DiskLow(disk with { FreeBytes = 49 * GiB }));
+    }
+
+    private static HostRun Run(HostRunOutcome outcome, int startedMinutesAgo = 60, int? endedMinutesAgo = null) => new()
+    {
+        Project = "wilson",
+        CardId = "0012",
+        Stage = "implementing",
+        StartedAt = Now.AddMinutes(-startedMinutesAgo),
+        EndedAt = endedMinutesAgo is { } ended ? Now.AddMinutes(-ended) : null,
+        Outcome = outcome,
+    };
+
+    [Theory]
+    [InlineData(HostRunOutcome.Running, "running")]
+    [InlineData(HostRunOutcome.Passed, "passed")]
+    [InlineData(HostRunOutcome.Failed, "failed")]
+    [InlineData(HostRunOutcome.Lost, "host lost")]
+    [InlineData(HostRunOutcome.Interrupted, "interrupted")]
+    [InlineData(HostRunOutcome.Abandoned, "abandoned")]
+    [InlineData(HostRunOutcome.Unknown, "no word")]
+    [InlineData(HostRunOutcome.Unknown2, "no word")]
+    public void Outcome_is_a_word_or_two(HostRunOutcome outcome, string expected) =>
+        Assert.Equal(expected, HostRules.Outcome(Run(outcome)));
+
+    [Fact]
+    public void RunDetail_says_how_long_a_run_took_once_it_has_ended()
+    {
+        Assert.Equal("implementing · 45m, ended 15m ago", HostRules.RunDetail(Run(HostRunOutcome.Passed, 60, 15), Now));
+        Assert.Equal("implementing · 1h 30m, ended 30m ago", HostRules.RunDetail(Run(HostRunOutcome.Failed, 120, 30), Now));
+        Assert.Equal("implementing · under a minute, ended 5m ago", HostRules.RunDetail(Run(HostRunOutcome.Passed, 5, 5), Now));
+    }
+
+    [Fact]
+    public void RunDetail_says_when_it_started_while_there_is_no_end() =>
+        Assert.Equal("implementing · started 1h 0m ago", HostRules.RunDetail(Run(HostRunOutcome.Running), Now));
+
+    [Fact]
     public void Summary_of_an_ssh_host_names_its_target() =>
         Assert.Equal("ssh agent-1.local", HostRules.Summary(Host(), Now));
 

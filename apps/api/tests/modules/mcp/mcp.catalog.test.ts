@@ -21,6 +21,7 @@ import { HostsRouter } from '#src/routes/hosts.router.js';
 import { LearningsRouter } from '#src/routes/learnings.router.js';
 import { OnboardingRouter } from '#src/routes/onboarding.router.js';
 import { ProjectsRouter } from '#src/routes/projects.router.js';
+import { ReviewRouter } from '#src/routes/review.router.js';
 import { SettingsRouter } from '#src/routes/settings.router.js';
 import { StagesRouter } from '#src/routes/stages.router.js';
 
@@ -52,6 +53,7 @@ const ROUTERS = [
     LearningsRouter,
     OnboardingRouter,
     ProjectsRouter,
+    ReviewRouter,
     SettingsRouter,
     StagesRouter,
 ];
@@ -92,7 +94,14 @@ describe('the MCP operation catalog', () => {
     it('leaves out what the chat must never reach, even with a confirm', async () => {
         const tools = await catalog();
 
-        for (const name of ['record_findings', 'set_stage_config', 'set_learnings', 'send_a_plan_turn', 'open_a_planning_session']) {
+        for (const name of [
+            'record_findings',
+            'set_stage_config',
+            'set_learnings',
+            'send_a_plan_turn',
+            'open_a_planning_session',
+            'add_a_review_comment',
+        ]) {
             expect(tools.has(name), name).toBe(false);
         }
     });

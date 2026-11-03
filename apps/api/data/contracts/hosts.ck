@@ -60,6 +60,40 @@ contract HostSlotUse: {
     since: datetime
 }
 
+# A volume holding one of a host's project roots.
+contract HostDisk: {
+    # The first project root on this volume.
+    path: string
+    totalBytes: int
+    freeBytes: int
+}
+
+# How the machine was doing when its worker last answered. In a container this is the container's
+# view: on Docker Desktop, the memory and cores of its VM rather than of the computer the VM runs on.
+contract HostMetrics: {
+    sampledAt: datetime
+    cpus: int
+    # Runnable processes averaged over the last minute.
+    loadAverage: number
+    memoryTotalBytes: int
+    memoryFreeBytes: int
+    uptimeSeconds: int
+    disks: array(HostDisk)
+}
+
+# A worker's open connection to this daemon, as it stands right now. Unlike `HostProbe` this is the
+# machine's present state, though only as far as the keepalive can tell: a connection that has gone
+# quiet is noticed within about thirty seconds.
+contract HostConnection: {
+    since: datetime
+    # The worker program's own version, from its `hello`.
+    workerVersion: string
+    # `process.platform` on the worker's machine, from its `hello`.
+    platform: string
+    # The latest reading, every thirty seconds or so. Absent until the first one and after one fails.
+    metrics?: HostMetrics
+}
+
 # What is shown of a worker host's token: its last four characters and when it was minted, never the
 # token itself.
 contract WorkerTokenSummary: {
@@ -101,11 +135,27 @@ contract Host: {
     # The slots in use right now, slot order. `slots` minus this many are free.
     running: array(HostSlotUse)
     probe?: HostProbe
+    # A worker host's open connection, absent while its worker is not connected. Never present on an
+    # `ssh` host, which has no standing connection to report.
+    connection?: HostConnection
     # A worker host's current token, absent until one is minted. Never present on an `ssh` host.
     workerToken?: WorkerTokenSummary
     # The name of the saved engine token its engines sign in with, never the token. Absent, a worker's
     # engines sign in as that machine was set up to. Never present on an `ssh` host.
     engineToken?: string
+}
+
+# One stage placed on a host, read from the event log. `outcome` is what the next event for that card
+# and stage says: `running` while the stage still holds a slot here, and `unknown` when nothing ever
+# said how it ended, such as a daemon killed mid-stage or a retry starting without a word.
+contract HostRun: {
+    project: string
+    cardId: string
+    stage: string
+    startedAt: datetime
+    # Absent while `running` and when `unknown`.
+    endedAt?: datetime
+    outcome: enum(running, passed, failed, lost, interrupted, abandoned, unknown)
 }
 
 # `kind` defaults to `ssh`. For an `ssh` host, `sshTarget` defaults to `name`, which is what an agent
@@ -242,6 +292,26 @@ operation /api/hosts/{name}: {
         service: HostsService.remove
         response: {
             204:
+            404:
+        }
+    }
+}
+
+# The stages most recently placed on a host, newest first, at most twenty.
+operation /api/hosts/{name}/runs: {
+    params: {
+        name: string
+    }
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: List host runs
+        service: HostsService.runs
+        response: {
+            200: {
+                application/json: array(HostRun)
+            }
             404:
         }
     }

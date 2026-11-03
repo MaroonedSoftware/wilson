@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, writeFile } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
-import type { FromWorker, ToWorker } from '@wilson/worker-protocol';
+import type { FromWorker, ToWorker, WorkerStats } from '@wilson/worker-protocol';
 import { WorkerExecutor, type WorkerExecutorOptions } from '../src/worker.executor.js';
 
 /**
@@ -53,6 +53,35 @@ const harness = (options: WorkerExecutorOptions = {}) => {
 };
 
 describe('WorkerExecutor', () => {
+    it('reports the machine, with each volume once and a root not made yet left out', async () => {
+        const { call } = harness();
+        const dir = await mkdtemp(join(root, 'stats-'));
+        const other = join(dir, 'other');
+        await mkdir(other);
+
+        const answer = await call({ op: 'stats', paths: [join(dir, 'not-made-yet'), dir, other] });
+
+        expect(answer.ok).toBe(true);
+        const stats = (answer as { value: WorkerStats }).value;
+        expect(stats.cpus).toBeGreaterThan(0);
+        expect(stats.loadAverage).toBeGreaterThanOrEqual(0);
+        expect(stats.memoryTotalBytes).toBeGreaterThan(0);
+        expect(stats.memoryFreeBytes).toBeLessThanOrEqual(stats.memoryTotalBytes);
+        expect(Number.isInteger(stats.uptimeSeconds)).toBe(true);
+        expect(stats.disks.map(disk => disk.path)).toEqual([dir]);
+        expect(stats.disks[0]!.totalBytes).toBeGreaterThan(0);
+        expect(stats.disks[0]!.freeBytes).toBeLessThanOrEqual(stats.disks[0]!.totalBytes);
+    });
+
+    it('leaves a refused root out of its report and still answers', async () => {
+        const dir = await mkdtemp(join(root, 'stats-'));
+        const { call } = harness({ checkPath: path => (path === dir ? 'outside this host’s project roots' : undefined) });
+
+        const answer = await call({ op: 'stats', paths: [dir] });
+
+        expect(answer).toMatchObject({ ok: true, value: { disks: [] } });
+    });
+
     it('answers ping, and writes, reads, stats and removes files', async () => {
         const { call } = harness();
         const path = join(root, 'dir', 'f.txt');

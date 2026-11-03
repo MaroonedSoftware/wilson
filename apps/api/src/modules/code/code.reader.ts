@@ -149,11 +149,16 @@ const fitted = (line: string, budget: number): string => {
  *
  * Runs git through the host directly rather than `git()` (`board/git.ts`), which takes no timeout and
  * wraps away the `killed` and `code` a refusal here depends on.
+ *
+ * `pinned` binds every read to one commit the server chose, for a reader handed to an agent reviewing
+ * that commit. It is a constructor argument because a caller's `ref` still never names a commit: with
+ * a pin, a `ref` at all is refused.
  */
 export class CodeReader {
     constructor(
         private readonly codeRoot: string,
         private readonly host: ExecutionHost = localHost,
+        private readonly pinned?: string,
     ) {}
 
     /** List a directory, the repository's root when `path` is left out. */
@@ -267,6 +272,10 @@ export class CodeReader {
 
     /** `HEAD` with no `ref`, else a branch, then a tag, of that exact name. Never revision syntax. */
     private async resolve(ref: string | undefined): Promise<string> {
+        if (this.pinned !== undefined) {
+            if (ref !== undefined) throw new CodeRefusal(`this reader is bound to commit ${this.pinned} and does not take a ref`, this.pinned);
+            return this.pinned;
+        }
         if (ref === undefined) {
             const head = await this.commitOf('HEAD');
             if (!head) throw new CodeRefusal('this project has no commits to read');
