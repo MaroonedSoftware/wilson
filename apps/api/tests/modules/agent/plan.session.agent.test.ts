@@ -104,6 +104,27 @@ describe('PlanSessionAgent', () => {
         expect(chunks).toEqual(['part1[hello]', 'part2']);
     });
 
+    it('reports what each turn spent, and nothing for a turn the engine ended without saying', async () => {
+        queryMock.mockImplementationOnce(() =>
+            (async function* () {
+                yield {
+                    type: 'result',
+                    subtype: 'success',
+                    is_error: false,
+                    session_id: 's',
+                    usage: { input_tokens: 5, cache_read_input_tokens: 100, cache_creation_input_tokens: 20, output_tokens: 42 },
+                } as never;
+            })(),
+        );
+        const agent = new PlanSessionAgent({ worktreeRoot: '/tmp/worktree', model: 'claude-opus' });
+
+        await drain(agent.turn('hello'));
+        expect(agent.lastTurnUsage).toEqual({ inputTokens: 5, cachedInputTokens: 120, outputTokens: 42 });
+
+        await drain(agent.turn('again'));
+        expect(agent.lastTurnUsage).toBeUndefined();
+    });
+
     it('says a turn succeeded only when the engine reported success', async () => {
         const outcomes = [
             { message: { type: 'result', subtype: 'success', is_error: false, session_id: 's' }, succeeded: true },

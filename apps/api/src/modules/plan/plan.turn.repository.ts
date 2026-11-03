@@ -1,6 +1,7 @@
 import { Kysely, sql } from 'kysely';
 import type { DateTime } from 'luxon';
 import { BoardConfig } from '#modules/board/board.config.js';
+import type { TurnUsage } from '#modules/agent/plan.session.agent.js';
 import type { DB } from '#modules/data/db.js';
 
 export type PlanTurnRole = 'user' | 'assistant';
@@ -42,7 +43,14 @@ export class PlanTurnRepository {
      * key slots that overload takes, locks the *card* rather than a row, so it also covers the
      * first turn; it is released automatically when the transaction ends.
      */
-    async append(cardId: string, role: PlanTurnRole, content: string, engineSessionId?: string, contextSeenId?: string): Promise<PlanTurn> {
+    async append(
+        cardId: string,
+        role: PlanTurnRole,
+        content: string,
+        engineSessionId?: string,
+        contextSeenId?: string,
+        usage?: TurnUsage,
+    ): Promise<PlanTurn> {
         return this.db.transaction().execute(async trx => {
             await sql`select pg_advisory_xact_lock(hashtext(${this.config.project}), hashtext(${cardId}))`.execute(trx);
 
@@ -66,6 +74,9 @@ export class PlanTurnRepository {
                     content,
                     engineSessionId: engineSessionId ?? null,
                     contextSeenId: contextSeenId === undefined ? null : BigInt(contextSeenId),
+                    inputTokens: usage?.inputTokens,
+                    cachedInputTokens: usage?.cachedInputTokens,
+                    outputTokens: usage?.outputTokens,
                 })
                 .returning('createdAt')
                 .executeTakeFirstOrThrow();

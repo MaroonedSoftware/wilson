@@ -310,11 +310,14 @@ export interface WilsonPlanComments {
 }
 
 export interface WilsonPlanTurns {
+  cachedInputTokens: number | null;
   cardId: string;
   content: string;
   contextSeenId: bigint | null;
   createdAt: Generated<DateTime>;
   engineSessionId: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
   project: string;
   role: "user" | "assistant";
   seq: number;
@@ -348,8 +351,10 @@ export interface WilsonReviewComments {
 }
 
 export interface WilsonReviewTurns {
+  cachedInputTokens: number | null;
   content: string;
   createdAt: Generated<DateTime>;
+  inputTokens: number | null;
   outputTokens: number | null;
   reviewId: bigint;
   role: "user" | "assistant";

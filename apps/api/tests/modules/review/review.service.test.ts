@@ -443,6 +443,25 @@ describe('ReviewService', () => {
             expect(prompt.endsWith('why this way?')).toBe(true);
         });
 
+        it('records what the answering turn spent, and nothing on the turn that was typed', async () => {
+            const { config, engine, service } = await fresh();
+            engine.answer = async () => ({ text: 'the answer', usage: { inputTokens: 5, cachedInputTokens: 120, outputTokens: 42 } });
+
+            await service.sendTurn('0001', ask);
+
+            const rows = await db
+                .selectFrom('wilson.reviewTurns as turn')
+                .innerJoin('wilson.reviews as review', 'review.id', 'turn.reviewId')
+                .where('review.project', '=', config.project)
+                .orderBy('turn.seq')
+                .select(['turn.role', 'turn.inputTokens', 'turn.cachedInputTokens', 'turn.outputTokens'])
+                .execute();
+            expect(rows).toEqual([
+                { role: 'user' },
+                { role: 'assistant', inputTokens: 5, cachedInputTokens: 120, outputTokens: 42 },
+            ]);
+        });
+
         it('reads the plan at its pin, not its newest text', async () => {
             const { board, engine, service } = await fresh();
             const version = (await board.versions('0001', 1))[0]!.id;

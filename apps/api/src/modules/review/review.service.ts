@@ -303,7 +303,7 @@ export class ReviewService {
                     review.id,
                     'assistant',
                     output.text.trim() || '(no answer)',
-                    output.usage?.outputTokens,
+                    output.usage,
                 );
                 publishReview(this.boardConfig.project, id, { event: 'done', data: { seq: answer.seq } });
                 return answer;

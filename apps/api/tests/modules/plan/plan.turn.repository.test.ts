@@ -129,6 +129,23 @@ describe('PlanTurnRepository', () => {
         await expect(repo.latestEngineSessionId('0001')).resolves.toBe('session-abc');
     });
 
+    it('stores what a turn spent, and leaves a turn that reported nothing empty', async () => {
+        await repo.append('0001', 'user', 'hello');
+        await repo.append('0001', 'assistant', 'hi', 'session-1', undefined, { inputTokens: 5, cachedInputTokens: 120, outputTokens: 42 });
+
+        const rows = await db
+            .selectFrom('wilson.planTurns')
+            .where('project', '=', config.project)
+            .orderBy('seq')
+            .select(['inputTokens', 'cachedInputTokens', 'outputTokens'])
+            .execute();
+
+        expect(rows).toEqual([
+            {},
+            { inputTokens: 5, cachedInputTokens: 120, outputTokens: 42 },
+        ]);
+    });
+
     it('append stores and round-trips the role and content verbatim, and stamps a createdAt', async () => {
         const turn = await repo.append('0001', 'assistant', 'the reply body', 'session-xyz');
 
