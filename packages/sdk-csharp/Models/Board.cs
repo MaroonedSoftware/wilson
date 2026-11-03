@@ -386,6 +386,46 @@ public sealed record CardStageUsage
 }
 
 /// <summary>
+/// How many days of a project's history `GET /api/stats` reads, today included. Defaults to 30, and is
+/// held to between 1 and 365.
+/// </summary>
+public sealed record ProjectStatsQuery
+{
+    [JsonPropertyName("days")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? Days { get; init; }
+}
+
+/// <summary>
+/// The figures every row of `ProjectStats` holds, from the same events `CardUsage` reads. `attempts` is
+/// `passed` plus `failed`: an interrupted run spends tokens and no retry, so it has its own count and
+/// adds to no attempt. `inputTokens` includes `cachedInputTokens`, as in `CardStageUsage`.
+/// </summary>
+public sealed record ProjectStatsCounts
+{
+    [JsonPropertyName("attempts")]
+    public required long Attempts { get; init; }
+
+    [JsonPropertyName("passed")]
+    public required long Passed { get; init; }
+
+    [JsonPropertyName("failed")]
+    public required long Failed { get; init; }
+
+    [JsonPropertyName("interrupted")]
+    public required long Interrupted { get; init; }
+
+    [JsonPropertyName("inputTokens")]
+    public required long InputTokens { get; init; }
+
+    [JsonPropertyName("cachedInputTokens")]
+    public required long CachedInputTokens { get; init; }
+
+    [JsonPropertyName("outputTokens")]
+    public required long OutputTokens { get; init; }
+}
+
+/// <summary>
 /// Card 0265. One file changed in a card's branch since it forked from `main` —
 /// `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
 /// `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
@@ -879,6 +919,134 @@ public sealed record CardUsage
 }
 
 /// <summary>
+/// One stage across the project's cards, in the order the stage first ran in the window. `cards` is how
+/// many cards ran it, so `attempts` over `cards` is how many tries that stage takes.
+/// </summary>
+public sealed record ProjectStageStats
+{
+    [JsonPropertyName("attempts")]
+    public required long Attempts { get; init; }
+
+    [JsonPropertyName("passed")]
+    public required long Passed { get; init; }
+
+    [JsonPropertyName("failed")]
+    public required long Failed { get; init; }
+
+    [JsonPropertyName("interrupted")]
+    public required long Interrupted { get; init; }
+
+    [JsonPropertyName("inputTokens")]
+    public required long InputTokens { get; init; }
+
+    [JsonPropertyName("cachedInputTokens")]
+    public required long CachedInputTokens { get; init; }
+
+    [JsonPropertyName("outputTokens")]
+    public required long OutputTokens { get; init; }
+
+    [JsonPropertyName("stage")]
+    public required string Stage { get; init; }
+
+    [JsonPropertyName("cards")]
+    public required long Cards { get; init; }
+}
+
+/// <summary>
+/// One calendar day in `ProjectStats.zone`, as `yyyy-MM-dd`. A day with nothing on it is still here, at
+/// zero, so a chart of these cannot close up a gap.
+/// </summary>
+public sealed record ProjectDayStats
+{
+    [JsonPropertyName("attempts")]
+    public required long Attempts { get; init; }
+
+    [JsonPropertyName("passed")]
+    public required long Passed { get; init; }
+
+    [JsonPropertyName("failed")]
+    public required long Failed { get; init; }
+
+    [JsonPropertyName("interrupted")]
+    public required long Interrupted { get; init; }
+
+    [JsonPropertyName("inputTokens")]
+    public required long InputTokens { get; init; }
+
+    [JsonPropertyName("cachedInputTokens")]
+    public required long CachedInputTokens { get; init; }
+
+    [JsonPropertyName("outputTokens")]
+    public required long OutputTokens { get; init; }
+
+    [JsonPropertyName("date")]
+    public required string Date { get; init; }
+}
+
+/// <summary>
+/// One card's spend in the window, not its whole history. `cardTitle` is absent when the card no longer
+/// exists: `wilson.card_events` has no foreign key to it.
+/// </summary>
+public sealed record ProjectCardStats
+{
+    [JsonPropertyName("attempts")]
+    public required long Attempts { get; init; }
+
+    [JsonPropertyName("passed")]
+    public required long Passed { get; init; }
+
+    [JsonPropertyName("failed")]
+    public required long Failed { get; init; }
+
+    [JsonPropertyName("interrupted")]
+    public required long Interrupted { get; init; }
+
+    [JsonPropertyName("inputTokens")]
+    public required long InputTokens { get; init; }
+
+    [JsonPropertyName("cachedInputTokens")]
+    public required long CachedInputTokens { get; init; }
+
+    [JsonPropertyName("outputTokens")]
+    public required long OutputTokens { get; init; }
+
+    [JsonPropertyName("cardId")]
+    public required string CardId { get; init; }
+
+    [JsonPropertyName("cardTitle")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CardTitle { get; init; }
+}
+
+/// <summary>The whole window. `cards` is how many different cards ran anything in it.</summary>
+public sealed record ProjectStatsTotal
+{
+    [JsonPropertyName("attempts")]
+    public required long Attempts { get; init; }
+
+    [JsonPropertyName("passed")]
+    public required long Passed { get; init; }
+
+    [JsonPropertyName("failed")]
+    public required long Failed { get; init; }
+
+    [JsonPropertyName("interrupted")]
+    public required long Interrupted { get; init; }
+
+    [JsonPropertyName("inputTokens")]
+    public required long InputTokens { get; init; }
+
+    [JsonPropertyName("cachedInputTokens")]
+    public required long CachedInputTokens { get; init; }
+
+    [JsonPropertyName("outputTokens")]
+    public required long OutputTokens { get; init; }
+
+    [JsonPropertyName("cards")]
+    public required long Cards { get; init; }
+}
+
+/// <summary>
 /// `GET /api/cards/{id}/diff`'s response: every file the card's branch touched since
 /// `merge-base(main, branch)`, one basis for the diff the CLI's own `wilson card diff` already uses
 /// (this card's Constraints). `files` empty and `truncated` false together is a real, distinct
@@ -1213,6 +1381,37 @@ public sealed record SplitResult
 
     [JsonPropertyName("pieces")]
     public required List<CardDetail> Pieces { get; init; }
+}
+
+/// <summary>
+/// `GET /api/stats`'s response: what a project spent and how its stages went, read from
+/// `EventLog.projectStats`. Tokens only, for the reason `CardUsage` gives. `topCards` is the ten cards
+/// that wrote the most output tokens, the figure the daily ceiling is held to, since a cached input
+/// total says little about what a run cost. Planning and review turns are not stage events, so none of
+/// this includes them.
+/// </summary>
+public sealed record ProjectStats
+{
+    [JsonPropertyName("since")]
+    public required DateTimeOffset Since { get; init; }
+
+    [JsonPropertyName("until")]
+    public required DateTimeOffset Until { get; init; }
+
+    [JsonPropertyName("zone")]
+    public required string Zone { get; init; }
+
+    [JsonPropertyName("total")]
+    public required ProjectStatsTotal Total { get; init; }
+
+    [JsonPropertyName("stages")]
+    public required List<ProjectStageStats> Stages { get; init; }
+
+    [JsonPropertyName("days")]
+    public required List<ProjectDayStats> Days { get; init; }
+
+    [JsonPropertyName("topCards")]
+    public required List<ProjectCardStats> TopCards { get; init; }
 }
 
 /// <summary>How the card ended, once it has. Absent for a card still on the board.</summary>

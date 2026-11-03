@@ -241,6 +241,31 @@ data class CardStageUsage(
 )
 
 /**
+ * How many days of a project's history `GET /api/stats` reads, today included. Defaults to 30, and is
+ * held to between 1 and 365.
+ */
+@Serializable
+data class ProjectStatsQuery(
+    val days: Long? = null,
+)
+
+/**
+ * The figures every row of `ProjectStats` holds, from the same events `CardUsage` reads. `attempts` is
+ * `passed` plus `failed`: an interrupted run spends tokens and no retry, so it has its own count and
+ * adds to no attempt. `inputTokens` includes `cachedInputTokens`, as in `CardStageUsage`.
+ */
+@Serializable
+data class ProjectStatsCounts(
+    val attempts: Long,
+    val passed: Long,
+    val failed: Long,
+    val interrupted: Long,
+    val inputTokens: Long,
+    val cachedInputTokens: Long,
+    val outputTokens: Long,
+)
+
+/**
  * Card 0265. One file changed in a card's branch since it forked from `main` —
  * `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
  * `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
@@ -575,6 +600,69 @@ data class CardUsage(
 )
 
 /**
+ * One stage across the project's cards, in the order the stage first ran in the window. `cards` is how
+ * many cards ran it, so `attempts` over `cards` is how many tries that stage takes.
+ */
+@Serializable
+data class ProjectStageStats(
+    val attempts: Long,
+    val passed: Long,
+    val failed: Long,
+    val interrupted: Long,
+    val inputTokens: Long,
+    val cachedInputTokens: Long,
+    val outputTokens: Long,
+    val stage: String,
+    val cards: Long,
+)
+
+/**
+ * One calendar day in `ProjectStats.zone`, as `yyyy-MM-dd`. A day with nothing on it is still here, at
+ * zero, so a chart of these cannot close up a gap.
+ */
+@Serializable
+data class ProjectDayStats(
+    val attempts: Long,
+    val passed: Long,
+    val failed: Long,
+    val interrupted: Long,
+    val inputTokens: Long,
+    val cachedInputTokens: Long,
+    val outputTokens: Long,
+    val date: String,
+)
+
+/**
+ * One card's spend in the window, not its whole history. `cardTitle` is absent when the card no longer
+ * exists: `wilson.card_events` has no foreign key to it.
+ */
+@Serializable
+data class ProjectCardStats(
+    val attempts: Long,
+    val passed: Long,
+    val failed: Long,
+    val interrupted: Long,
+    val inputTokens: Long,
+    val cachedInputTokens: Long,
+    val outputTokens: Long,
+    val cardId: String,
+    val cardTitle: String? = null,
+)
+
+/** The whole window. `cards` is how many different cards ran anything in it. */
+@Serializable
+data class ProjectStatsTotal(
+    val attempts: Long,
+    val passed: Long,
+    val failed: Long,
+    val interrupted: Long,
+    val inputTokens: Long,
+    val cachedInputTokens: Long,
+    val outputTokens: Long,
+    val cards: Long,
+)
+
+/**
  * `GET /api/cards/{id}/diff`'s response: every file the card's branch touched since
  * `merge-base(main, branch)`, one basis for the diff the CLI's own `wilson card diff` already uses
  * (this card's Constraints). `files` empty and `truncated` false together is a real, distinct
@@ -795,6 +883,24 @@ data class MergeResult(
 data class SplitResult(
     val origin: CardDetail,
     val pieces: List<CardDetail>,
+)
+
+/**
+ * `GET /api/stats`'s response: what a project spent and how its stages went, read from
+ * `EventLog.projectStats`. Tokens only, for the reason `CardUsage` gives. `topCards` is the ten cards
+ * that wrote the most output tokens, the figure the daily ceiling is held to, since a cached input
+ * total says little about what a run cost. Planning and review turns are not stage events, so none of
+ * this includes them.
+ */
+@Serializable
+data class ProjectStats(
+    val since: Instant,
+    val until: Instant,
+    val zone: String,
+    val total: ProjectStatsTotal,
+    val stages: List<ProjectStageStats>,
+    val days: List<ProjectDayStats>,
+    val topCards: List<ProjectCardStats>,
 )
 
 /** How the card ended, once it has. Absent for a card still on the board. */

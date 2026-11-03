@@ -25,6 +25,8 @@ import type {
     PlanSession,
     PlanTurn,
     PlanTurnRequest,
+    ProjectStats,
+    ProjectStatsQuery,
     RecordFindingsRequest,
     ReleaseResult,
     RenameCardRequest,
@@ -43,6 +45,7 @@ import {
     reviveMergeResult,
     revivePlanComment,
     revivePlanTurn,
+    reviveProjectStats,
     reviveReleaseResult,
     reviveSplitResult,
 } from './types/board.js';
@@ -438,6 +441,19 @@ export class BoardClient {
             method: 'GET',
         });
         return (await parseJson<ActivityEvent[]>(result)).map(reviveActivityEvent);
+    }
+
+    /**
+     * @name Get project stats
+     * @description What a project spent and how its stages went. Read-only, summed from `EventLog` on each request, in
+     * the server's time zone: the one the daily ceiling counts its day in.
+     */
+    async getProjectStats(query?: ProjectStatsQuery): Promise<ProjectStats> {
+        const qs = buildQueryString(query);
+        const result = await this.fetch(`/api/stats${qs}`, {
+            method: 'GET',
+        });
+        return reviveProjectStats(await parseJson<ProjectStats>(result));
     }
 
     /**

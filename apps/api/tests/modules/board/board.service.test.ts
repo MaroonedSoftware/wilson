@@ -126,6 +126,35 @@ describe('BoardService', () => {
         });
     });
 
+    describe('stats', () => {
+        const statsFor = async (days?: number) => {
+            const projectStats = vi.fn(async () => ({}));
+            const service = new BoardService({} as unknown as BoardRepository, { projectStats } as unknown as EventLog, config, worktrees);
+            await service.stats({ days });
+            const [project, since, until] = projectStats.mock.calls[0] as unknown as [string, DateTime, DateTime];
+            return { project, since, until };
+        };
+
+        it('reads the configured project from midnight, thirty days including today by default', async () => {
+            const { project, since, until } = await statsFor();
+
+            expect(project).toBe('proj');
+            expect(since.toMillis()).toBe(DateTime.now().startOf('day').minus({ days: 29 }).toMillis());
+            expect(until.toMillis()).toBeGreaterThan(DateTime.now().toMillis() - 1000);
+        });
+
+        it.each([
+            [1, 0],
+            [0, 0],
+            [-5, 0],
+            [100_000, 364],
+        ])('holds %i days to the allowed range', async (days, back) => {
+            const { since } = await statsFor(days);
+
+            expect(since.toMillis()).toBe(DateTime.now().startOf('day').minus({ days: back }).toMillis());
+        });
+    });
+
     describe('list', () => {
         it('maps board cards into summaries, leaving body and sections behind', async () => {
             const cards = [card('0001', { title: 'Ship it', stage: 'review', branch: 'card/0001', dependsOn: ['0000'] }, { Goal: 'x' }, 'the body')];

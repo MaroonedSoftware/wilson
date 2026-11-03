@@ -4,6 +4,7 @@ import type { DateTime } from 'luxon';
 import { Logger } from '@maroonedsoftware/logger';
 import type { DB } from '#modules/data/db.js';
 import { CARD_FEED_CHANNEL } from '#modules/feed/card.feed.js';
+import type { ProjectStageStats, ProjectStats, ProjectStatsCounts } from '../../generated/board.js';
 import type { CardEvent, CardEventType } from './card.event.js';
 
 export interface CardEventRow {
@@ -43,6 +44,29 @@ export interface CardUsage {
     total: { attempts: number; inputTokens: number; cachedInputTokens: number; outputTokens: number };
     stages: CardStageUsage[];
 }
+
+/** How many cards {@link EventLog.projectStats} names. */
+const TOP_CARDS = 10;
+
+const noCounts = (): ProjectStatsCounts => ({
+    attempts: 0,
+    passed: 0,
+    failed: 0,
+    interrupted: 0,
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+});
+
+const addCounts = (into: ProjectStatsCounts, counts: ProjectStatsCounts): void => {
+    into.attempts += counts.attempts;
+    into.passed += counts.passed;
+    into.failed += counts.failed;
+    into.interrupted += counts.interrupted;
+    into.inputTokens += counts.inputTokens;
+    into.cachedInputTokens += counts.cachedInputTokens;
+    into.outputTokens += counts.outputTokens;
+};
 
 /**
  * `card.over-budget` (card 0018) belongs in the closed `CardEventType` union alongside
@@ -270,6 +294,93 @@ export class EventLog {
         );
 
         return { total, stages };
+    }
+
+    /**
+     * What a project spent and how its stages went from `since` up to `until`, for reading: the same
+     * events and the same rules as {@link usageByStage}, across every card. Days are counted in
+     * `since`'s own zone, and every day from `since` to `until` is in the result, so a quiet day reads
+     * as zero rather than as missing.
+     *
+     * One grouped query, one row per day, stage and card, folded into each view here, so that the
+     * totals, the stages, the days and the cards are all sums of the same rows and cannot disagree.
+     */
+    async projectStats(project: string, since: DateTime, until: DateTime): Promise<ProjectStats> {
+        const zone = since.zoneName ?? 'UTC';
+        const rows = await this.db
+            .selectFrom('wilson.cardEvents as event')
+            .leftJoin('wilson.cards as card', join => join.onRef('card.project', '=', 'event.project').onRef('card.id', '=', 'event.cardId'))
+            .where('event.project', '=', project)
+            .where('event.type', 'in', ['stage.passed', 'stage.failed', 'stage.interrupted'])
+            .where('event.createdAt', '>=', since)
+            .where('event.createdAt', '<', until)
+            .select([
+                'event.stage',
+                'event.cardId',
+                'card.title as cardTitle',
+                sql<string>`to_char(event.created_at at time zone ${zone}, 'YYYY-MM-DD')`.as('day'),
+                sql<string>`count(*) filter (where event.type = 'stage.passed')`.as('passed'),
+                sql<string>`count(*) filter (where event.type = 'stage.failed')`.as('failed'),
+                sql<string>`count(*) filter (where event.type = 'stage.interrupted')`.as('interrupted'),
+                sql<string>`coalesce(sum(coalesce((event.payload->'usage'->>'inputTokens')::bigint, 0) + coalesce((event.payload->'usage'->>'cachedInputTokens')::bigint, 0)), 0)`.as(
+                    'inputTokens',
+                ),
+                sql<string>`coalesce(sum((event.payload->'usage'->>'cachedInputTokens')::bigint), 0)`.as('cachedInputTokens'),
+                sql<string>`coalesce(sum((event.payload->'usage'->>'outputTokens')::bigint), 0)`.as('outputTokens'),
+                sql<string>`min(event.id)`.as('firstId'),
+            ])
+            .groupBy(['day', 'event.stage', 'event.cardId', 'card.title'])
+            .orderBy('firstId', 'asc')
+            .execute();
+
+        const total = noCounts();
+        const stages = new Map<string, ProjectStatsCounts & { cardIds: Set<string> }>();
+        const cards = new Map<string, ProjectStatsCounts & { cardTitle?: string }>();
+        const days = new Map<string, ProjectStatsCounts>();
+
+        for (let day = since.startOf('day'); day < until; day = day.plus({ days: 1 })) {
+            days.set(day.toFormat('yyyy-MM-dd'), noCounts());
+        }
+
+        for (const row of rows) {
+            const passed = Number(row.passed);
+            const failed = Number(row.failed);
+            const counts: ProjectStatsCounts = {
+                attempts: passed + failed,
+                passed,
+                failed,
+                interrupted: Number(row.interrupted),
+                inputTokens: Number(row.inputTokens),
+                cachedInputTokens: Number(row.cachedInputTokens),
+                outputTokens: Number(row.outputTokens),
+            };
+            const stageName = row.stage ?? '';
+            const stage = stages.get(stageName) ?? { ...noCounts(), cardIds: new Set<string>() };
+            stages.set(stageName, stage);
+            const card = cards.get(row.cardId) ?? { ...noCounts(), ...(row.cardTitle ? { cardTitle: row.cardTitle } : {}) };
+            cards.set(row.cardId, card);
+            const day = days.get(row.day) ?? noCounts();
+            days.set(row.day, day);
+
+            addCounts(total, counts);
+            addCounts(stage, counts);
+            addCounts(card, counts);
+            addCounts(day, counts);
+            stage.cardIds.add(row.cardId);
+        }
+
+        return {
+            since,
+            until,
+            zone,
+            total: { ...total, cards: cards.size },
+            stages: [...stages].map(([stage, { cardIds, ...counts }]): ProjectStageStats => ({ stage, cards: cardIds.size, ...counts })),
+            days: [...days].map(([date, counts]) => ({ date, ...counts })),
+            topCards: [...cards]
+                .map(([cardId, counts]) => ({ cardId, ...counts }))
+                .sort((a, b) => b.outputTokens - a.outputTokens || b.inputTokens - a.inputTokens || a.cardId.localeCompare(b.cardId))
+                .slice(0, TOP_CARDS),
+        };
     }
 
     /**

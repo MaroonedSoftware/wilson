@@ -27,6 +27,8 @@ import com.maroonedsoftware.wilson.sdk.models.PlanDraft
 import com.maroonedsoftware.wilson.sdk.models.PlanSession
 import com.maroonedsoftware.wilson.sdk.models.PlanTurn
 import com.maroonedsoftware.wilson.sdk.models.PlanTurnRequest
+import com.maroonedsoftware.wilson.sdk.models.ProjectStats
+import com.maroonedsoftware.wilson.sdk.models.ProjectStatsQuery
 import com.maroonedsoftware.wilson.sdk.models.RecordFindingsRequest
 import com.maroonedsoftware.wilson.sdk.models.ReleaseResult
 import com.maroonedsoftware.wilson.sdk.models.RenameCardRequest
@@ -469,6 +471,19 @@ class BoardClient(private val http: SdkHttp) {
     suspend fun listProjectActivity(query: ActivityQuery? = null): List<ActivityEvent> {
         val response = http.execute(HttpMethod.Get) {
             path("api", "activity")
+            params(query)
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Get project stats
+     * What a project spent and how its stages went. Read-only, summed from `EventLog` on each request, in
+     * the server's time zone: the one the daily ceiling counts its day in.
+     */
+    suspend fun getProjectStats(query: ProjectStatsQuery? = null): ProjectStats {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "stats")
             params(query)
         }
         return http.decodeJson(response)

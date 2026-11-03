@@ -262,6 +262,65 @@ contract CardUsage: {
     stages: array(CardStageUsage)
 }
 
+# How many days of a project's history `GET /api/stats` reads, today included. Defaults to 30, and is
+# held to between 1 and 365.
+contract ProjectStatsQuery: {
+    days?: int
+}
+
+# The figures every row of `ProjectStats` holds, from the same events `CardUsage` reads. `attempts` is
+# `passed` plus `failed`: an interrupted run spends tokens and no retry, so it has its own count and
+# adds to no attempt. `inputTokens` includes `cachedInputTokens`, as in `CardStageUsage`.
+contract ProjectStatsCounts: {
+    attempts: int
+    passed: int
+    failed: int
+    interrupted: int
+    inputTokens: int
+    cachedInputTokens: int
+    outputTokens: int
+}
+
+# One stage across the project's cards, in the order the stage first ran in the window. `cards` is how
+# many cards ran it, so `attempts` over `cards` is how many tries that stage takes.
+contract ProjectStageStats: ProjectStatsCounts & {
+    stage: string
+    cards: int
+}
+
+# One calendar day in `ProjectStats.zone`, as `yyyy-MM-dd`. A day with nothing on it is still here, at
+# zero, so a chart of these cannot close up a gap.
+contract ProjectDayStats: ProjectStatsCounts & {
+    date: string
+}
+
+# One card's spend in the window, not its whole history. `cardTitle` is absent when the card no longer
+# exists: `wilson.card_events` has no foreign key to it.
+contract ProjectCardStats: ProjectStatsCounts & {
+    cardId: string
+    cardTitle?: string
+}
+
+# The whole window. `cards` is how many different cards ran anything in it.
+contract ProjectStatsTotal: ProjectStatsCounts & {
+    cards: int
+}
+
+# `GET /api/stats`'s response: what a project spent and how its stages went, read from
+# `EventLog.projectStats`. Tokens only, for the reason `CardUsage` gives. `topCards` is the ten cards
+# that wrote the most output tokens, the figure the daily ceiling is held to, since a cached input
+# total says little about what a run cost. Planning and review turns are not stage events, so none of
+# this includes them.
+contract ProjectStats: {
+    since: datetime
+    until: datetime
+    zone: string
+    total: ProjectStatsTotal
+    stages: array(ProjectStageStats)
+    days: array(ProjectDayStats)
+    topCards: array(ProjectCardStats)
+}
+
 # Card 0265. One file changed in a card's branch since it forked from `main` —
 # `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
 # `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
@@ -1148,6 +1207,24 @@ operation /api/activity: {
         response: {
             200: {
                 application/json: array(ActivityEvent)
+            }
+        }
+    }
+}
+
+# What a project spent and how its stages went. Read-only, summed from `EventLog` on each request, in
+# the server's time zone: the one the daily ceiling counts its day in.
+operation /api/stats: {
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: Get project stats
+        service: BoardService.stats
+        query: ProjectStatsQuery
+        response: {
+            200: {
+                application/json: ProjectStats
             }
         }
     }
