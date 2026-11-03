@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
-import { assertRoutable, StageConfigSchema, ProjectStagesSchema, MAX_STAGE_WALL_CLOCK_MS, findStage, parseStages } from '#modules/stages/stage.config.js';
+import {
+    assertRoutable,
+    StageConfigSchema,
+    ProjectStagesSchema,
+    MAX_STAGE_WALL_CLOCK_MS,
+    findStage,
+    parseStages,
+} from '#modules/stages/stage.config.js';
 import { CARD_STAGE_EXPIRES_IN } from '#modules/jobs/jobs.module.js';
 
 /**
@@ -365,5 +372,15 @@ stages:
         expect(findStage(stages, 'review')).toMatchObject({ instructions: 'find what is wrong', maxSteps: 150, verifier: 'review' });
         expect(findStage(stages, 'review').step).toBeUndefined();
         expect(() => findStage(stages, 'review', 'nope')).toThrow(/no step named "nope"/);
+    });
+});
+
+describe('routing the ready lane', () => {
+    it('takes a Claude model and nothing else', () => {
+        expect(() => assertRoutable('ready', { adapter: 'cli', provider: 'anthropic', model: 'claude-opus-5-5' })).not.toThrow();
+        expect(() => assertRoutable('ready', { adapter: 'api', provider: 'openai', model: 'gpt-5' })).toThrow(/review workspace always runs Claude/);
+        expect(() => assertRoutable('ready', { adapter: 'codex', provider: 'openai', model: 'gpt-5' })).toThrow(
+            /review workspace always runs Claude/,
+        );
     });
 });

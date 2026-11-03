@@ -6,9 +6,9 @@ import type { DB } from '#modules/data/db.js';
 import { isDeepStrictEqual } from 'node:util';
 import {
     assertRoutable,
+    canRoute,
     findStage,
     parseStages,
-    runsModel,
     StageConfigError,
     validateStages,
     type ProjectStages,
@@ -310,7 +310,7 @@ export class PostgresStageConfigStore extends StageConfigStore {
 
     async saveRouting(stage: string, routing: StageRouting, message: string): Promise<void> {
         const { isolated, mode } = findStage(await this.load(), stage);
-        if (!runsModel({ name: stage, mode })) throw new StageConfigError('config-invalid', `${stage} runs no model, so it has no routing to set`);
+        if (!canRoute({ name: stage, mode })) throw new StageConfigError('config-invalid', `${stage} runs no model, so it has no routing to set`);
         assertRoutable(stage, routing, isolated);
 
         const project = this.config.project;
@@ -393,7 +393,7 @@ export class StaticStageConfigStore extends StageConfigStore {
 
     async saveRouting(stage: string, routing: StageRouting): Promise<void> {
         const { isolated, mode } = findStage(await this.load(), stage);
-        if (!runsModel({ name: stage, mode })) throw new StageConfigError('config-invalid', `${stage} runs no model, so it has no routing to set`);
+        if (!canRoute({ name: stage, mode })) throw new StageConfigError('config-invalid', `${stage} runs no model, so it has no routing to set`);
         assertRoutable(stage, routing, isolated);
         this.routing.set(stage, routing);
     }

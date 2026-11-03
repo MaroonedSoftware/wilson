@@ -674,12 +674,15 @@ function ChatEngineControl() {
     );
 }
 
+/** Lanes whose session always runs Claude, whatever is routed. */
+const CLAUDE_ONLY_LANES = ['planning', 'ready'];
+
 /**
  * Whether a stage can run on a provider other than Anthropic. The `cli` engine and the planning
  * session always run Claude, and the API refuses anything else (`assertRoutable`).
  */
 function canChooseProvider(route: Pick<StageRouting, 'stage' | 'adapter'>): boolean {
-    return route.adapter === 'api' && route.stage !== 'planning';
+    return route.adapter === 'api' && !CLAUDE_ONLY_LANES.includes(route.stage);
 }
 
 /** One stage's engine, provider and model, saved on its own. */
@@ -704,7 +707,7 @@ function StageRoutingRow({ route }: { route: StageRouting }) {
                 {route.stage}
             </Text>
             <Group gap="xs" align="flex-end">
-                {route.stage !== 'planning' && (
+                {!CLAUDE_ONLY_LANES.includes(route.stage) && (
                     <SegmentedControl
                         aria-label={`${route.stage} adapter`}
                         size="xs"
@@ -740,6 +743,7 @@ function StageRoutingRow({ route }: { route: StageRouting }) {
                     aria-label={`${route.stage} model`}
                     size="xs"
                     value={draft.model}
+                    placeholder={route.stage === 'ready' ? "The chat engine's model" : undefined}
                     onChange={event => setDraft({ ...draft, model: event.currentTarget.value })}
                     disabled={mutation.isPending}
                 />
@@ -756,7 +760,7 @@ function StageRoutingRow({ route }: { route: StageRouting }) {
     );
 }
 
-/** Which engine, provider and model each stage runs on. Manual stages reach no model, bar planning. */
+/** Which engine, provider and model each lane runs on. Manual lanes reach no model, bar planning and ready. */
 function StageRoutingControl() {
     const wilson = useWilsonSdk();
     const routing = useQuery({ queryKey: STAGE_ROUTING_QUERY_KEY, queryFn: () => wilson.stages.listStageRouting() });
@@ -773,7 +777,7 @@ function StageRoutingControl() {
     return (
         <Stack gap="md">
             {routing.data
-                .filter(route => route.mode === 'agent' || route.stage === 'planning')
+                .filter(route => route.mode === 'agent' || CLAUDE_ONLY_LANES.includes(route.stage))
                 .map(route => (
                     <StageRoutingRow key={route.stage} route={route} />
                 ))}

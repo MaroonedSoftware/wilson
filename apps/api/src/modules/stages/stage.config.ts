@@ -68,6 +68,12 @@ export const isPlanCheck = (stage: StageConfig): boolean => stage.steps?.some(st
 export const runsModel = (stage: { name: string; mode: string }): boolean => stage.mode === 'agent' || stage.name === 'planning';
 
 /**
+ * Whether a lane's routing can be set. `ready` is here but not in `runsModel`: its review workspace
+ * runs the chat engine's model until the lane names one, so it can have a model without needing one.
+ */
+export const canRoute = (stage: { name: string; mode: string }): boolean => runsModel(stage) || stage.name === 'ready';
+
+/**
  * Stages are config, not code (PROJECT.md decision 8).
  *
  * Only `implementing` is configured today, but the shape is the full one — mode, worktree
@@ -447,17 +453,19 @@ export const assertRoutable = (stage: string, routing: StageRouting, isolated?: 
     if (!routing.model.trim()) {
         throw new StageConfigError('config-invalid', 'a model is required');
     }
+    const session = { planning: 'the planning session', ready: 'the review workspace' }[stage];
     if (routing.adapter === 'codex') {
-        if (stage === 'planning')
-            throw new StageConfigError('config-invalid', 'the planning session always runs Claude, so it cannot use the codex adapter');
+        if (session) throw new StageConfigError('config-invalid', `${session} always runs Claude, so it cannot use the codex adapter`);
         if (routing.provider !== 'openai')
             throw new StageConfigError('config-invalid', `the codex adapter always runs OpenAI, so ${stage} cannot use provider ${routing.provider}`);
         if (!isolated)
             throw new StageConfigError('config-invalid', `${stage} must be marked isolated in its stage config before it can use the codex adapter`);
     }
-    if (routing.provider !== 'anthropic' && (routing.adapter === 'cli' || stage === 'planning')) {
-        const engine = stage === 'planning' ? 'the planning session' : 'the cli adapter';
-        throw new StageConfigError('config-invalid', `${engine} always runs Claude, so ${stage} cannot use provider ${routing.provider}`);
+    if (routing.provider !== 'anthropic' && (routing.adapter === 'cli' || session)) {
+        throw new StageConfigError(
+            'config-invalid',
+            `${session ?? 'the cli adapter'} always runs Claude, so ${stage} cannot use provider ${routing.provider}`,
+        );
     }
 };
 

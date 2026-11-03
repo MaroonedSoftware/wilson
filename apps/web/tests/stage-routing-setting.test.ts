@@ -27,6 +27,7 @@ const baseHealth: Health = {
 };
 
 const planning: StageRouting = { stage: 'planning', mode: 'manual', adapter: 'api', provider: 'anthropic', model: 'claude-opus-5' };
+const ready: StageRouting = { stage: 'ready', mode: 'manual', adapter: 'api', provider: 'anthropic' };
 const backlog: StageRouting = { stage: 'backlog', mode: 'manual', adapter: 'api', provider: 'anthropic', model: 'claude-sonnet-5' };
 const implementing: StageRouting = { stage: 'implementing', mode: 'agent', adapter: 'cli', provider: 'anthropic', model: 'claude-sonnet-5' };
 
@@ -54,7 +55,7 @@ function renderSettings() {
 
 beforeEach(() => {
     vi.spyOn(wilson.health, 'getHealth').mockResolvedValue(baseHealth);
-    vi.spyOn(wilson.stages, 'listStageRouting').mockResolvedValue([planning, backlog, implementing]);
+    vi.spyOn(wilson.stages, 'listStageRouting').mockResolvedValue([planning, backlog, implementing, ready]);
     vi.stubGlobal('EventSource', FakeEventSource);
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     vi.stubGlobal(
@@ -80,6 +81,17 @@ afterEach(() => {
 });
 
 describe('the stage routing control', () => {
+    it('offers ready a model only, falling back to the chat engine', async () => {
+        renderSettings();
+        await screen.findByLabelText('implementing model');
+
+        const model = screen.getByLabelText('ready model') as HTMLInputElement;
+        expect(model.value).toBe('');
+        expect(model.placeholder).toContain('chat engine');
+        expect(screen.queryByLabelText('ready provider')).toBeNull();
+        expect(screen.queryByLabelText('ready adapter')).toBeNull();
+    });
+
     it('lists the stages that reach a model, and no others', async () => {
         renderSettings();
 

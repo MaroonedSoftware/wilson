@@ -22,6 +22,7 @@ import { SettingsStore } from '#modules/settings/settings.store.js';
 import { StageConfigError } from '#modules/stages/stage.config.js';
 import { Mutex } from '#src/shared/mutex.js';
 import type { DiffFileEntry } from '#modules/worktree/worktree.manager.js';
+import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import type { HumanFinding } from '../../generated/board.js';
 import type {
     CreateReviewCommentRequest,
@@ -129,6 +130,7 @@ export class ReviewService {
         private readonly reads: CodeReadRepository,
         private readonly context: ServerKitContext,
         private readonly logger: Logger,
+        private readonly stageConfigs: StageConfigStore,
     ) {
         this.reviews = new ReviewRepository(this.boardConfig, this.db);
         this.comments = new ReviewCommentRepository(this.boardConfig, this.db);
@@ -343,14 +345,17 @@ export class ReviewService {
     private async runEngine(id: string, turn: Pick<Parameters<CliChatEngine['turn']>[0], 'thread' | 'history' | 'text' | 'tools'>) {
         const project = this.boardConfig.project;
         const choice = await this.settings.get(CHAT_ENGINE);
+        const { stages } = await this.stageConfigs.load();
+        const laneModel = stages.find(stage => stage.name === REVIEW_STAGE)?.model;
         try {
             return await this.engine.turn({
                 ...turn,
                 system: reviewSystemPrompt(),
                 provider: 'anthropic',
-                // Review always runs on the 'cli' engine, which is only ever Claude, so a model chosen for
-                // another provider can't be used here.
-                model: choice.provider === 'anthropic' ? choice.model : DEFAULT_CHAT_ENGINE.model,
+                // The lane's model when it names one. Otherwise the chat engine's: review always runs on the
+                // 'cli' engine, which is only ever Claude, so a model chosen for another provider can't
+                // be used here.
+                model: laneModel ?? (choice.provider === 'anthropic' ? choice.model : DEFAULT_CHAT_ENGINE.model),
                 maxSteps: MAX_REVIEW_STEPS,
                 onlyOwnTools: true,
                 onText: delta => publishReview(project, id, { event: 'delta', data: delta }),
