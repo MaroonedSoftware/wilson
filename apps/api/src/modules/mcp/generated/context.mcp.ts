@@ -6,8 +6,9 @@ import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import { requireMcpPolicy, type McpToolHandler, type McpToolHandlerMap, type McpToolContext } from '@maroonedsoftware/mcp';
 import { PolicyService } from '@maroonedsoftware/policies';
 import { parseAndValidate } from '@maroonedsoftware/zod';
+import { AttachmentService } from '#modules/context/attachment.service.js';
 import { ContextService } from '#modules/context/context.service.js';
-import { AttachContextRequest, ContextSnapshot } from '../../../generated/context.js';
+import { AttachContextRequest, CardAttachment, ContextSnapshot } from '../../../generated/context.js';
 
 /** The request's scoped container, which a tool resolving per call reads its service and policies from. */
 function requireMcpContainer(context: McpToolContext): Container {
@@ -20,6 +21,8 @@ function requireMcpContainer(context: McpToolContext): Container {
 const AttachContextToACardArgs = z.object({ id: z.string(), body: AttachContextRequest });
 const ListCardContextArgs = z.object({ id: z.string() });
 const RemoveAContextSnapshotArgs = z.object({ id: z.string(), contextId: z.string() });
+const ListCardAttachmentsArgs = z.object({ id: z.string() });
+const RemoveAnAttachmentArgs = z.object({ id: z.string(), attachmentId: z.string() });
 
 /**
  * from [context.ck](../../../../data/contracts/context.ck) `POST /api/cards/{id}/context`
@@ -89,11 +92,59 @@ export class RemoveAContextSnapshotMcpTool implements McpToolHandler {
     }
 }
 
+/**
+ * from [context.ck](../../../../data/contracts/context.ck) `GET /api/cards/{id}/attachments`
+ */
+@Injectable()
+export class ListCardAttachmentsMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'list_card_attachments',
+        inputSchema: z.toJSONSchema(ListCardAttachmentsArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(z.object({ items: z.array(CardAttachment) }), { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
+        const { id } = await parseAndValidate(args, ListCardAttachmentsArgs);
+        const result = await container.get(AttachmentService).list(id);
+        const resultJson = JSON.stringify({ items: result });
+        return { content: [{ type: 'text', text: resultJson }], structuredContent: JSON.parse(resultJson) };
+    }
+}
+
+/**
+ * from [context.ck](../../../../data/contracts/context.ck) `DELETE /api/cards/{id}/attachments/{attachmentId}`
+ */
+@Injectable()
+export class RemoveAnAttachmentMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'remove_an_attachment',
+        description:
+            '`attachmentId`, not a second `id`, for the reason `{contextId}` above has: a `params` block is keyed\nby name. Nesting under the card lets one 404 cover a card that does not exist and an attachment id\nthat does not exist, belongs to another card, or is not an id at all.',
+        inputSchema: z.toJSONSchema(RemoveAnAttachmentArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.manage' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.manage' });
+        const { id, attachmentId } = await parseAndValidate(args, RemoveAnAttachmentArgs);
+        await container.get(AttachmentService).remove(id, attachmentId);
+        return { content: [{ type: 'text', text: 'OK' }] };
+    }
+}
+
 /** Add a handler for each of this file's operations to the catalog, unlisted in `tools/list`. */
 export function registerContextMcpCatalog(map: McpToolHandlerMap, container: Container): void {
     map.set('attach_context_to_a_card', container.get(AttachContextToACardMcpTool));
     map.set('list_card_context', container.get(ListCardContextMcpTool));
     map.set('remove_a_context_snapshot', container.get(RemoveAContextSnapshotMcpTool));
+    map.set('list_card_attachments', container.get(ListCardAttachmentsMcpTool));
+    map.set('remove_an_attachment', container.get(RemoveAnAttachmentMcpTool));
 }
 
 /** Register this file's tool classes on the registry, so the tool maps can resolve them. */
@@ -101,4 +152,6 @@ export function registerContextMcpToolClasses(registry: Registry): void {
     registry.register(AttachContextToACardMcpTool).useClass(AttachContextToACardMcpTool).asSingleton();
     registry.register(ListCardContextMcpTool).useClass(ListCardContextMcpTool).asSingleton();
     registry.register(RemoveAContextSnapshotMcpTool).useClass(RemoveAContextSnapshotMcpTool).asSingleton();
+    registry.register(ListCardAttachmentsMcpTool).useClass(ListCardAttachmentsMcpTool).asSingleton();
+    registry.register(RemoveAnAttachmentMcpTool).useClass(RemoveAnAttachmentMcpTool).asSingleton();
 }

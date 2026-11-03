@@ -46,3 +46,37 @@ export function reviveContextSnapshot(raw: ContextSnapshot): ContextSnapshot {
 export interface AttachContextRequest {
     sourceUrl: string;
 }
+
+/**
+ * An image kept on a card (split from card 0006). Metadata only: the bytes are a `BYTEA` column on
+ * `wilson.card_attachments`, for the reason that migration's header gives, and they are not in this
+ * contract because a card at its 20 MB cap must still list as a small JSON response. One attachment's
+ * bytes come from `GET .../attachments/{attachmentId}`. `contentType` is the type sniffed from the
+ * bytes, never the one the uploader declared.
+ * generated from [CardAttachment](../../../../apps/api/data/contracts/context.ck)
+ */
+export interface CardAttachment {
+    id: string;
+    filename: string;
+    contentType: string;
+    byteSize: number;
+    contentHash: string;
+    addedBy: string;
+    createdAt: DateTime;
+}
+
+/** Rehydrates every wire-encoded scalar in a CardAttachment into its runtime type. Mutates and returns `raw`. */
+export function reviveCardAttachment(raw: CardAttachment): CardAttachment {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['createdAt'] = __dt(__o0['createdAt'], 'CardAttachment.createdAt');
+    return raw;
+}
+
+/**
+ * Documentation, not validation: a multipart body reaches `AttachmentService.attach` as the parser's
+ * own `MultipartBody`, and the SDK types it as `FormData`, so nothing checks this shape.
+ * generated from [AttachImageUpload](../../../../apps/api/data/contracts/context.ck)
+ */
+export interface AttachImageUpload {
+    file: Blob;
+}

@@ -4,6 +4,8 @@ import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { BoardConfig } from '#modules/board/board.config.js';
 import type { DB } from '#modules/data/db.js';
+import { AttachmentService } from './attachment.service.js';
+import { CardAttachmentRepository } from './card.attachment.repository.js';
 import { CardContextRepository } from './card.context.repository.js';
 import { ContextProviderRegistry } from './context.provider.registry.js';
 import { ContextService } from './context.service.js';
@@ -18,6 +20,10 @@ import { UrlContextProvider } from './url.context.provider.js';
  * constructor takes a plain array, not a set of DI tokens, so a factory that builds the one
  * provider registered today (`UrlContextProvider`) is simpler than giving that provider a DI
  * registration of its own that nothing else would ever resolve.
+ *
+ * Image attachments live here too rather than in a module of their own, because `context.ck` already
+ * owns attaching something to a card over HTTP: `CardAttachmentRepository` is registered the way
+ * `CardContextRepository` is, and `AttachmentService` sits beside `ContextService`.
  */
 export const ContextModule: ServerKitModule = {
     name: 'Context',
@@ -27,9 +33,14 @@ export const ContextModule: ServerKitModule = {
             .useFactory(container => new CardContextRepository(container.get(BoardConfig), container.get(Kysely<DB>)))
             .asTransient();
         registry
+            .register(CardAttachmentRepository)
+            .useFactory(container => new CardAttachmentRepository(container.get(BoardConfig), container.get(Kysely<DB>)))
+            .asTransient();
+        registry
             .register(ContextProviderRegistry)
             .useFactory(() => new ContextProviderRegistry([new UrlContextProvider()]))
             .asSingleton();
         registry.register(ContextService).useClass(ContextService).asTransient();
+        registry.register(AttachmentService).useClass(AttachmentService).asTransient();
     },
 };

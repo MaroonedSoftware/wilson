@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { DateTime } from 'luxon';
 
+const _ZodBinary = z.custom<Buffer>(val => Buffer.isBuffer(val), { error: 'Must be binary data' });
 const _ZodDatetime = z.preprocess(
     val => (typeof val === 'string' ? DateTime.fromISO(val) : val),
     z.custom<DateTime>(val => val instanceof DateTime && val.isValid, { message: 'Must be in ISO 8601 format' }),
@@ -38,3 +39,32 @@ export const AttachContextRequest = z.strictObject({
     sourceUrl: z.string(),
 });
 export type AttachContextRequest = z.infer<typeof AttachContextRequest>;
+
+/**
+ * An image kept on a card (split from card 0006). Metadata only: the bytes are a `BYTEA` column on
+ * `wilson.card_attachments`, for the reason that migration's header gives, and they are not in this
+ * contract because a card at its 20 MB cap must still list as a small JSON response. One attachment's
+ * bytes come from `GET .../attachments/{attachmentId}`. `contentType` is the type sniffed from the
+ * bytes, never the one the uploader declared.
+ * generated from [CardAttachment](../../data/contracts/context.ck)
+ */
+export const CardAttachment = z.strictObject({
+    id: z.string(),
+    filename: z.string(),
+    contentType: z.string(),
+    byteSize: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    contentHash: z.string(),
+    addedBy: z.string(),
+    createdAt: _ZodDatetime,
+});
+export type CardAttachment = z.infer<typeof CardAttachment>;
+
+/**
+ * Documentation, not validation: a multipart body reaches `AttachmentService.attach` as the parser's
+ * own `MultipartBody`, and the SDK types it as `FormData`, so nothing checks this shape.
+ * generated from [AttachImageUpload](../../data/contracts/context.ck)
+ */
+export const AttachImageUpload = z.strictObject({
+    file: _ZodBinary,
+});
+export type AttachImageUpload = z.infer<typeof AttachImageUpload>;

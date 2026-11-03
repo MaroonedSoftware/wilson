@@ -80,6 +80,9 @@ importers:
       '@maroonedsoftware/mcp':
         specifier: ^0.7.7
         version: 0.7.7(@maroonedsoftware/cache@0.6.0)(zod@4.6.7)
+      '@maroonedsoftware/multipart':
+        specifier: ^1.3.8
+        version: 1.3.8
       '@maroonedsoftware/policies':
         specifier: ^0.6.9
         version: 0.6.9

@@ -58,3 +58,44 @@ public sealed record AttachContextRequest
     [JsonPropertyName("sourceUrl")]
     public required string SourceUrl { get; init; }
 }
+
+/// <summary>
+/// An image kept on a card (split from card 0006). Metadata only: the bytes are a `BYTEA` column on
+/// `wilson.card_attachments`, for the reason that migration's header gives, and they are not in this
+/// contract because a card at its 20 MB cap must still list as a small JSON response. One attachment's
+/// bytes come from `GET .../attachments/{attachmentId}`. `contentType` is the type sniffed from the
+/// bytes, never the one the uploader declared.
+/// </summary>
+public sealed record CardAttachment
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("filename")]
+    public required string Filename { get; init; }
+
+    [JsonPropertyName("contentType")]
+    public required string ContentType { get; init; }
+
+    [JsonPropertyName("byteSize")]
+    public required long ByteSize { get; init; }
+
+    [JsonPropertyName("contentHash")]
+    public required string ContentHash { get; init; }
+
+    [JsonPropertyName("addedBy")]
+    public required string AddedBy { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; init; }
+}
+
+/// <summary>
+/// Documentation, not validation: a multipart body reaches `AttachmentService.attach` as the parser's
+/// own `MultipartBody`, and the SDK types it as `FormData`, so nothing checks this shape.
+/// </summary>
+public sealed record AttachImageUpload
+{
+    [JsonPropertyName("file")]
+    public required byte[] File { get; init; }
+}
