@@ -326,6 +326,35 @@ export interface WilsonProjects {
   worktreeRoot: string;
 }
 
+export interface WilsonReviewComments {
+  cardId: string;
+  contextAfter: Generated<string[]>;
+  contextBefore: Generated<string[]>;
+  createdAt: Generated<DateTime>;
+  file: string;
+  headSha: string;
+  id: Generated<bigint>;
+  line: number;
+  lineText: string;
+  project: string;
+  reviewId: bigint;
+  severity: Generated<"blocker" | "concern">;
+  side: "old" | "new";
+  status: Generated<"open" | "resolved" | "sent">;
+  text: string;
+}
+
+export interface WilsonReviews {
+  baseSha: string;
+  cardId: string;
+  createdAt: Generated<DateTime>;
+  headSha: string;
+  id: Generated<bigint>;
+  project: string;
+  status: Generated<"open" | "changes_requested" | "approved" | "superseded">;
+  verdictAt: DateTime | null;
+}
+
 export interface WilsonSettings {
   key: string;
   project: string;
@@ -397,6 +426,8 @@ export interface DB {
   "wilson.planTurns": WilsonPlanTurns;
   "wilson.projects": WilsonProjects;
   "wilson.pushDevices": WilsonPushDevices;
+  "wilson.reviewComments": WilsonReviewComments;
+  "wilson.reviews": WilsonReviews;
   "wilson.settings": WilsonSettings;
   "wilson.sourceCursors": WilsonSourceCursors;
   "wilson.stageConfigs": WilsonStageConfigs;

@@ -37,6 +37,7 @@ import { HostsRouter } from './hosts.router.js';
 import { LearningsRouter } from './learnings.router.js';
 import { OnboardingRouter } from './onboarding.router.js';
 import { ProjectsRouter } from './projects.router.js';
+import { ReviewRouter } from './review.router.js';
 import { SettingsRouter } from './settings.router.js';
 import { StagesRouter } from './stages.router.js';
 
@@ -342,6 +343,7 @@ export const routers = (signal?: AbortSignal) => [
     FactorsRouter,
     DevicesRouter,
     CodeRouter,
+    ReviewRouter,
     FeedRouter(signal),
     PlanStreamRouter(signal),
     ChatStreamRouter(signal),
