@@ -13,8 +13,9 @@ import type { StageAttachment } from '#modules/agent/stage.agent.js';
  * message is the text alone and says nothing about images. `ToolLoopAgent` is mocked, as in
  * `api.stage.agent.learnings.test.ts`.
  */
-const { generateMock } = vi.hoisted(() => ({
+const { generateMock, agentOptions } = vi.hoisted(() => ({
     generateMock: vi.fn(),
+    agentOptions: [] as Record<string, unknown>[],
 }));
 
 vi.mock('ai', async importOriginal => {
@@ -22,7 +23,9 @@ vi.mock('ai', async importOriginal => {
     return {
         ...actual,
         ToolLoopAgent: class {
-            constructor(_options: Record<string, unknown>) {}
+            constructor(options: Record<string, unknown>) {
+                agentOptions.push(options);
+            }
             generate(args: unknown) {
                 return generateMock(args);
             }
@@ -80,6 +83,33 @@ const textFromCall = (): string => messagesFromCall()[0]!.content[0]!.text!;
 describe('ApiStageAgent attachments (card 0010)', () => {
     afterEach(() => {
         generateMock.mockReset();
+        agentOptions.length = 0;
+    });
+
+    it('AC9: keeps the image parts on message 0 through a compaction', async () => {
+        generateMock.mockResolvedValue({ usage: { inputTokens: 0, outputTokens: 0 }, steps: [] });
+        await new ApiStageAgent(fakeModels).run(runInput(ATTACHMENTS) as never);
+
+        const first = messagesFromCall()[0]!;
+        // Long enough that compaction elides older tool results.
+        const history = Array.from({ length: 60 }, (_, i) =>
+            i % 2 === 0
+                ? { role: 'assistant', content: [{ type: 'tool-call', toolCallId: `c${i}`, toolName: 'read', input: {} }] }
+                : { role: 'tool', content: [{ type: 'tool-result', toolCallId: `c${i - 1}`, toolName: 'read', output: { type: 'text', value: 'x'.repeat(100) } }] },
+        );
+        const prepareStep = agentOptions[0]!.prepareStep as (args: { messages: unknown[] }) => { messages: { role: string; content: Part[] }[] };
+        const { messages } = prepareStep({ messages: [first, ...history] });
+
+        // Compaction did happen…
+        const elided = messages.filter(m => m.role === 'tool' && JSON.stringify(m.content).includes('elided'));
+        expect(elided.length).toBeGreaterThan(0);
+        // …and message 0 still carries every image part, bytes and type intact.
+        const images = messages[0]!.content.filter(p => p.type === 'image');
+        expect(images).toHaveLength(2);
+        images.forEach((part, i) => {
+            expect(part.mediaType).toBe(ATTACHMENTS[i]!.contentType);
+            expect(Buffer.compare(Buffer.from(part.image as Uint8Array), ATTACHMENTS[i]!.bytes)).toBe(0);
+        });
     });
 
     it('sends one user message: the text part, then one image part per attachment with its bytes and type', async () => {

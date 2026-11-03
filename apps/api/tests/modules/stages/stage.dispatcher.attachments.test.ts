@@ -233,6 +233,31 @@ describe('StageDispatcher.run materialises a card’s attachments (card 0010)', 
         expect(first).toHaveLength(2);
     });
 
+    it('AC4: removing the last attachment between dispatches leaves no directory and hands the adapter none', async () => {
+        const { dispatcher, repository, probes, attach, resetStage, localDir } = await setUp();
+        const png = await attach('login.png', 'image/png', PNG);
+
+        await dispatcher.run('0001', 'testing');
+        expect(await readdir(localDir)).toEqual([`${png.id}-login.png`]);
+        await repository.remove('0001', png.id);
+        await resetStage();
+        await dispatcher.run('0001', 'testing');
+
+        expect(existsSync(localDir)).toBe(false);
+        expect(probes[1]!.input.attachments ?? []).toEqual([]);
+    });
+
+    it('AC4: two attachments with the same filename land as two distinct files', async () => {
+        const { dispatcher, probes, attach, localDir } = await setUp();
+        const a = await attach('shot.png', 'image/png', PNG);
+        const b = await attach('shot.png', 'image/png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x01]));
+
+        await dispatcher.run('0001', 'testing');
+
+        expect((await readdir(localDir)).sort()).toEqual([`${a.id}-shot.png`, `${b.id}-shot.png`].sort());
+        expect(new Set(probes[0]!.input.attachments!.map(x => x.path)).size).toBe(2);
+    });
+
     it('AC5: a card with no attachments gets none, and no directory', async () => {
         const { dispatcher, probes, localDir } = await setUp();
 
@@ -304,6 +329,36 @@ describe('StageDispatcher.run materialises a card’s attachments (card 0010)', 
             await dispatcher.run('0001', 'testing');
 
             expect([...host.bytes.keys()]).toEqual([`/opt/agent/run/cards/0001/attachments/${jpeg.id}-mockup.jpg`]);
+        });
+
+        it('AC3/AC6: the host path is readable and never writable, and the event counts it', async () => {
+            const host = new MemoryHost();
+            const { dispatcher, events, probes, attach } = await setUp({ placement: placementOn(host) });
+            const png = await attach('login.png', 'image/png', PNG);
+
+            await dispatcher.run('0001', 'testing');
+
+            const remote = `/opt/agent/run/cards/0001/attachments/${png.id}-login.png`;
+            expect(probes[0]!.reads[remote]).toMatchObject({ allowed: true });
+            expect(probes[0]!.writes[remote]).toMatchObject({ allowed: false });
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({ type: 'stage.dispatched', payload: expect.objectContaining({ attachments: 1 }) }),
+            );
+        });
+
+        it('AC6: removing the last attachment clears it from the host on the next dispatch', async () => {
+            const host = new MemoryHost();
+            const { dispatcher, repository, probes, attach, resetStage } = await setUp({ placement: placementOn(host) });
+            const png = await attach('login.png', 'image/png', PNG);
+
+            await dispatcher.run('0001', 'testing');
+            expect(host.bytes.size).toBe(1);
+            await repository.remove('0001', png.id);
+            await resetStage();
+            await dispatcher.run('0001', 'testing');
+
+            expect([...host.bytes.keys()].filter(k => k.includes('/attachments/'))).toEqual([]);
+            expect(probes[1]!.input.attachments ?? []).toEqual([]);
         });
     });
 });
