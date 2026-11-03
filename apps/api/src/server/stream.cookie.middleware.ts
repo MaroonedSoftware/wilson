@@ -1,8 +1,13 @@
 import type { ServerKitMiddleware } from '@maroonedsoftware/koa';
 import { STREAM_COOKIE } from '#modules/authentication/session.cookies.js';
 
-/** The event streams: the board feed, a card's planning conversation, and a chat thread. */
-const STREAM_PATHS = [/^\/api\/feed$/, /^\/api\/cards\/[^/]+\/plan\/stream$/, /^\/api\/chat\/threads\/[^/]+\/stream$/];
+/** The event streams: the board feed, a card's planning and review conversations, and a chat thread. */
+const STREAM_PATHS = [
+    /^\/api\/feed$/,
+    /^\/api\/cards\/[^/]+\/plan\/stream$/,
+    /^\/api\/cards\/[^/]+\/review\/stream$/,
+    /^\/api\/chat\/threads\/[^/]+\/stream$/,
+];
 
 /**
  * Lets the web app's `EventSource` authenticate. The browser's `EventSource` cannot set headers, so

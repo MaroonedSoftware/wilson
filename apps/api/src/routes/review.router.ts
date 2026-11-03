@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
 import { ReviewService } from '#modules/review/review.service.js';
-import { CreateReviewCommentRequest, ReviewComment, ReviewState, ReviewVerdictRequest } from '../generated/review.js';
+import { CreateReviewCommentRequest, ReviewComment, ReviewState, ReviewTurn, ReviewTurnRequest, ReviewVerdictRequest } from '../generated/review.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
@@ -130,6 +130,54 @@ ReviewRouter.post('/api/cards/:id/review/approve', requirePolicy({ policy: 'wils
 
     const service = ctx.container.get(ReviewService);
     const result: ReviewState = await service.approve(id, body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * The conversation with the agent walking the person through the change. It reads committed code at the
+ * review's commit and has no way to change anything. A turn's answer arrives as it is written over
+ * `GET .../review/stream`, a hand-built route in `routes.setup.ts` because this file can't describe a
+ * response that never resolves. It sends `delta`, then `done` or `failed`.
+ * from [review.ck](../../data/contracts/review.ck) `GET /api/cards/{id}/review/turns`
+ */
+ReviewRouter.get('/api/cards/:id/review/turns', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const service = ctx.container.get(ReviewService);
+    const result: ReviewTurn[] = await service.turns(id);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * The conversation with the agent walking the person through the change. It reads committed code at the
+ * review's commit and has no way to change anything. A turn's answer arrives as it is written over
+ * `GET .../review/stream`, a hand-built route in `routes.setup.ts` because this file can't describe a
+ * response that never resolves. It sends `delta`, then `done` or `failed`.
+ * from [review.ck](../../data/contracts/review.ck) `POST /api/cards/{id}/review/turns`
+ */
+ReviewRouter.post('/api/cards/:id/review/turns', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, ReviewTurnRequest);
+
+    const service = ctx.container.get(ReviewService);
+    const result: ReviewTurn = await service.sendTurn(id, body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

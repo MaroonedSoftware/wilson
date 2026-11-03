@@ -1,4 +1,4 @@
-import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk';
+import { createSdkMcpServer, query, tool, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { Injectable } from 'injectkit';
 import { subscriptionEnv } from '#modules/agent/cli.stage.agent.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
@@ -26,6 +26,22 @@ const withTranscript = (history: ChatTurnInput['history'], text: string): string
               `Person: ${text}`,
           ].join('\n\n');
 
+/** The tools this message offers or attempts that are not served from {@link CHAT_SERVER}. */
+const foreignTools = (message: SDKMessage): string[] => {
+    const names =
+        message.type === 'system' && message.subtype === 'init'
+            ? message.tools
+            : message.type === 'assistant'
+              ? message.message.content.flatMap(part => (part.type === 'tool_use' ? [part.name] : []))
+              : [];
+    return names.filter(name => !name.startsWith(`mcp__${CHAT_SERVER}__`));
+};
+
+const assertOwnTools = (message: SDKMessage): void => {
+    const foreign = foreignTools(message);
+    if (foreign.length > 0) throw new Error(`the engine reached for a tool it was not given: ${foreign.join(', ')}`);
+};
+
 /**
  * The 'cli' engine: the Claude Agent SDK on the operator's subscription (`subscriptionEnv`, the same
  * credentials planning and `cli` stages use), resuming the thread's own session each turn rather
@@ -46,7 +62,17 @@ export class CliChatEngine extends ChatEngine {
         super();
     }
 
-    async turn({ thread, history, text, system, tools, model, maxSteps = MAX_CHAT_STEPS, onText }: ChatTurnInput): Promise<ChatTurnOutput> {
+    async turn({
+        thread,
+        history,
+        text,
+        system,
+        tools,
+        model,
+        maxSteps = MAX_CHAT_STEPS,
+        onlyOwnTools = false,
+        onText,
+    }: ChatTurnInput): Promise<ChatTurnOutput> {
         const account = await this.accounts?.local();
         if (account?.limit) throw new Error(describeUsageLimit(account.limit));
         const usageWatch = new UsageLimitWatch(account?.name ?? LOCAL_ACCOUNT);
@@ -85,6 +111,7 @@ export class CliChatEngine extends ChatEngine {
         let usage: ChatTurnOutput['usage'];
         for await (const message of stream) {
             usageWatch.observe(message);
+            if (onlyOwnTools) assertOwnTools(message);
             if ('session_id' in message && message.session_id) sessionId = message.session_id;
             if (message.type === 'stream_event' && message.event.type === 'content_block_delta' && message.event.delta.type === 'text_delta') {
                 streamed += message.event.delta.text;

@@ -187,3 +187,58 @@ operation /api/cards/{id}/review/approve: {
         }
     }
 }
+
+# One turn of the review's conversation. A person's holds exactly what they typed.
+contract ReviewTurn: {
+    seq: int
+    role: enum(user, assistant)
+    content: string
+    createdAt: datetime
+}
+
+# `head` is the commit the person was looking at, as in `CreateReviewCommentRequest`.
+contract ReviewTurnRequest: {
+    head: string
+    text: string
+}
+
+# The conversation with the agent walking the person through the change. It reads committed code at the
+# review's commit and has no way to change anything. A turn's answer arrives as it is written over
+# `GET .../review/stream`, a hand-built route in `routes.setup.ts` because this file can't describe a
+# response that never resolves. It sends `delta`, then `done` or `failed`.
+operation /api/cards/{id}/review/turns: {
+    params: {
+        id: string
+    }
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: List review turns
+        mcp: exclude # A review is a person's judgment of an agent's work
+        service: ReviewService.turns
+        response: {
+            200: {
+                application/json: array(ReviewTurn)
+            }
+            404:
+        }
+    }
+    post: {
+        name: Send a review turn
+        mcp: exclude # A review is a person's judgment of an agent's work
+        service: ReviewService.sendTurn
+        request: {
+            application/json: ReviewTurnRequest
+        }
+        response: {
+            200: {
+                application/json: ReviewTurn
+            }
+            400:
+            404:
+            409:
+            503:
+        }
+    }
+}

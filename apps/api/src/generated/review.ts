@@ -68,6 +68,28 @@ export const ReviewVerdictRequest = z.strictObject({
 export type ReviewVerdictRequest = z.infer<typeof ReviewVerdictRequest>;
 
 /**
+ * One turn of the review's conversation. A person's holds exactly what they typed.
+ * generated from [ReviewTurn](../../data/contracts/review.ck)
+ */
+export const ReviewTurn = z.strictObject({
+    seq: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    role: z.enum(['user', 'assistant']),
+    content: z.string(),
+    createdAt: _ZodDatetime,
+});
+export type ReviewTurn = z.infer<typeof ReviewTurn>;
+
+/**
+ * `head` is the commit the person was looking at, as in `CreateReviewCommentRequest`.
+ * generated from [ReviewTurnRequest](../../data/contracts/review.ck)
+ */
+export const ReviewTurnRequest = z.strictObject({
+    head: z.string(),
+    text: z.string(),
+});
+export type ReviewTurnRequest = z.infer<typeof ReviewTurnRequest>;
+
+/**
  * `review` is left out for a card nobody has reviewed yet. `comments` holds every review's, oldest first.
  * generated from [ReviewState](../../data/contracts/review.ck)
  */

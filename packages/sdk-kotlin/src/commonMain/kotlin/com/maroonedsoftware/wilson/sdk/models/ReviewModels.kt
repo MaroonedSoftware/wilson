@@ -58,6 +58,22 @@ data class ReviewVerdictRequest(
     val head: String,
 )
 
+/** One turn of the review's conversation. A person's holds exactly what they typed. */
+@Serializable
+data class ReviewTurn(
+    val seq: Long,
+    val role: ReviewTurnRole,
+    val content: String,
+    val createdAt: Instant,
+)
+
+/** `head` is the commit the person was looking at, as in `CreateReviewCommentRequest`. */
+@Serializable
+data class ReviewTurnRequest(
+    val head: String,
+    val text: String,
+)
+
 /** `review` is left out for a card nobody has reviewed yet. `comments` holds every review's, oldest first. */
 @Serializable
 data class ReviewState(
@@ -209,4 +225,24 @@ object CreateReviewCommentRequestSeveritySerializer : SdkEnumSerializer<CreateRe
     CreateReviewCommentRequestSeverity.UNKNOWN,
     CreateReviewCommentRequestSeverity.BLOCKER to "blocker",
     CreateReviewCommentRequestSeverity.CONCERN to "concern",
+)
+
+@Serializable(with = ReviewTurnRoleSerializer::class)
+enum class ReviewTurnRole {
+    USER,
+    ASSISTANT,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [ReviewTurnRole] by its wire spelling. A spelling it does not know reads as [ReviewTurnRole.UNKNOWN]. */
+object ReviewTurnRoleSerializer : SdkEnumSerializer<ReviewTurnRole>(
+    "ReviewTurnRole",
+    ReviewTurnRole.UNKNOWN,
+    ReviewTurnRole.USER to "user",
+    ReviewTurnRole.ASSISTANT to "assistant",
 )

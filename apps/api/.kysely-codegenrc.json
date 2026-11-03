@@ -20,7 +20,8 @@
             "wilson.reviews.status": "Generated<'open' | 'changes_requested' | 'approved' | 'superseded'>",
             "wilson.review_comments.side": "'old' | 'new'",
             "wilson.review_comments.severity": "Generated<'blocker' | 'concern'>",
-            "wilson.review_comments.status": "Generated<'open' | 'resolved' | 'sent'>"
+            "wilson.review_comments.status": "Generated<'open' | 'resolved' | 'sent'>",
+            "wilson.review_turns.role": "'user' | 'assistant'"
         }
     },
     "typeMapping": {

@@ -117,6 +117,32 @@ public sealed record ReviewVerdictRequest
     public required string Head { get; init; }
 }
 
+/// <summary>One turn of the review's conversation. A person's holds exactly what they typed.</summary>
+public sealed record ReviewTurn
+{
+    [JsonPropertyName("seq")]
+    public required long Seq { get; init; }
+
+    [JsonPropertyName("role")]
+    public required ReviewTurnRole Role { get; init; }
+
+    [JsonPropertyName("content")]
+    public required string Content { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; init; }
+}
+
+/// <summary>`head` is the commit the person was looking at, as in `CreateReviewCommentRequest`.</summary>
+public sealed record ReviewTurnRequest
+{
+    [JsonPropertyName("head")]
+    public required string Head { get; init; }
+
+    [JsonPropertyName("text")]
+    public required string Text { get; init; }
+}
+
 /// <summary>`review` is left out for a card nobody has reviewed yet. `comments` holds every review's, oldest first.</summary>
 public sealed record ReviewState
 {
@@ -532,5 +558,61 @@ public sealed class CreateReviewCommentRequestSeverityConverter : JsonConverter<
         CreateReviewCommentRequestSeverity.Blocker => "blocker",
         CreateReviewCommentRequestSeverity.Concern => "concern",
         _ => throw new JsonException($"CreateReviewCommentRequestSeverity.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(ReviewTurnRoleConverter))]
+public enum ReviewTurnRole
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("user")]
+    User,
+
+    [JsonStringEnumMemberName("assistant")]
+    Assistant,
+}
+
+/// <summary>
+/// Reads and writes <see cref="ReviewTurnRole"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="ReviewTurnRole.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class ReviewTurnRoleConverter : JsonConverter<ReviewTurnRole>
+{
+    public override ReviewTurnRole Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for ReviewTurnRole, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, ReviewTurnRole value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override ReviewTurnRole ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, ReviewTurnRole value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static ReviewTurnRole FromWire(string? text) => text switch
+    {
+        "user" => ReviewTurnRole.User,
+        "assistant" => ReviewTurnRole.Assistant,
+        _ => ReviewTurnRole.Unknown,
+    };
+
+    private static string ToWire(ReviewTurnRole value) => value switch
+    {
+        ReviewTurnRole.User => "user",
+        ReviewTurnRole.Assistant => "assistant",
+        _ => throw new JsonException($"ReviewTurnRole.{value} has no wire spelling, so it cannot be sent."),
     };
 }

@@ -1,16 +1,24 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Kysely } from 'kysely';
+import type { ServerKitContext } from '@maroonedsoftware/koa';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { BoardWriteService } from '#modules/board/board.write.service.js';
 import type { Card } from '#modules/board/card.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
+import type { ChatTurnInput, ChatTurnOutput } from '#modules/chat/chat.engine.js';
+import type { CliChatEngine } from '#modules/chat/cli.chat.engine.js';
+import type { CodeReadRepository } from '#modules/code/code.read.repository.js';
 import type { DB } from '#modules/data/db.js';
+import type { LearningsStore } from '#modules/learnings/learnings.store.js';
+import { onReviewEvent, type ReviewStreamEvent } from '#modules/review/review.feed.js';
+import type { SettingsStore } from '#modules/settings/settings.store.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import { DiffSource, type DiffResult } from '#modules/review/review.diff.source.js';
 import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { ReviewService } from '#modules/review/review.service.js';
 import type { DiffFileEntry } from '#modules/worktree/worktree.manager.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
+import { fakeSession } from '../chat/chat.fakes.js';
 
 let db: Kysely<DB>;
 beforeAll(() => {
@@ -37,6 +45,20 @@ class FakeDiffSource extends DiffSource {
 
     moveTo(head: string, patch = PATCH): void {
         this.current = { ok: true, head, base: 'base-1', files: [fileWith(patch)], truncated: false };
+    }
+}
+
+/** Records what a turn was handed, and answers as it is told to. */
+class FakeEngine {
+    inputs: ChatTurnInput[] = [];
+    answer: (input: ChatTurnInput) => Promise<ChatTurnOutput> = async input => {
+        input.onText?.('streamed');
+        return { text: 'the answer', engineSessionId: 'session-1', usage: { outputTokens: 7 } };
+    };
+
+    async turn(input: ChatTurnInput): Promise<ChatTurnOutput> {
+        this.inputs.push(input);
+        return this.answer(input);
     }
 }
 
@@ -81,7 +103,26 @@ const fresh = async (stage = 'ready', stages = STAGES) => {
         {} as never,
         new StaticStageConfigStore(stages),
     );
-    return { board, diffs, events, service: new ReviewService(board, config, diffs, db, writes, events as unknown as EventLog) };
+    const engine = new FakeEngine();
+    const reads = { record: vi.fn(async () => {}) };
+    const settings = { get: vi.fn(async () => ({ engine: 'cli', provider: 'anthropic', model: 'claude-sonnet-5-5' })) };
+    const context = { authenticationSession: fakeSession } as unknown as ServerKitContext;
+    const logger = { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn(), trace: vi.fn() };
+    const service = new ReviewService(
+        board,
+        config,
+        diffs,
+        db,
+        writes,
+        events as unknown as EventLog,
+        engine as unknown as CliChatEngine,
+        settings as unknown as SettingsStore,
+        { load: async () => 'always test' } as unknown as LearningsStore,
+        reads as unknown as CodeReadRepository,
+        context,
+        logger as never,
+    );
+    return { board, config, diffs, events, engine, reads, settings, service };
 };
 
 const onAdded = { head: 'sha-1', file: 'a.ts', side: 'new' as const, line: 2, text: 'not like this' };
@@ -378,6 +419,188 @@ describe('ReviewService', () => {
 
             expect(comment.reviewId).not.toBe(approved!.id);
             await expect(service.state('0001')).resolves.toMatchObject({ review: { status: 'open' } });
+        });
+    });
+
+    describe('sendTurn', () => {
+        const ask = { head: 'sha-1', text: 'why this way?' };
+
+        it('stores what was typed, not the context the engine was given', async () => {
+            const { engine, service } = await fresh();
+            await service.addComment('0001', onAdded);
+
+            const answer = await service.sendTurn('0001', ask);
+
+            expect(answer).toMatchObject({ role: 'assistant', content: 'the answer' });
+            expect((await service.turns('0001')).map(turn => [turn.role, turn.content])).toEqual([
+                ['user', 'why this way?'],
+                ['assistant', 'the answer'],
+            ]);
+            const prompt = engine.inputs[0]!.text;
+            expect(prompt).toContain('body text');
+            expect(prompt).toContain('always test');
+            expect(prompt).toContain('not like this');
+            expect(prompt.endsWith('why this way?')).toBe(true);
+        });
+
+        it('reads the plan at its pin, not its newest text', async () => {
+            const { board, engine, service } = await fresh();
+            const version = (await board.versions('0001', 1))[0]!.id;
+            await board.write('0001', 'pin and edit', current => ({
+                ...current,
+                body: 'edited since',
+                frontmatter: { ...current.frontmatter, planVersionId: version },
+            }));
+
+            await service.sendTurn('0001', ask);
+
+            expect(engine.inputs[0]!.text).toContain('body text');
+            expect(engine.inputs[0]!.text).not.toContain('edited since');
+        });
+
+        it('resumes its session, and tells the agent about each comment once', async () => {
+            const { engine, service } = await fresh();
+            await service.addComment('0001', onAdded);
+            await service.sendTurn('0001', ask);
+            await service.sendTurn('0001', { ...ask, text: 'and now?' });
+            await service.addComment('0001', { ...onAdded, text: 'another thought' });
+            await service.sendTurn('0001', { ...ask, text: 'and this?' });
+
+            const [, second, third] = engine.inputs;
+            expect(second!.thread.engineSessionId).toBe('session-1');
+            expect(second!.text).toBe('and now?');
+            expect(third!.text).toContain('another thought');
+            expect(third!.text).not.toContain('not like this');
+        });
+
+        it('gives the agent only read tools, and asks the engine to hold it to them', async () => {
+            const { engine, service } = await fresh();
+
+            await service.sendTurn('0001', ask);
+
+            const [input] = engine.inputs;
+            expect(input!.tools.map(tool => tool.name).sort()).toEqual([
+                'list_changed_files',
+                'list_directory',
+                'read_change',
+                'read_file',
+                'search_code',
+            ]);
+            expect(input!.onlyOwnTools).toBe(true);
+            expect(input!.maxSteps).toBeGreaterThan(20);
+        });
+
+        it("keeps a denied file's contents from the agent, in its patch and in a comment on it", async () => {
+            const { diffs, engine, service } = await fresh();
+            diffs.current = {
+                ok: true,
+                head: 'sha-1',
+                base: 'base-1',
+                truncated: false,
+                files: [{ path: '.env', status: 'modified', patch: '@@ -0,0 +1 @@\n+SECRET=1\n', truncated: false }],
+            };
+            await service.addComment('0001', { head: 'sha-1', file: '.env', side: 'new', line: 1, text: 'should this be here' });
+
+            await service.sendTurn('0001', ask);
+
+            expect(engine.inputs[0]!.text).toContain('should this be here');
+            expect(engine.inputs[0]!.text).not.toContain('SECRET=1');
+            const tools = engine.inputs[0]!.tools;
+            const readChange = tools.find(tool => tool.name === 'read_change')!;
+            expect(await readChange.execute({ path: '.env' })).toContain('deny list');
+            expect(await tools.find(tool => tool.name === 'list_changed_files')!.execute({})).toContain('"denied":true');
+        });
+
+        it('keeps an approval through a question', async () => {
+            const { service } = await fresh();
+            await service.approve('0001', { head: 'sha-1' });
+
+            await service.sendTurn('0001', ask);
+
+            await expect(service.state('0001')).resolves.toMatchObject({ review: { status: 'approved' } });
+        });
+
+        it('falls back to a default Claude model when the chat runs on another provider', async () => {
+            const { engine, settings, service } = await fresh();
+            settings.get.mockResolvedValue({ engine: 'api', provider: 'xai', model: 'grok-9' } as never);
+
+            await service.sendTurn('0001', ask);
+
+            expect(engine.inputs[0]!.model).toMatch(/^claude-/);
+        });
+
+        it('publishes the text as it is written, then done', async () => {
+            const { config, service } = await fresh();
+            const seen: ReviewStreamEvent[] = [];
+            const stop = onReviewEvent(config.project, '0001', event => seen.push(event));
+
+            const answer = await service.sendTurn('0001', ask);
+            stop();
+
+            expect(seen).toEqual([
+                { event: 'delta', data: 'streamed' },
+                { event: 'done', data: { seq: answer.seq } },
+            ]);
+        });
+
+        it('answers a failed turn with a 503 and a failed event, keeping what the person typed', async () => {
+            const { config, engine, service } = await fresh();
+            engine.answer = async () => {
+                throw new Error('the engine reached for a tool it was not given: Bash');
+            };
+            const seen: ReviewStreamEvent[] = [];
+            const stop = onReviewEvent(config.project, '0001', event => seen.push(event));
+
+            await expect(service.sendTurn('0001', ask)).rejects.toMatchObject({ statusCode: 503 });
+            stop();
+
+            expect(seen[0]).toMatchObject({ event: 'failed', data: { reason: expect.stringContaining('Bash') } });
+            expect((await service.turns('0001')).map(turn => turn.role)).toEqual(['user']);
+        });
+
+        it('runs two messages sent at once one after the other', async () => {
+            const { engine, service } = await fresh();
+            let running = 0;
+            let most = 0;
+            engine.answer = async () => {
+                most = Math.max(most, (running += 1));
+                await new Promise(resolve => setTimeout(resolve, 20));
+                running -= 1;
+                return { text: 'done' };
+            };
+
+            await Promise.all([service.sendTurn('0001', ask), service.sendTurn('0001', { ...ask, text: 'another' })]);
+
+            expect(most).toBe(1);
+            expect((await service.turns('0001')).map(turn => turn.seq)).toEqual([1, 2, 3, 4]);
+        });
+
+        it('refuses empty text, a moved branch, and a card outside ready', async () => {
+            const { diffs, service } = await fresh();
+            await expect(service.sendTurn('0001', { ...ask, text: ' ' })).rejects.toMatchObject({ statusCode: 400 });
+
+            diffs.moveTo('sha-2');
+            await expect(service.sendTurn('0001', ask)).rejects.toMatchObject({ statusCode: 409 });
+
+            const notReady = await fresh('implementing');
+            await expect(notReady.service.sendTurn('0001', ask)).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('starts fresh on a new commit, reminding the agent what was already sent back', async () => {
+            const { board, diffs, engine, service } = await fresh();
+            await service.addComment('0001', { ...onAdded, text: 'round one' });
+            await service.sendTurn('0001', ask);
+            await service.requestChanges('0001', { head: 'sha-1' });
+            await board.write('0001', 'back to ready', current => ({ ...current, frontmatter: { ...current.frontmatter, stage: 'ready' } }));
+            diffs.moveTo('sha-2');
+
+            await service.sendTurn('0001', { head: 'sha-2', text: 'better?' });
+
+            const last = engine.inputs.at(-1)!;
+            expect(last.thread.engineSessionId).toBeUndefined();
+            expect(last.text).toContain('already sent these back');
+            expect(last.text).toContain('round one');
+            expect((await service.turns('0001')).map(turn => turn.content)).toEqual(['better?', 'the answer']);
         });
     });
 });

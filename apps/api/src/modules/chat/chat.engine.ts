@@ -16,6 +16,11 @@ export interface ChatTurnInput {
     model: string;
     /** How many model steps the turn may take, `MAX_CHAT_STEPS` when left out. */
     maxSteps?: number;
+    /**
+     * Fail the turn if the engine offers or attempts any tool but `tools`. For a caller whose safety rests
+     * on what the agent is able to do ('cli': nothing but `tools` is passed, and this checks it held).
+     */
+    onlyOwnTools?: boolean;
     /** Called with each piece of the answer as it is written. */
     onText?: (delta: string) => void;
 }

@@ -1,24 +1,63 @@
 import { Injectable } from 'injectkit';
 import { Kysely } from 'kysely';
 import { httpError } from '@maroonedsoftware/errors';
+import { ServerKitContext } from '@maroonedsoftware/koa';
+import { Logger } from '@maroonedsoftware/logger';
+import { requireSession } from '#modules/authentication/request.session.js';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { BoardWriteService } from '#modules/board/board.write.service.js';
 import type { Card } from '#modules/board/card.js';
 import { CardNotFoundError } from '#modules/board/postgres.board.repository.js';
+import { explainError } from '#modules/chat/chat.catalog.js';
+import { CHAT_ENGINE, DEFAULT_CHAT_ENGINE } from '#modules/chat/chat.engine.setting.js';
+import { CliChatEngine } from '#modules/chat/cli.chat.engine.js';
+import { CodeReadRepository } from '#modules/code/code.read.repository.js';
+import { CodeReader } from '#modules/code/code.reader.js';
+import { auditedRead } from '#modules/code/code.service.js';
 import type { DB } from '#modules/data/db.js';
 import { EventLog } from '#modules/events/event.log.js';
+import { LearningsStore } from '#modules/learnings/learnings.store.js';
+import { SettingsStore } from '#modules/settings/settings.store.js';
 import { StageConfigError } from '#modules/stages/stage.config.js';
+import { Mutex } from '#src/shared/mutex.js';
 import type { DiffFileEntry } from '#modules/worktree/worktree.manager.js';
 import type { HumanFinding } from '../../generated/board.js';
-import type { CreateReviewCommentRequest, Review, ReviewComment, ReviewState, ReviewVerdictRequest } from '../../generated/review.js';
+import type {
+    CreateReviewCommentRequest,
+    Review,
+    ReviewComment,
+    ReviewState,
+    ReviewTurn,
+    ReviewTurnRequest,
+    ReviewVerdictRequest,
+} from '../../generated/review.js';
 import { captureLineAnchor, locateLineAnchor } from './review.anchor.js';
 import { ReviewCommentRepository, type StoredReviewComment } from './review.comment.repository.js';
-import { DiffSource } from './review.diff.source.js';
+import { DiffSource, type DiffSnapshot } from './review.diff.source.js';
+import { publishReview } from './review.feed.js';
+import { commentsBlock, firstTurnBlock, reviewSystemPrompt } from './review.prompt.js';
 import { ReviewRepository, type StoredReview } from './review.repository.js';
+import { reviewTools } from './review.tools.js';
+import { ReviewTurnRepository } from './review.turn.repository.js';
 
 /** The one stage a review can be written in. `recordFindings` refuses the rest, and earlier stages can move the branch. */
 const REVIEW_STAGE = 'ready';
+
+/**
+ * How many model steps one turn may take. Walking a change reads many files, which `MAX_CHAT_STEPS` is
+ * too tight for. Turns count against no daily ceiling, because a person is driving each one, so this and
+ * the account's own usage limit are what bound a turn.
+ */
+const MAX_REVIEW_STEPS = 60;
+
+/** One lock per review, so a second message sent while the first is being answered waits for it. */
+const reviewLocks = new Map<string, Mutex>();
+const reviewLock = (reviewId: string): Mutex => {
+    let lock = reviewLocks.get(reviewId);
+    if (!lock) reviewLocks.set(reviewId, (lock = new Mutex(`review ${reviewId}`)));
+    return lock;
+};
 
 const toWireReview = (review: StoredReview, currentHead: string | undefined): Review => ({
     id: review.id,
@@ -74,6 +113,7 @@ const toFinding = (comment: StoredReviewComment, files: DiffFileEntry[]): HumanF
 export class ReviewService {
     private readonly reviews: ReviewRepository;
     private readonly comments: ReviewCommentRepository;
+    private readonly conversation: ReviewTurnRepository;
 
     constructor(
         private readonly boardRepository: BoardRepository,
@@ -82,9 +122,16 @@ export class ReviewService {
         private readonly db: Kysely<DB>,
         private readonly boardWrites: BoardWriteService,
         private readonly events: EventLog,
+        private readonly engine: CliChatEngine,
+        private readonly settings: SettingsStore,
+        private readonly learnings: LearningsStore,
+        private readonly reads: CodeReadRepository,
+        private readonly context: ServerKitContext,
+        private readonly logger: Logger,
     ) {
         this.reviews = new ReviewRepository(this.boardConfig, this.db);
         this.comments = new ReviewCommentRepository(this.boardConfig, this.db);
+        this.conversation = new ReviewTurnRepository(this.db);
     }
 
     async state(id: string): Promise<ReviewState> {
@@ -195,6 +242,119 @@ export class ReviewService {
             payload: { head: diff.head },
         });
         return this.stateOf(card);
+    }
+
+    /** The current review's conversation, oldest first. Empty for a card nobody has reviewed. */
+    async turns(id: string): Promise<ReviewTurn[]> {
+        await this.readOrThrow(id);
+        const latest = await this.reviews.latest(id);
+        return latest ? this.conversation.list(latest.id) : [];
+    }
+
+    /**
+     * Run one turn of the conversation and store its answer, publishing the text as it is written. The
+     * turn runs at the commit the person is looking at. What the person typed is stored as typed: the
+     * plan, the comments and the rest of the context go only to the engine.
+     */
+    async sendTurn(id: string, request: ReviewTurnRequest): Promise<ReviewTurn> {
+        const text = request.text.trim();
+        if (text.length === 0) throw httpError(400).withDetails({ reason: 'a message needs some text' });
+
+        const card = await this.readOrThrow(id);
+        this.assertReviewable(card);
+        const diff = await this.currentDiff(card);
+        this.assertSameHead(id, request.head, diff.head);
+
+        // `requirePolicy` has already refused a request with no session; this only narrows the type.
+        const { subject } = requireSession(this.context);
+        const { id: reviewId } = await this.currentReview(id, diff);
+
+        return reviewLock(reviewId).run(
+            `${id} review turn`,
+            message => this.logger.info(message),
+            async () => {
+                const review = await this.currentReview(id, diff);
+                const history = await this.conversation.list(review.id);
+                const prompt = await this.promptFor(card, review, diff, history.length === 0, text);
+                await this.conversation.append(review.id, 'user', text);
+
+                const reader = new CodeReader(this.boardConfig.codeRoot, undefined, diff.head);
+                const output = await this.runEngine(id, {
+                    thread: { id: review.id, engineSessionId: review.engineSessionId },
+                    history,
+                    text: prompt.text,
+                    tools: reviewTools({
+                        files: diff.files,
+                        reader,
+                        audited: (operation, query, run) =>
+                            auditedRead(this.reads, { project: this.boardConfig.project, operation, subject, ...query }, run),
+                    }),
+                });
+
+                await this.reviews.recordConversation(review.id, output.engineSessionId, prompt.commentsSeenId);
+                const answer = await this.conversation.append(
+                    review.id,
+                    'assistant',
+                    output.text.trim() || '(no answer)',
+                    output.usage?.outputTokens,
+                );
+                publishReview(this.boardConfig.project, id, { event: 'done', data: { seq: answer.seq } });
+                return answer;
+            },
+        );
+    }
+
+    /** The review a turn belongs to: the one at this commit, whose verdict a question doesn't disturb. */
+    private async currentReview(id: string, diff: DiffSnapshot): Promise<StoredReview> {
+        const latest = await this.reviews.latest(id);
+        if (latest?.head === diff.head && (latest.status === 'open' || latest.status === 'approved')) return latest;
+        return this.reviews.openAt(id, diff.head, diff.base);
+    }
+
+    private async promptFor(card: Card, review: StoredReview, diff: DiffSnapshot, isFirst: boolean, text: string) {
+        const id = card.frontmatter.id;
+        const all = await this.comments.list(id);
+        const unseen = all.filter(comment => comment.status === 'open' && BigInt(comment.id) > BigInt(review.commentsSeenId));
+        const commentsSeenId = all.reduce((newest, comment) => (BigInt(comment.id) > BigInt(newest) ? comment.id : newest), review.commentsSeenId);
+
+        let opening = '';
+        if (isFirst) {
+            const pin = card.frontmatter.planVersionId;
+            opening = firstTurnBlock({
+                cardId: id,
+                title: card.frontmatter.title,
+                plan: (pin ? await this.boardRepository.readAt(id, pin) : card).body,
+                head: diff.head,
+                base: diff.base,
+                files: diff.files,
+                learnings: await this.learnings.load(),
+                sent: all.filter(comment => comment.status === 'sent'),
+            });
+        }
+        return { text: `${opening}${commentsBlock(unseen)}${text}`, commentsSeenId };
+    }
+
+    private async runEngine(id: string, turn: Pick<Parameters<CliChatEngine['turn']>[0], 'thread' | 'history' | 'text' | 'tools'>) {
+        const project = this.boardConfig.project;
+        const choice = await this.settings.get(CHAT_ENGINE);
+        try {
+            return await this.engine.turn({
+                ...turn,
+                system: reviewSystemPrompt(),
+                provider: 'anthropic',
+                // Review always runs on the 'cli' engine, which is only ever Claude, so a model chosen for
+                // another provider can't be used here.
+                model: choice.provider === 'anthropic' ? choice.model : DEFAULT_CHAT_ENGINE.model,
+                maxSteps: MAX_REVIEW_STEPS,
+                onlyOwnTools: true,
+                onText: delta => publishReview(project, id, { event: 'delta', data: delta }),
+            });
+        } catch (err) {
+            const reason = `the review agent could not answer: ${explainError(err)}`;
+            this.logger.warn(`card ${id}: ${reason}`);
+            publishReview(project, id, { event: 'failed', data: { reason } });
+            throw httpError(503).withDetails({ reason });
+        }
     }
 
     private async stateOf(card: Card): Promise<ReviewState> {

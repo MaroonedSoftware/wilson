@@ -83,6 +83,33 @@ export interface ReviewVerdictRequest {
 }
 
 /**
+ * One turn of the review's conversation. A person's holds exactly what they typed.
+ * generated from [ReviewTurn](../../../../apps/api/data/contracts/review.ck)
+ */
+export interface ReviewTurn {
+    seq: number;
+    role: 'user' | 'assistant';
+    content: string;
+    createdAt: DateTime;
+}
+
+/** Rehydrates every wire-encoded scalar in a ReviewTurn into its runtime type. Mutates and returns `raw`. */
+export function reviveReviewTurn(raw: ReviewTurn): ReviewTurn {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['createdAt'] = __dt(__o0['createdAt'], 'ReviewTurn.createdAt');
+    return raw;
+}
+
+/**
+ * `head` is the commit the person was looking at, as in `CreateReviewCommentRequest`.
+ * generated from [ReviewTurnRequest](../../../../apps/api/data/contracts/review.ck)
+ */
+export interface ReviewTurnRequest {
+    head: string;
+    text: string;
+}
+
+/**
  * `review` is left out for a card nobody has reviewed yet. `comments` holds every review's, oldest first.
  * generated from [ReviewState](../../../../apps/api/data/contracts/review.ck)
  */

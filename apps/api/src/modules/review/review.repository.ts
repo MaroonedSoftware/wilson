@@ -11,6 +11,9 @@ export interface StoredReview {
     base: string;
     status: ReviewStatus;
     verdictAt: DateTime | undefined;
+    engineSessionId: string | undefined;
+    /** The newest comment id this review's conversation has been told about. */
+    commentsSeenId: string;
     createdAt: DateTime;
 }
 
@@ -20,6 +23,8 @@ const toStoredReview = (row: Selectable<WilsonReviews>): StoredReview => ({
     base: row.baseSha,
     status: row.status,
     verdictAt: row.verdictAt ?? undefined,
+    engineSessionId: row.engineSessionId ?? undefined,
+    commentsSeenId: String(row.commentsSeenId),
     createdAt: row.createdAt,
 });
 
@@ -44,6 +49,16 @@ export class ReviewRepository {
             .limit(1)
             .executeTakeFirst();
         return row && toStoredReview(row);
+    }
+
+    /** Record where the conversation got to: the session to resume, and the newest comment it has seen. */
+    async recordConversation(reviewId: string, engineSessionId: string | undefined, commentsSeenId: string): Promise<void> {
+        await this.db
+            .updateTable('wilson.reviews')
+            .set({ commentsSeenId: BigInt(commentsSeenId), ...(engineSessionId ? { engineSessionId } : {}) })
+            .where('project', '=', this.config.project)
+            .where('id', '=', BigInt(reviewId))
+            .execute();
     }
 
     /** Close the card's open review at a verdict. */

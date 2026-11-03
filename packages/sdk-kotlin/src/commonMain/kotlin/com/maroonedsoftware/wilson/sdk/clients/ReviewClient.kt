@@ -4,6 +4,8 @@ package com.maroonedsoftware.wilson.sdk.clients
 import com.maroonedsoftware.wilson.sdk.models.CreateReviewCommentRequest
 import com.maroonedsoftware.wilson.sdk.models.ReviewComment
 import com.maroonedsoftware.wilson.sdk.models.ReviewState
+import com.maroonedsoftware.wilson.sdk.models.ReviewTurn
+import com.maroonedsoftware.wilson.sdk.models.ReviewTurnRequest
 import com.maroonedsoftware.wilson.sdk.models.ReviewVerdictRequest
 import com.maroonedsoftware.wilson.sdk.runtime.SdkHttp
 import io.ktor.http.HttpMethod
@@ -80,6 +82,37 @@ class ReviewClient(private val http: SdkHttp) {
     suspend fun approveAReview(id: String, body: ReviewVerdictRequest): ReviewState {
         val response = http.execute(HttpMethod.Post) {
             path("api", "cards", segment(id), "review", "approve")
+            jsonBody(body, "application/json")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * List review turns
+     * The conversation with the agent walking the person through the change. It reads committed code at the
+     * review's commit and has no way to change anything. A turn's answer arrives as it is written over
+     * `GET .../review/stream`, a hand-built route in `routes.setup.ts` because this file can't describe a
+     * response that never resolves. It sends `delta`, then `done` or `failed`.
+     * @throws SdkError on 404
+     */
+    suspend fun listReviewTurns(id: String): List<ReviewTurn> {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "cards", segment(id), "review", "turns")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Send a review turn
+     * The conversation with the agent walking the person through the change. It reads committed code at the
+     * review's commit and has no way to change anything. A turn's answer arrives as it is written over
+     * `GET .../review/stream`, a hand-built route in `routes.setup.ts` because this file can't describe a
+     * response that never resolves. It sends `delta`, then `done` or `failed`.
+     * @throws SdkError on 400, 404, 409, 503
+     */
+    suspend fun sendAReviewTurn(id: String, body: ReviewTurnRequest): ReviewTurn {
+        val response = http.execute(HttpMethod.Post) {
+            path("api", "cards", segment(id), "review", "turns")
             jsonBody(body, "application/json")
         }
         return http.decodeJson(response)

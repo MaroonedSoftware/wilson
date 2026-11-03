@@ -102,4 +102,39 @@ public sealed class ReviewClient(SdkHttp http)
             cancellationToken: cancellationToken).ConfigureAwait(false);
         return http.ReadJson<ReviewState>(response);
     }
+
+    /// <summary>
+    /// List review turns
+    /// The conversation with the agent walking the person through the change. It reads committed code at the
+    /// review's commit and has no way to change anything. A turn's answer arrives as it is written over
+    /// `GET .../review/stream`, a hand-built route in `routes.setup.ts` because this file can't describe a
+    /// response that never resolves. It sends `delta`, then `done` or `failed`.
+    /// </summary>
+    /// <exception cref="SdkException">On 404.</exception>
+    public async Task<List<ReviewTurn>> ListReviewTurnsAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "cards", http.Segment(id), "review", "turns"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<List<ReviewTurn>>(response);
+    }
+
+    /// <summary>
+    /// Send a review turn
+    /// The conversation with the agent walking the person through the change. It reads committed code at the
+    /// review's commit and has no way to change anything. A turn's answer arrives as it is written over
+    /// `GET .../review/stream`, a hand-built route in `routes.setup.ts` because this file can't describe a
+    /// response that never resolves. It sends `delta`, then `done` or `failed`.
+    /// </summary>
+    /// <exception cref="SdkException">On 400, 404, 409, 503.</exception>
+    public async Task<ReviewTurn> SendAReviewTurnAsync(string id, ReviewTurnRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Post,
+            http.Path("api", "cards", http.Segment(id), "review", "turns"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<ReviewTurn>(response);
+    }
 }

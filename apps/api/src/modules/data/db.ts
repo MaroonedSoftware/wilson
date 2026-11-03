@@ -344,10 +344,21 @@ export interface WilsonReviewComments {
   text: string;
 }
 
+export interface WilsonReviewTurns {
+  content: string;
+  createdAt: Generated<DateTime>;
+  outputTokens: number | null;
+  reviewId: bigint;
+  role: "user" | "assistant";
+  seq: number;
+}
+
 export interface WilsonReviews {
   baseSha: string;
   cardId: string;
+  commentsSeenId: Generated<bigint>;
   createdAt: Generated<DateTime>;
+  engineSessionId: string | null;
   headSha: string;
   id: Generated<bigint>;
   project: string;
@@ -428,6 +439,7 @@ export interface DB {
   "wilson.pushDevices": WilsonPushDevices;
   "wilson.reviewComments": WilsonReviewComments;
   "wilson.reviews": WilsonReviews;
+  "wilson.reviewTurns": WilsonReviewTurns;
   "wilson.settings": WilsonSettings;
   "wilson.sourceCursors": WilsonSourceCursors;
   "wilson.stageConfigs": WilsonStageConfigs;

@@ -1,5 +1,5 @@
-import type { CreateReviewCommentRequest, ReviewComment, ReviewState, ReviewVerdictRequest } from './types/review.js';
-import { reviveReviewComment, reviveReviewState } from './types/review.js';
+import type { CreateReviewCommentRequest, ReviewComment, ReviewState, ReviewTurn, ReviewTurnRequest, ReviewVerdictRequest } from './types/review.js';
+import { reviveReviewComment, reviveReviewState, reviveReviewTurn } from './types/review.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson } from './sdk-options.js';
 
@@ -71,5 +71,33 @@ export class ReviewClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return reviveReviewState(await parseJson<ReviewState>(result));
+    }
+
+    /**
+     * @name List review turns
+     * @description The conversation with the agent walking the person through the change. It reads committed code at the
+     * review's commit and has no way to change anything. A turn's answer arrives as it is written over
+     * `GET .../review/stream`, a hand-built route in `routes.setup.ts` because this file can't describe a
+     * response that never resolves. It sends `delta`, then `done` or `failed`.
+     */
+    async listReviewTurns(id: string): Promise<ReviewTurn[]> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/review/turns`, { method: 'GET' });
+        return (await parseJson<ReviewTurn[]>(result)).map(reviveReviewTurn);
+    }
+
+    /**
+     * @name Send a review turn
+     * @description The conversation with the agent walking the person through the change. It reads committed code at the
+     * review's commit and has no way to change anything. A turn's answer arrives as it is written over
+     * `GET .../review/stream`, a hand-built route in `routes.setup.ts` because this file can't describe a
+     * response that never resolves. It sends `delta`, then `done` or `failed`.
+     */
+    async sendAReviewTurn(id: string, body: ReviewTurnRequest): Promise<ReviewTurn> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/review/turns`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return reviveReviewTurn(await parseJson<ReviewTurn>(result));
     }
 }
