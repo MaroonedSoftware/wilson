@@ -35,6 +35,10 @@ export const CardSummary = z.strictObject({
     id: z.string(),
     title: z.string(),
     stage: z.string(),
+    doneReason: z
+        .enum(['merged', 'poisoned', 'dropped', 'split'])
+        .optional()
+        .describe('How the card ended, once it has. Absent for a card still on the board.'),
     branch: z.string().optional(),
     resolvedBranch: z
         .string()
@@ -73,6 +77,7 @@ export const SplitPieceSummary = z.strictObject({
     id: z.string(),
     title: z.string(),
     stage: z.string(),
+    doneReason: z.enum(['merged', 'poisoned', 'dropped', 'split']).optional(),
 });
 export type SplitPieceSummary = z.infer<typeof SplitPieceSummary>;
 

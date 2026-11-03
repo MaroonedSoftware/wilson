@@ -2,6 +2,7 @@ import { Injectable } from 'injectkit';
 import { Kysely, type Transaction } from 'kysely';
 import type { DB } from '#modules/data/db.js';
 import { EventLog, type AppendableCardEvent } from '#modules/events/event.log.js';
+import { doneReasonFor } from '#modules/stages/terminal.js';
 import { BoardConfig } from './board.config.js';
 import { BoardRepository, type CardVersionSummary, type SplitWrite } from './board.repository.js';
 import { sectionsOf, type Card, type CardFrontmatter } from './card.js';
@@ -236,7 +237,7 @@ export class PostgresBoardRepository extends BoardRepository {
             .executeTakeFirst();
 
         const before = await this.readWith(trx, id);
-        const after = await mutate(before);
+        const after = withDoneReason(await mutate(before));
         const fm = after.frontmatter;
 
         await trx
@@ -244,6 +245,7 @@ export class PostgresBoardRepository extends BoardRepository {
             .set({
                 title: fm.title,
                 stage: fm.stage,
+                doneReason: fm.doneReason ?? null,
                 branch: fm.branch ?? null,
                 body: after.body,
                 retries: JSON.stringify(fm.retries ?? {}),
@@ -272,6 +274,7 @@ export class PostgresBoardRepository extends BoardRepository {
                 id: fm.id,
                 title: fm.title,
                 stage: fm.stage,
+                doneReason: doneReasonFor(fm.stage) ?? null,
                 branch: fm.branch ?? null,
                 body: card.body,
                 retries: JSON.stringify(fm.retries ?? {}),
@@ -332,11 +335,19 @@ export class PostgresBoardRepository extends BoardRepository {
  */
 const versionId = (id: bigint): string => String(id);
 
+/** `card` with `doneReason` saying what its stage says, so no writer can leave the two disagreeing. */
+const withDoneReason = (card: Card): Card => {
+    const { doneReason: _doneReason, ...frontmatter } = card.frontmatter;
+    const doneReason = doneReasonFor(frontmatter.stage);
+    return { ...card, frontmatter: doneReason ? { ...frontmatter, doneReason } : frontmatter };
+};
+
 const toCard = (
     row: {
         id: string;
         title: string;
         stage: string;
+        doneReason: string | null;
         branch: string | null;
         body: string;
         retries: unknown;
@@ -354,6 +365,7 @@ const toCard = (
         id: row.id,
         title: row.title,
         stage: row.stage,
+        doneReason: row.doneReason ?? undefined,
         branch: row.branch ?? undefined,
         dependsOn,
         retries: (row.retries as Record<string, number> | null) ?? {},

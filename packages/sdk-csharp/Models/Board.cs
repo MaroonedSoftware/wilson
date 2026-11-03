@@ -46,6 +46,11 @@ public sealed record CardSummary
     [JsonPropertyName("stage")]
     public required string Stage { get; init; }
 
+    /// <summary>How the card ended, once it has. Absent for a card still on the board.</summary>
+    [JsonPropertyName("doneReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardSummaryDoneReason? DoneReason { get; init; }
+
     [JsonPropertyName("branch")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Branch { get; init; }
@@ -121,6 +126,10 @@ public sealed record SplitPieceSummary
 
     [JsonPropertyName("stage")]
     public required string Stage { get; init; }
+
+    [JsonPropertyName("doneReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SplitPieceSummaryDoneReason? DoneReason { get; init; }
 }
 
 /// <summary>
@@ -653,6 +662,11 @@ public sealed record CardDetail
     [JsonPropertyName("stage")]
     public required string Stage { get; init; }
 
+    /// <summary>How the card ended, once it has. Absent for a card still on the board.</summary>
+    [JsonPropertyName("doneReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardSummaryDoneReason? DoneReason { get; init; }
+
     [JsonPropertyName("branch")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Branch { get; init; }
@@ -933,6 +947,11 @@ public sealed record ReleaseResult
     [JsonPropertyName("stage")]
     public required string Stage { get; init; }
 
+    /// <summary>How the card ended, once it has. Absent for a card still on the board.</summary>
+    [JsonPropertyName("doneReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardSummaryDoneReason? DoneReason { get; init; }
+
     [JsonPropertyName("branch")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Branch { get; init; }
@@ -1029,6 +1048,11 @@ public sealed record MergeResult
 
     [JsonPropertyName("stage")]
     public required string Stage { get; init; }
+
+    /// <summary>How the card ended, once it has. Absent for a card still on the board.</summary>
+    [JsonPropertyName("doneReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardSummaryDoneReason? DoneReason { get; init; }
 
     [JsonPropertyName("branch")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1135,6 +1159,139 @@ public sealed record SplitResult
 
     [JsonPropertyName("pieces")]
     public required List<CardDetail> Pieces { get; init; }
+}
+
+/// <summary>How the card ended, once it has. Absent for a card still on the board.</summary>
+[JsonConverter(typeof(CardSummaryDoneReasonConverter))]
+public enum CardSummaryDoneReason
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("merged")]
+    Merged,
+
+    [JsonStringEnumMemberName("poisoned")]
+    Poisoned,
+
+    [JsonStringEnumMemberName("dropped")]
+    Dropped,
+
+    [JsonStringEnumMemberName("split")]
+    Split,
+}
+
+/// <summary>
+/// Reads and writes <see cref="CardSummaryDoneReason"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="CardSummaryDoneReason.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class CardSummaryDoneReasonConverter : JsonConverter<CardSummaryDoneReason>
+{
+    public override CardSummaryDoneReason Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for CardSummaryDoneReason, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, CardSummaryDoneReason value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override CardSummaryDoneReason ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, CardSummaryDoneReason value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static CardSummaryDoneReason FromWire(string? text) => text switch
+    {
+        "merged" => CardSummaryDoneReason.Merged,
+        "poisoned" => CardSummaryDoneReason.Poisoned,
+        "dropped" => CardSummaryDoneReason.Dropped,
+        "split" => CardSummaryDoneReason.Split,
+        _ => CardSummaryDoneReason.Unknown,
+    };
+
+    private static string ToWire(CardSummaryDoneReason value) => value switch
+    {
+        CardSummaryDoneReason.Merged => "merged",
+        CardSummaryDoneReason.Poisoned => "poisoned",
+        CardSummaryDoneReason.Dropped => "dropped",
+        CardSummaryDoneReason.Split => "split",
+        _ => throw new JsonException($"CardSummaryDoneReason.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(SplitPieceSummaryDoneReasonConverter))]
+public enum SplitPieceSummaryDoneReason
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("merged")]
+    Merged,
+
+    [JsonStringEnumMemberName("poisoned")]
+    Poisoned,
+
+    [JsonStringEnumMemberName("dropped")]
+    Dropped,
+
+    [JsonStringEnumMemberName("split")]
+    Split,
+}
+
+/// <summary>
+/// Reads and writes <see cref="SplitPieceSummaryDoneReason"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="SplitPieceSummaryDoneReason.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class SplitPieceSummaryDoneReasonConverter : JsonConverter<SplitPieceSummaryDoneReason>
+{
+    public override SplitPieceSummaryDoneReason Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for SplitPieceSummaryDoneReason, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, SplitPieceSummaryDoneReason value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override SplitPieceSummaryDoneReason ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, SplitPieceSummaryDoneReason value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static SplitPieceSummaryDoneReason FromWire(string? text) => text switch
+    {
+        "merged" => SplitPieceSummaryDoneReason.Merged,
+        "poisoned" => SplitPieceSummaryDoneReason.Poisoned,
+        "dropped" => SplitPieceSummaryDoneReason.Dropped,
+        "split" => SplitPieceSummaryDoneReason.Split,
+        _ => SplitPieceSummaryDoneReason.Unknown,
+    };
+
+    private static string ToWire(SplitPieceSummaryDoneReason value) => value switch
+    {
+        SplitPieceSummaryDoneReason.Merged => "merged",
+        SplitPieceSummaryDoneReason.Poisoned => "poisoned",
+        SplitPieceSummaryDoneReason.Dropped => "dropped",
+        SplitPieceSummaryDoneReason.Split => "split",
+        _ => throw new JsonException($"SplitPieceSummaryDoneReason.{value} has no wire spelling, so it cannot be sent."),
+    };
 }
 
 [JsonConverter(typeof(ReleaseResultReleasedAsConverter))]

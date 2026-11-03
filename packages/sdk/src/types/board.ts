@@ -36,6 +36,8 @@ export interface CardSummary {
     id: string;
     title: string;
     stage: string;
+    /** How the card ended, once it has. Absent for a card still on the board. */
+    doneReason?: 'merged' | 'poisoned' | 'dropped' | 'split';
     branch?: string;
     /**
      * Card 0160. `WorktreeManager.resolveBranch`'s own answer — `branch` above when something
@@ -94,6 +96,7 @@ export interface SplitPieceSummary {
     id: string;
     title: string;
     stage: string;
+    doneReason?: 'merged' | 'poisoned' | 'dropped' | 'split';
 }
 
 /**

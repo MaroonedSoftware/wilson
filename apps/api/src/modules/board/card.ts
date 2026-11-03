@@ -25,6 +25,8 @@ export interface CardFrontmatter {
     id: string;
     title: string;
     stage: string;
+    /** How the card ended, once it has. The repository keeps this in step with `stage` on every write. */
+    doneReason?: string;
     branch?: string;
     /** Hard blocks. A card whose dependency is unfinished must not dispatch. */
     dependsOn: string[];

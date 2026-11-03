@@ -55,6 +55,30 @@ describe('PostgresBoardRepository', () => {
         expect((await board.read('0001')).frontmatter.title).toBe('the original');
     });
 
+    describe('doneReason', () => {
+        const row = (id: string) =>
+            db.selectFrom('wilson.cards').select('doneReason').where('project', '=', config.project).where('id', '=', id).executeTakeFirstOrThrow();
+
+        it('follows the stage through a write, and comes off when the card goes back on the board', async () => {
+            await board.create(card('0001', { stage: 'ready' }), 'create');
+            expect((await row('0001')).doneReason ?? undefined).toBeUndefined();
+
+            await board.write('0001', 'poison', c => ({ ...c, frontmatter: { ...c.frontmatter, stage: 'poisoned' } }));
+            expect((await row('0001')).doneReason).toBe('poisoned');
+            expect((await board.read('0001')).frontmatter.doneReason).toBe('poisoned');
+
+            await board.write('0001', 'retry', c => ({ ...c, frontmatter: { ...c.frontmatter, stage: 'implementing' } }));
+            expect((await row('0001')).doneReason ?? undefined).toBeUndefined();
+            expect((await board.read('0001')).frontmatter.doneReason).toBeUndefined();
+        });
+
+        it('is set for a card created already finished', async () => {
+            await board.create(card('0002', { stage: 'merged' }), 'create');
+
+            expect((await row('0002')).doneReason).toBe('merged');
+        });
+    });
+
     describe('applySplit', () => {
         const write = (origin: Card) => ({
             // The first piece depends on the second, which does not exist until the same transaction.

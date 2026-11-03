@@ -144,6 +144,7 @@ export interface WilsonCards {
   body: string;
   branch: string | null;
   createdAt: Generated<DateTime>;
+  doneReason: string | null;
   external: Json | null;
   id: string;
   needsHuman: Generated<boolean>;

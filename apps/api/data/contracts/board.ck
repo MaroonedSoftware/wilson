@@ -34,6 +34,8 @@ contract CardSummary: {
     id: string
     title: string
     stage: string
+    # How the card ended, once it has. Absent for a card still on the board.
+    doneReason?: enum(merged, poisoned, dropped, split)
     branch?: string
     # Card 0160. `WorktreeManager.resolveBranch`'s own answer — `branch` above when something
     # recorded one, otherwise the same derivation from the card's title `branchName` computes.
@@ -72,6 +74,7 @@ contract SplitPieceSummary: {
     id: string
     title: string
     stage: string
+    doneReason?: enum(merged, poisoned, dropped, split)
 }
 
 contract CardDetail: CardSummary & {

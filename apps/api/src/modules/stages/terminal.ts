@@ -13,4 +13,10 @@
  */
 const TERMINAL_STATES = new Set(['merged', 'dropped', 'poisoned', 'split']);
 
+/** How a card ended. */
+export type DoneReason = 'merged' | 'dropped' | 'poisoned' | 'split';
+
 export const isTerminal = (stage: string): boolean => TERMINAL_STATES.has(stage);
+
+/** Why a card in `stage` is finished, or undefined when it is not. */
+export const doneReasonFor = (stage: string): DoneReason | undefined => (isTerminal(stage) ? (stage as DoneReason) : undefined);
