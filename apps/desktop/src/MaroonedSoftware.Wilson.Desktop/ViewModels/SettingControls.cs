@@ -805,6 +805,148 @@ public sealed partial class ChatEngineControl(Func<WilsonSdk> sdk) : ObservableO
     }
 }
 
+/// <summary>`StageRoutingRow`: one lane's engine, provider and model, a draft saved on its own. It shows what the server kept, never only what was picked.</summary>
+public sealed partial class StageRoutingRow(StageRouting route, StageRoutingControl control) : ObservableObject
+{
+    public IReadOnlyList<StageRoutingProvider> Providers { get; } = [StageRoutingProvider.Anthropic, StageRoutingProvider.Openai, StageRoutingProvider.Xai];
+
+    public string Stage { get; } = route.Stage;
+
+    public bool ChoosesAdapter { get; } = SettingsRules.ChoosesAdapter(route.Stage);
+
+    public string? Placeholder { get; } = SettingsRules.ModelPlaceholder(route.Stage);
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSave))]
+    private StageRouting _stored = route;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSave))]
+    [NotifyPropertyChangedFor(nameof(UsesCli))]
+    [NotifyPropertyChangedFor(nameof(UsesApi))]
+    [NotifyPropertyChangedFor(nameof(UsesCodex))]
+    [NotifyPropertyChangedFor(nameof(ChoosesProvider))]
+    private StageRoutingAdapter _adapter = route.Adapter;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSave))]
+    private StageRoutingProvider _provider = route.Provider;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSave))]
+    private string? _model = route.Model;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSave))]
+    private bool _idle = true;
+
+    [ObservableProperty]
+    private string? _error;
+
+    public bool ChoosesProvider => SettingsRules.ChoosesProvider(Stage, Adapter);
+
+    public bool UsesCli
+    {
+        get => Adapter == StageRoutingAdapter.Cli;
+        set
+        {
+            if (value)
+            {
+                Adapter = StageRoutingAdapter.Cli;
+            }
+        }
+    }
+
+    public bool UsesApi
+    {
+        get => Adapter == StageRoutingAdapter.Api;
+        set
+        {
+            if (value)
+            {
+                Adapter = StageRoutingAdapter.Api;
+            }
+        }
+    }
+
+    public bool UsesCodex
+    {
+        get => Adapter == StageRoutingAdapter.Codex;
+        set
+        {
+            if (value)
+            {
+                Adapter = StageRoutingAdapter.Codex;
+            }
+        }
+    }
+
+    public bool CanSave => Idle
+        && !string.IsNullOrWhiteSpace(Model)
+        && (Stored.Adapter != Adapter || Stored.Provider != Provider || (Stored.Model ?? string.Empty) != Model)
+        && SettingsRules.RoutingRequest(Adapter, Provider, Model) is not null;
+
+    [RelayCommand]
+    public async Task SaveAsync()
+    {
+        if (!CanSave)
+        {
+            return;
+        }
+
+        Idle = false;
+        Error = null;
+        try
+        {
+            var saved = await control.Sdk().Stages.SetStageRoutingAsync(Stage, SettingsRules.RoutingRequest(Adapter, Provider, Model!)!);
+            Stored = saved;
+            Adapter = saved.Adapter;
+            Provider = saved.Provider;
+            Model = saved.Model;
+            control.RouteChanged();
+        }
+        catch (HttpRequestException failure)
+        {
+            Error = ApiError.Reason(failure);
+        }
+
+        Idle = true;
+    }
+
+    partial void OnAdapterChanged(StageRoutingAdapter value) => Provider = SettingsRules.ProviderOn(value, Provider);
+}
+
+/// <summary>`StageRoutingControl`: which engine, provider and model each lane runs on.</summary>
+public sealed partial class StageRoutingControl(Func<WilsonSdk> sdk) : ObservableObject
+{
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SharedProvider))]
+    private IReadOnlyList<StageRoutingRow> _rows = [];
+
+    [ObservableProperty]
+    private string? _error;
+
+    public string? SharedProvider => SettingsRules.SharedProvider(Rows.Select(row => row.Stored));
+
+    internal Func<WilsonSdk> Sdk => sdk;
+
+    public async Task ReadAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var routes = await sdk().Stages.ListStageRoutingAsync(cancellationToken);
+            Rows = [.. SettingsRules.RoutedLanes(routes).Select(route => new StageRoutingRow(route, this))];
+            Error = null;
+        }
+        catch (HttpRequestException failure)
+        {
+            Error = $"Cannot load stage routing: {ApiError.Reason(failure)}";
+        }
+    }
+
+    internal void RouteChanged() => OnPropertyChanged(nameof(SharedProvider));
+}
+
 /// <summary>A second factor, as drawn.</summary>
 public sealed record FactorRow(string Id, string Name, SecurityControl Control);
 

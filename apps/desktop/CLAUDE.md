@@ -197,6 +197,7 @@ while draining and every minute otherwise, from sign-in on, for the header's bad
 `MachineSignInControl` and `AccountsControl` are write-only: the API gives back where a sign-in comes from
 and names, never a token, so nothing here can show one. `AccountRules` is `lib/accounts.ts`, and limits are
 read with the page rather than every minute as the web app reads them. `ChatEngineControl` is a draft and a Save.
+`StageRoutingControl` is `StageRoutingControl` in `settings.tsx`, a row per lane that reaches a model, each saved on its own. Lane fields other than routing, such as instructions and budgets, are edited with `wilson stages`, as on the web.
 
 ## Running `claude setup-token`
 
@@ -361,6 +362,8 @@ chat on the AI SDK were not seen.
 drain reaching the header on another page, an interval refused and a webhook refused keeping the attempt.
 Auto-mode was flipped only under a drain, as that API must never start work. Draining with a stage running
 was not seen, as nothing runs a stage there.
+
+2026-11-03, stage routing: with `tools/Walk`, in the dark appearance, a model saved and put back, Codex fixing the provider, the AI SDK offering one, a route refused keeping the attempt, the shared-provider warning appearing and going, and `ready` offering only a model, its `review` and `ready` rows written by hand. A save behind a real step-up was not walked, as the session was too young to need one, and neither was a real stage run on a changed route.
 
 2026-11-02, hosts: with `tools/Walk`, registering, a taken name refused, drain, disable, serving a project,
 a real probe failing, an engine token assigned to a worker, and removing after being asked. A running slot

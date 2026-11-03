@@ -81,6 +81,7 @@ public sealed partial class SettingsViewModel : PageViewModel
             async value => Reported(await Sdk.Settings.SetGithubAppSettingAsync(new SetGitHubAppSettingRequest { AppId = value })));
         MachineSignIn = new MachineSignInControl(() => Sdk);
         Accounts = new AccountsControl(() => Sdk, MachineSignIn, shell.ClaudeSignIn);
+        StageRouting = new StageRoutingControl(() => Sdk);
         ChatEngine = new ChatEngineControl(() => Sdk);
         Security = new SecurityControl(shell);
     }
@@ -106,6 +107,8 @@ public sealed partial class SettingsViewModel : PageViewModel
     public AccountsControl Accounts { get; }
 
     public TextSetting GitHubApp { get; }
+
+    public StageRoutingControl StageRouting { get; }
 
     public ChatEngineControl ChatEngine { get; }
 
@@ -192,6 +195,7 @@ public sealed partial class SettingsViewModel : PageViewModel
             MachineSignIn.ReadAsync(cancellationToken),
             Accounts.ReadAsync(cancellationToken),
             GitHubApp.ReadAsync(cancellationToken),
+            StageRouting.ReadAsync(cancellationToken),
             ChatEngine.ReadAsync(cancellationToken),
             Security.ReadAsync(cancellationToken),
             ReadDeploymentAsync(cancellationToken));
