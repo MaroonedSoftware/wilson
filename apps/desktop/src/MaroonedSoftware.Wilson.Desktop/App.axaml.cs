@@ -39,12 +39,14 @@ public partial class App : Application
                 {
                     e.Cancel = true;
                     window.Hide();
+                    MacDockIcon.Hide();
                 }
             };
             ShowInMenuBar(window, desktop);
             if (TryGetFeature(typeof(IActivatableLifetime)) is IActivatableLifetime activatable)
             {
-                // A click on the Dock icon, which would otherwise do nothing while the window is hidden.
+                // Opening the app again from Finder or Spotlight, or a click on the Dock icon while it is
+                // minimised, which would otherwise do nothing.
                 activatable.Activated += (_, e) =>
                 {
                     if (e.Kind is ActivationKind.Reopen)
@@ -99,6 +101,7 @@ public partial class App : Application
 
     private static void Reveal(Window window)
     {
+        MacDockIcon.Show();
         window.Show();
         if (window.WindowState is WindowState.Minimized)
         {
