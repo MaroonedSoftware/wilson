@@ -545,16 +545,18 @@ internal static class Steps
         var workerPanel = hosts.Hosts.First(found => found.Name == worker);
         workerPanel.EngineToken = token;
         await walk.UntilAsync("an engine token assigned", () => workerPanel.Host?.EngineToken == token);
-        await walk.UntilAsync("a worker nobody has started reading as not connected", () => workerPanel.NotConnected && workerPanel.ConnectionState == "not connected");
+        await walk.UntilAsync("a worker nobody has started reading as not connected", () => workerPanel.NotConnected && workerPanel.ConnectionState == "not connected" && workerPanel.MachineNote is not null);
 
         using (await Walker.ConnectWorkerAsync(walk.Shell.Connection!.Origin, worker))
         {
             await walk.UntilAsync("the page's own reading finding the connection", () => workerPanel.Connected);
             Console.WriteLine($"     worker: {workerPanel.ConnectionState}; {workerPanel.Summary}");
+            await walk.UntilAsync("the daemon's own sampling reaching the page", () => workerPanel.Machine is not null && workerPanel.Disks.Count == 2);
+            Console.WriteLine($"     machine: {workerPanel.MachineRead}: {workerPanel.Machine}; {string.Join("; ", workerPanel.Disks.Select(disk => $"{disk.Text} low={disk.Low}"))}");
             walk.Shot("11-hosts-worker-connected");
         }
 
-        await walk.UntilAsync("the page's own reading finding it gone", () => workerPanel.NotConnected);
+        await walk.UntilAsync("the page's own reading finding it gone", () => workerPanel.NotConnected && workerPanel.Machine is null && workerPanel.Disks.Count == 0);
 
         var project = panel.Projects[0].Project;
         Walker.Sql($"insert into wilson.leases (resource_key, project, card_id, acquired_at) values ('host:{name}:slot:0', '{project}', '0001', now() - interval '12 minutes')");

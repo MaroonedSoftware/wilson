@@ -293,6 +293,8 @@ There are two kinds of host, fixed when one is registered:
   that, or else the worker's own `CLAUDE_CODE_OAUTH_TOKEN`. A worker host's `connection` in the API
   is its open connection right now, where `probe` is only what was found the last time one ran.
   `GET /api/hosts/{name}/runs` is what was placed there lately, read from `stage.placed` events.
+  Its `connection.metrics` is the machine as the worker last answered (`WorkerStatsSampler`, every
+  thirty seconds), held on the connection with no history.
 
 A stage marked `isolated` runs only on a host an operator has vouched for (`wilson host isolated`,
 behind step-up), never on this machine, and waits when there is none. It is for an engine that cannot

@@ -186,10 +186,12 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         psql.WaitForExit();
     }
 
+    private const string FakeStats = """{"cpus":12,"loadAverage":2.34,"memoryTotalBytes":34359738368,"memoryFreeBytes":8589934592,"uptimeSeconds":273600,"disks":[{"path":"/srv/projects","totalBytes":536870912000,"freeBytes":129922760704},{"path":"/srv/scratch","totalBytes":107374182400,"freeBytes":5368709120}]}""";
+
     /// <summary>
     /// A worker for host `name`, connected to the real endpoint with a token written straight to its row, as
-    /// minting one needs a step-up. It says hello and then only keeps reading, so pings are answered and it
-    /// runs nothing. Disposing it drops the connection.
+    /// minting one needs a step-up. It says hello, answers a stats call with made-up numbers and refuses any
+    /// other, so it runs nothing. Disposing it drops the connection.
     /// </summary>
     public static async Task<System.Net.WebSockets.ClientWebSocket> ConnectWorkerAsync(string origin, string name)
     {
@@ -204,12 +206,23 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         await socket.SendAsync(hello, System.Net.WebSockets.WebSocketMessageType.Text, true, CancellationToken.None);
         _ = Task.Run(async () =>
         {
-            var buffer = new byte[64 * 1024];
+            var buffer = new byte[256 * 1024];
             try
             {
                 while (socket.State == System.Net.WebSockets.WebSocketState.Open)
                 {
-                    await socket.ReceiveAsync(buffer, CancellationToken.None);
+                    var received = await socket.ReceiveAsync(buffer, CancellationToken.None);
+                    using var message = System.Text.Json.JsonDocument.Parse(buffer.AsMemory(0, received.Count));
+                    if (message.RootElement.GetProperty("type").GetString() != "call")
+                    {
+                        continue;
+                    }
+
+                    var id = message.RootElement.GetProperty("id").GetString();
+                    var answer = message.RootElement.GetProperty("call").GetProperty("op").GetString() == "stats"
+                        ? $$$"""{"type":"result","id":"{{{id}}}","ok":true,"value":{{{FakeStats}}}}"""
+                        : $$$"""{"type":"result","id":"{{{id}}}","ok":false,"error":{"message":"this walk's worker only reports stats"}}""";
+                    await socket.SendAsync(System.Text.Encoding.UTF8.GetBytes(answer), System.Net.WebSockets.WebSocketMessageType.Text, true, CancellationToken.None);
                 }
             }
             catch (Exception failure) when (failure is System.Net.WebSockets.WebSocketException or ObjectDisposedException)

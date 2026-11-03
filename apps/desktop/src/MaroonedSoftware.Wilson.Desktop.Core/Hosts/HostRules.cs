@@ -1,3 +1,4 @@
+using System.Globalization;
 using MaroonedSoftware.Wilson.Sdk.Models;
 
 namespace MaroonedSoftware.Wilson.Desktop.Core.Hosts;
@@ -5,6 +6,9 @@ namespace MaroonedSoftware.Wilson.Desktop.Core.Hosts;
 /// <summary>What `routes/hosts.tsx` says about a host, kept in step by hand.</summary>
 public static class HostRules
 {
+    private const double GiB = 1024d * 1024d * 1024d;
+    private const double LowDiskShare = 0.1;
+
     /// <summary>"in 3h 12m", "5m ago": how far `at` is from `now`, to the minute.</summary>
     public static string Relative(DateTimeOffset at, DateTimeOffset now)
     {
@@ -80,6 +84,56 @@ public static class HostRules
         }
 
         return string.Join(" · ", parts);
+    }
+
+    /// <summary>Why there is no reading of the machine to show, or null when there is one.</summary>
+    public static string? MachineNote(Host host)
+    {
+        ArgumentNullException.ThrowIfNull(host);
+
+        if (host.Kind != HostKind.Worker)
+        {
+            return "Not reported for an SSH host.";
+        }
+
+        return host.Connection is null ? "No reading while its worker is not connected."
+            : host.Connection.Metrics is null ? "No reading yet."
+            : null;
+    }
+
+    /// <summary>"load 2.3 on 12 cores · 18.2 of 32.0 GiB memory used · up 3d 4h".</summary>
+    public static string Machine(HostMetrics metrics)
+    {
+        ArgumentNullException.ThrowIfNull(metrics);
+
+        var used = metrics.MemoryTotalBytes - metrics.MemoryFreeBytes;
+        var load = metrics.LoadAverage.ToString("F1", CultureInfo.InvariantCulture);
+        var cores = metrics.Cpus == 1 ? "1 core" : $"{metrics.Cpus} cores";
+        return $"load {load} on {cores} · {Gib(used)} of {Gib(metrics.MemoryTotalBytes)} GiB memory used · up {Uptime(metrics.UptimeSeconds)}";
+    }
+
+    /// <summary>"/srv/projects: 120.5 of 500.0 GiB free".</summary>
+    public static string Disk(HostDisk disk)
+    {
+        ArgumentNullException.ThrowIfNull(disk);
+
+        return $"{disk.Path}: {Gib(disk.FreeBytes)} of {Gib(disk.TotalBytes)} GiB free";
+    }
+
+    /// <summary>A stage cuts a worktree and builds there, so a volume nearly full is worth a colour before it fails one.</summary>
+    public static bool DiskLow(HostDisk disk)
+    {
+        ArgumentNullException.ThrowIfNull(disk);
+
+        return disk.FreeBytes < disk.TotalBytes * LowDiskShare;
+    }
+
+    private static string Gib(long bytes) => (bytes / GiB).ToString("F1", CultureInfo.InvariantCulture);
+
+    private static string Uptime(long seconds)
+    {
+        var (minutes, hours, days) = (seconds / 60 % 60, seconds / 3600 % 24, seconds / 86400);
+        return days > 0 ? $"{days}d {hours}h" : hours > 0 ? $"{hours}h {minutes}m" : $"{minutes}m";
     }
 
     /// <summary>How a run ended, in a word or two. "No word" is a run nothing ever said the end of, such as a daemon killed during it.</summary>

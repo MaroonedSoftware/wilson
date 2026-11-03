@@ -164,6 +164,9 @@ public sealed record HostSlotRow(string Slot, string Project, string CardId, str
 /// <summary>A recent run, as drawn.</summary>
 public sealed record HostRunRow(string Outcome, bool Good, bool Caution, bool Bad, string Project, string CardId, string Card, string Detail, HostPanelViewModel Panel);
 
+/// <summary>A volume, as drawn.</summary>
+public sealed record HostDiskRow(string Text, bool Low);
+
 /// <summary>One host. Every action goes through the API and the page shows what came back, so a refused write never shows as applied.</summary>
 public sealed partial class HostPanelViewModel(ShellViewModel shell, HostsViewModel home, string name) : ObservableObject
 {
@@ -182,6 +185,8 @@ public sealed partial class HostPanelViewModel(ShellViewModel shell, HostsViewMo
 
     /// <summary>The newest few, or all the API gave once asked for.</summary>
     public ObservableCollection<HostRunRow> Runs { get; } = [];
+
+    public ObservableCollection<HostDiskRow> Disks { get; } = [];
 
     public ObservableCollection<string> Serveable { get; } = [];
 
@@ -231,6 +236,15 @@ public sealed partial class HostPanelViewModel(ShellViewModel shell, HostsViewMo
 
     [ObservableProperty]
     private bool _noProjects;
+
+    [ObservableProperty]
+    private string? _machine;
+
+    [ObservableProperty]
+    private string? _machineRead;
+
+    [ObservableProperty]
+    private string? _machineNote;
 
     [ObservableProperty]
     private bool _noRuns;
@@ -414,6 +428,12 @@ public sealed partial class HostPanelViewModel(ShellViewModel shell, HostsViewMo
 
         var running = host.Running.Select(use => new HostSlotRow($"slot {use.Slot}:", use.Project, use.CardId, $"{use.Project} {use.CardId}", $"since {HostRules.Relative(use.Since, now)}", this)).ToList();
         Replace(Running, running);
+
+        var metrics = host.Connection?.Metrics;
+        Machine = metrics is null ? null : HostRules.Machine(metrics);
+        MachineRead = metrics is null ? "Machine" : $"Machine, read {HostRules.Relative(metrics.SampledAt, now)}";
+        MachineNote = HostRules.MachineNote(host);
+        Replace(Disks, metrics?.Disks.Select(disk => new HostDiskRow(HostRules.Disk(disk), HostRules.DiskLow(disk))).ToList() ?? []);
 
         _allRuns = runs.Select(run => new HostRunRow(
             HostRules.Outcome(run),

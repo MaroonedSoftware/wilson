@@ -62,6 +62,18 @@
                                     </ItemsControl>
                                 </StackPanel>
                                 <StackPanel Spacing="2">
+                                    <TextBlock FontWeight="SemiBold" FontSize="13" Text="{Binding MachineRead}" ToolTip.Tip="As the worker sees it. In a container that is the container's view: on Docker Desktop, its VM rather than the computer." />
+                                    <TextBlock Classes="quiet" Text="{Binding MachineNote}" IsVisible="{Binding MachineNote, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    <SelectableTextBlock FontSize="13" Text="{Binding Machine}" TextWrapping="Wrap" IsVisible="{Binding Machine, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    <ItemsControl ItemsSource="{Binding Disks}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:HostDiskRow">
+                                                <TextBlock FontSize="13" Classes.caution="{Binding Low}" Classes.quiet="{Binding Low}" Text="{Binding Text}" TextWrapping="Wrap" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                                <StackPanel Spacing="2">
                                     <TextBlock FontWeight="SemiBold" FontSize="13" Text="Recent runs" />
                                     <TextBlock Classes="quiet" Text="Nothing has been placed here yet." IsVisible="{Binding NoRuns}" />
                                     <ItemsControl ItemsSource="{Binding Runs}">
