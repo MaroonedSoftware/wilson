@@ -46,6 +46,18 @@ const moveStoredRouting = async (container: Container, logger: Logger): Promise<
     }
 };
 
+/**
+ * Fill every project's lane tables from its stored stage config. One project's bad document must not
+ * stop the server: it keeps reading that document until it is fixed.
+ */
+const importLanes = async (container: Container, logger: Logger): Promise<void> => {
+    for (const { name } of await container.get(ProjectRepository).list()) {
+        await runAsProject(name, () => container.get(StageConfigStore).importLanes()).catch((err: Error) =>
+            logger.warn(`could not import ${name}'s stage config into its lanes: ${err.message}`),
+        );
+    }
+};
+
 export const setupServer = async (): Promise<Server> => {
     const serverBuilder = new ServerKitServerBuilder();
     Settings.defaultZone = 'utc'; // luxon, as fintech does
@@ -65,6 +77,7 @@ export const setupServer = async (): Promise<Server> => {
     // Bridges Postgres NOTIFY (issued by `EventLog.append`, from this process's own job runner or
     // a separate `wilson` CLI invocation) onto the in-process card feed `/api/feed` streams from.
     await moveStoredRouting(container, logger);
+    await importLanes(container, logger);
 
     await startCardFeedListener(container.get(KyselyPool), logger, serverBuilder.lifecycleSignal);
     // Same signal, threaded one layer further: the LISTEN connection above drains on shutdown, and

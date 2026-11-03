@@ -436,7 +436,7 @@ export const assertRoutable = (stage: string, routing: StageRouting, isolated?: 
  * with neither fails the same way a document missing `model` always has. A row for a stage the
  * document no longer has is left unused: it is history, and is live again if that stage comes back.
  */
-const applyRouting = (document: unknown, routing: ReadonlyMap<string, StageRouting>): unknown => {
+export const applyRouting = (document: unknown, routing: ReadonlyMap<string, StageRouting>): unknown => {
     if (routing.size === 0 || typeof document !== 'object' || document === null) return document;
     const { stages } = document as { stages?: unknown };
     if (!Array.isArray(stages)) return document;
@@ -471,7 +471,12 @@ export const parseStages = (raw: string, source = 'stage config', routing: Reado
         throw new StageConfigError('config-invalid', `${source} is not valid YAML: ${(err as Error).message}`);
     }
 
-    const parsed = ProjectStagesSchema.safeParse(applyRouting(document, routing));
+    return validateStages(applyRouting(document, routing), source);
+};
+
+/** Validate an already-read config, wherever it was read from: the checks every load has to pass. */
+export const validateStages = (document: unknown, source = 'stage config'): ProjectStages => {
+    const parsed = ProjectStagesSchema.safeParse(document);
     if (!parsed.success) {
         throw new StageConfigError(
             'config-invalid',

@@ -1,9 +1,20 @@
 import { Injectable } from 'injectkit';
-import { Kysely } from 'kysely';
+import { Kysely, type Selectable, type Transaction } from 'kysely';
 import { DateTime } from 'luxon';
 import { BoardConfig } from '#modules/board/board.config.js';
 import type { DB } from '#modules/data/db.js';
-import { assertRoutable, findStage, parseStages, splitRouting, StageConfigError, type ProjectStages, type StageRouting } from './stage.config.js';
+import { isDeepStrictEqual } from 'node:util';
+import {
+    assertRoutable,
+    findStage,
+    parseStages,
+    splitRouting,
+    StageConfigError,
+    validateStages,
+    type ProjectStages,
+    type StageRouting,
+} from './stage.config.js';
+import { documentFromLanes, lanesFromDocument, type Lane, type LaneConfig, type ProjectLaneSettings } from './lane.rows.js';
 
 /** One stored stage config document — a `wilson.stage_configs` row, as a caller sees it. */
 export interface StageConfigDocument {
@@ -75,6 +86,13 @@ export abstract class StageConfigStore {
      * document or it holds no routing, so it is safe on every start.
      */
     abstract moveStoredRouting(): Promise<void>;
+
+    /**
+     * Fill the project's lane tables from its stored document, when that document is newer than what
+     * they hold. Does nothing when there is no document or the tables are current, so it is safe on
+     * every start. Throws `StageConfigError` for a document that does not validate, and writes nothing.
+     */
+    abstract importLanes(): Promise<void>;
 }
 
 /**
@@ -112,6 +130,9 @@ export class PostgresStageConfigStore extends StageConfigStore {
     async load(): Promise<ProjectStages> {
         const project = this.config.project;
         const row = await this.newest().select(['id', 'yaml']).executeTakeFirst();
+        const imported = await this.importedConfigId();
+        if (imported !== undefined && (!row || imported >= BigInt(row.id))) return this.loadLanes();
+
         if (!row) {
             throw new StageConfigError(
                 'config-invalid',
@@ -146,6 +167,16 @@ export class PostgresStageConfigStore extends StageConfigStore {
         }
     }
 
+    async importLanes(): Promise<void> {
+        const document = await this.read();
+        if (!document) return;
+        const imported = await this.importedConfigId();
+        if (imported !== undefined && imported >= BigInt(document.id)) return;
+
+        const config = lanesFromDocument(document.yaml, routingByStage(await this.currentRouting()), `stage config ${document.id}`);
+        await this.db.transaction().execute(trx => this.writeLanes(trx, config, document.id, `Imported from stage config ${document.id}`));
+    }
+
     /** Validate and write a document and the routing it carries, together. `keepRows` lets a row win over the document. */
     private async store(submitted: string, message: string, keepRows: boolean): Promise<StageConfigDocument> {
         const routing = routingByStage(await this.currentRouting());
@@ -164,8 +195,111 @@ export class PostgresStageConfigStore extends StageConfigStore {
                 .values({ project: this.config.project, yaml, message })
                 .returning(['id', 'yaml', 'message', 'createdAt'])
                 .executeTakeFirstOrThrow();
+
+            const after = new Map(routing);
+            for (const { stage, ...fields } of changes) after.set(stage, fields);
+            await this.writeLanes(trx, lanesFromDocument(yaml, after, 'the submitted stage config'), row.id, message);
+
             return toDocument(row);
         });
+    }
+
+    /** Make the lane tables say `config`, recording a revision for each thing that changed and nothing else. */
+    private async writeLanes(trx: Transaction<DB>, config: LaneConfig, configId: string | number | bigint, message: string): Promise<void> {
+        const project = this.config.project;
+        const current = await trx.selectFrom('wilson.lanes').selectAll().where('project', '=', project).execute();
+        const before = new Map(current.map(row => [row.name, toLane(row)]));
+        const revisions: { lane: string | null; snapshot: string | null }[] = [];
+
+        for (const lane of config.lanes) {
+            const previous = before.get(lane.name);
+            before.delete(lane.name);
+            if (previous && isDeepStrictEqual(previous, lane)) continue;
+
+            const values = {
+                position: lane.position,
+                mode: lane.mode,
+                worktree: lane.worktree,
+                onPass: lane.onPass,
+                onFail: lane.onFail,
+                adapter: lane.adapter ?? null,
+                provider: lane.provider ?? null,
+                model: lane.model ?? null,
+                instructions: lane.instructions,
+                settings: JSON.stringify(lane.settings),
+            };
+            await trx
+                .insertInto('wilson.lanes')
+                .values({ project, name: lane.name, ...values })
+                .onConflict(oc => oc.columns(['project', 'name']).doUpdateSet({ ...values, updatedAt: DateTime.now() }))
+                .execute();
+            revisions.push({ lane: lane.name, snapshot: JSON.stringify(lane) });
+        }
+
+        for (const name of before.keys()) {
+            await trx.deleteFrom('wilson.lanes').where('project', '=', project).where('name', '=', name).execute();
+            revisions.push({ lane: name, snapshot: null });
+        }
+
+        const settings = await trx.selectFrom('wilson.projectLaneSettings').selectAll().where('project', '=', project).executeTakeFirst();
+        if (!settings || !isDeepStrictEqual(toProjectSettings(settings), config.project)) {
+            revisions.push({ lane: null, snapshot: JSON.stringify(config.project) });
+        }
+        const values = {
+            scopeViolation: config.project.scopeViolation,
+            alwaysAllowed: [...config.project.alwaysAllowed],
+            deny: [...config.project.deny],
+            sandbox: JSON.stringify(config.project.sandbox),
+            importedConfigId: BigInt(configId),
+        };
+        await trx
+            .insertInto('wilson.projectLaneSettings')
+            .values({ project, ...values })
+            .onConflict(oc => oc.column('project').doUpdateSet({ ...values, updatedAt: DateTime.now() }))
+            .execute();
+
+        if (revisions.length > 0) {
+            await trx
+                .insertInto('wilson.laneRevisions')
+                .values(revisions.map(revision => ({ project, ...revision, message })))
+                .execute();
+        }
+    }
+
+    /** The config in the lane tables, cached the way a parsed document is, on the newest revision. */
+    private async loadLanes(): Promise<ProjectStages> {
+        const project = this.config.project;
+        const newest = await this.db
+            .selectFrom('wilson.laneRevisions')
+            .select('id')
+            .where('project', '=', project)
+            .orderBy('id', 'desc')
+            .limit(1)
+            .executeTakeFirst();
+        const id = `lanes:${newest?.id}`;
+        const cached = parsedByProject.get(project);
+        if (cached && cached.id === id) return cached.value;
+
+        const [lanes, settings] = await Promise.all([
+            this.db.selectFrom('wilson.lanes').selectAll().where('project', '=', project).execute(),
+            this.db.selectFrom('wilson.projectLaneSettings').selectAll().where('project', '=', project).executeTakeFirstOrThrow(),
+        ]);
+        const value = validateStages(
+            documentFromLanes({ lanes: lanes.map(toLane), project: toProjectSettings(settings) }),
+            `the lanes of project "${project}"`,
+        );
+        parsedByProject.set(project, { id, value });
+        return value;
+    }
+
+    /** The newest document the lane tables reflect, or undefined when they have never been filled. */
+    private async importedConfigId(): Promise<bigint | undefined> {
+        const row = await this.db
+            .selectFrom('wilson.projectLaneSettings')
+            .select('importedConfigId')
+            .where('project', '=', this.config.project)
+            .executeTakeFirst();
+        return row ? BigInt(row.importedConfigId) : undefined;
     }
 
     async versions(limit = 20): Promise<StageConfigVersionSummary[]> {
@@ -183,10 +317,27 @@ export class PostgresStageConfigStore extends StageConfigStore {
         const { isolated } = findStage(await this.load(), stage);
         assertRoutable(stage, routing, isolated);
 
-        await this.db
-            .insertInto('wilson.stageRouting')
-            .values({ project: this.config.project, stage, ...routing, message })
-            .execute();
+        const project = this.config.project;
+        await this.db.transaction().execute(async trx => {
+            await trx
+                .insertInto('wilson.stageRouting')
+                .values({ project, stage, ...routing, message })
+                .execute();
+
+            const lane = await trx
+                .updateTable('wilson.lanes')
+                .set({ ...routing, updatedAt: DateTime.now() })
+                .where('project', '=', project)
+                .where('name', '=', stage)
+                .returningAll()
+                .executeTakeFirst();
+            if (lane) {
+                await trx
+                    .insertInto('wilson.laneRevisions')
+                    .values({ project, lane: stage, snapshot: JSON.stringify(toLane(lane)), message })
+                    .execute();
+            }
+        });
     }
 
     /** The newest `wilson.stage_routing` row for each of the current project's stages. */
@@ -206,6 +357,27 @@ export class PostgresStageConfigStore extends StageConfigStore {
         return this.db.selectFrom('wilson.stageConfigs').where('project', '=', this.config.project).orderBy('id', 'desc').limit(1);
     }
 }
+
+const toLane = (row: Selectable<DB['wilson.lanes']>): Lane => ({
+    name: row.name,
+    position: row.position,
+    mode: row.mode,
+    worktree: row.worktree,
+    onPass: row.onPass,
+    onFail: row.onFail,
+    ...(row.adapter == null ? {} : { adapter: row.adapter }),
+    ...(row.provider == null ? {} : { provider: row.provider }),
+    ...(row.model == null ? {} : { model: row.model }),
+    instructions: row.instructions,
+    settings: row.settings as Lane['settings'],
+});
+
+const toProjectSettings = (row: Selectable<DB['wilson.projectLaneSettings']>): ProjectLaneSettings => ({
+    scopeViolation: row.scopeViolation,
+    alwaysAllowed: row.alwaysAllowed,
+    deny: row.deny,
+    sandbox: row.sandbox as unknown as ProjectLaneSettings['sandbox'],
+});
 
 const routingByStage = (rows: { stage: string; adapter: string; provider: string; model: string }[]) =>
     new Map(rows.map(({ stage, adapter, provider, model }) => [stage, { adapter, provider, model } as StageRouting]));
@@ -293,6 +465,8 @@ export class StaticStageConfigStore extends StageConfigStore {
     }
 
     async moveStoredRouting(): Promise<void> {}
+
+    async importLanes(): Promise<void> {}
 
     private document(yaml: string, message: string): StageConfigDocument {
         return { id: String(this.documents.length + 1), yaml, message, createdAt: DateTime.now() };
