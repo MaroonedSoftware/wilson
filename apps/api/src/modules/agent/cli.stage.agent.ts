@@ -173,6 +173,15 @@ const WRITE_TOOLS = ['Write', 'Edit'];
 const EXEC_TOOLS = ['Bash'];
 
 /**
+ * Every built-in a stage can use: the ones `createToolGuard` has a rule for, and no others. Passed as
+ * `tools`, because a native engine build leaves Glob and Grep out of its default set in favour of
+ * `find` and `grep` through Bash, which `CommandAllowlist` refuses by pointing at those same tools.
+ * Measured on 2.1.246 and 2.1.317: "No such tool available: Glob". Naming a tool here only makes it
+ * exist. It does not pre-approve it the way `allowedTools` would, so the guard still decides each call.
+ */
+export const ENGINE_TOOLS = [...READ_TOOLS, ...WRITE_TOOLS, ...EXEC_TOOLS];
+
+/**
  * Runs a stage through the Claude Code engine instead of a provider API.
  *
  * Authentication comes from the operator's own Claude Code credentials, so this path keeps working
@@ -620,6 +629,7 @@ export class CliStageAgent extends StageAgent {
                 // the guard's default-deny stays exactly as it is, unmoved.
                 settingSources: [],
                 strictMcpConfig: true,
+                tools: ENGINE_TOOLS,
                 // Card 0249: the `PreToolUse` hook is consulted first — the engine calls it for
                 // every tool call, unconditionally, which is what `canUseTool` turned out not to
                 // be on host engine 2.1.266 (see the class doc comment's 2026-09-19 finding).

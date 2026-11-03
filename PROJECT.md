@@ -230,6 +230,11 @@ probe wrote a file outside the declared scope and the guard was never called onc
 Permission comes solely from the callback, whose final branch denies any tool it does
 not recognise.
 
+**`tools` names the built-ins a stage can use: Read, Glob, Grep, Write, Edit and Bash.** A
+native engine build leaves Glob and Grep out of its default set, in favour of `find` and
+`grep` through Bash, which the command allowlist refuses by pointing at those same tools.
+Unlike `allowedTools`, `tools` only makes a tool exist, and the guard still decides each call.
+
 The `report_result` tool is supplied to this adapter as an in-process MCP server
 carrying the stage's own result schema. Without it a stage can only return prose,
 which the review verifier rightly refuses, and the runner cannot tell an adapter
