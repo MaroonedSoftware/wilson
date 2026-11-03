@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,8 +24,9 @@ import { CodexAppServer, decline, ranWithoutApproval, runTurn, type TurnRecord }
  * Reached through `test:engine` like `cli.engine.contract.probe.ts`, by hand, and never by the suite.
  *
  * - `CODEX_PROBE_BIN`: the `codex` binary. Without it, everything here is skipped.
- * - `CODEX_API_KEY`: an OpenAI API key. Without it, only the handshake runs. Each live probe spends a
- *   few model turns.
+ * - `CODEX_API_KEY`: an OpenAI API key, read here and signed in with over `account/login/start`, since
+ *   `app-server` ignores that variable. Without it, only the keyless probes run. Each live probe spends
+ *   a few model turns.
  * - `CODEX_PROBE_REPEATS`: how many times each live probe runs (default 3). Engine behaviour has varied
  *   run to run before, so one run proves little.
  * - `CODEX_PROBE_MODEL`: a model to use in place of Codex's default.
@@ -102,6 +103,34 @@ describe.skipIf(!binary)('codex app-server: handshake', () => {
     });
 });
 
+describe.skipIf(!binary)('codex app-server: signing in with a key', () => {
+    it('takes it over the protocol and leaves nothing on disk', async () => {
+        const codexHome = await freshDir('codex-probe-key-');
+        const server = await CodexAppServer.start({ binary: binary!, codexHome, apiKey: 'sk-not-a-real-key' });
+        try {
+            const { account } = await server.request<{ account: { type?: string } | null }>('account/read', {});
+
+            expect(account?.type).toBe('apiKey');
+            expect(readdirSync(codexHome).filter(file => /auth|cred/i.test(file))).toEqual([]);
+        } finally {
+            server.close();
+        }
+    });
+
+    it('still ignores CODEX_API_KEY, which is why it has to', async () => {
+        const server = await CodexAppServer.start({
+            binary: binary!,
+            codexHome: await freshDir('codex-probe-env-'),
+            env: { CODEX_API_KEY: 'sk-not-a-real-key' },
+        });
+        try {
+            expect((await server.request<{ account: unknown }>('account/read', {})).account).toBeNull();
+        } finally {
+            server.close();
+        }
+    });
+});
+
 describe.skipIf(!binary)('CodexStageAgent against the real binary, signed out', () => {
     it('gets as far as the model and reports why it could not go on', async () => {
         const worktreeRoot = await freshDir('codex-probe-adapter-');
@@ -163,18 +192,10 @@ describe.skipIf(!binary || !apiKey)('codex app-server: live', () => {
     let server: CodexAppServer;
 
     beforeAll(async () => {
-        server = await CodexAppServer.start({ binary: binary!, codexHome: home, env: { CODEX_API_KEY: apiKey! }, onRequest: decline });
+        server = await CodexAppServer.start({ binary: binary!, codexHome: home, apiKey: apiKey!, onRequest: decline });
     });
     afterAll(() => {
         server?.close();
-    });
-
-    it('signs in from CODEX_API_KEY alone, writing no credential to CODEX_HOME', async () => {
-        const { account } = await server.request<{ account: { type?: string } | null }>('account/read', {});
-        console.info(`signed in from the environment as ${JSON.stringify(account)}; auth.json written: ${existsSync(join(home, 'auth.json'))}`);
-
-        expect(account?.type).toBe('apiKey');
-        expect(existsSync(join(home, 'auth.json'))).toBe(false);
     });
 
     it.each([

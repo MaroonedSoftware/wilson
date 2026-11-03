@@ -55,12 +55,14 @@ describe('CodexStageAgent', () => {
             resume,
             interrupts,
             spawn,
+            accounts,
         }: {
             stageOver?: Partial<StageConfig>;
             policy?: 'widen' | 'kickback';
             resume?: { sessionId?: string };
             interrupts?: StageInterrupt;
             spawn?: () => unknown;
+            accounts?: unknown;
         } = {},
     ) => {
         const spawnCodex = vi.fn(spawn ?? (() => server.process));
@@ -87,7 +89,7 @@ describe('CodexStageAgent', () => {
                 spawnCodex,
             },
         } as unknown as ToolContext;
-        const agent = new CodexStageAgent(logger as never, interrupts);
+        const agent = new CodexStageAgent(logger as never, interrupts, accounts as never);
         const output = await agent.run({
             stage: stage(stageOver),
             context,
@@ -667,11 +669,11 @@ describe('CodexStageAgent', () => {
         it('reports a failed turn in its own words, with what kind of failure', async () => {
             const { output } = await run(
                 new SimulatedCodexServer(async server =>
-                    server.completeTurn('failed', { message: 'you hit your limit', codexErrorInfo: 'usageLimitExceeded' }),
+                    server.completeTurn('failed', { message: 'the model is busy', codexErrorInfo: 'serverOverloaded' }),
                 ),
             );
 
-            expect(output.engineFailure).toMatch(/you hit your limit \(usageLimitExceeded\)/);
+            expect(output.engineFailure).toMatch(/the model is busy \(serverOverloaded\)/);
             expect(output.engineStopReason).toBe("ended as 'failed'");
             expect(eventsOf('engine.failed')).toHaveLength(1);
         });
@@ -708,6 +710,150 @@ describe('CodexStageAgent', () => {
             const { output } = await run(server);
 
             expect(output.engineFailure).toMatch(/bad model/);
+        });
+    });
+
+    describe('accounts', () => {
+        const accounts = (first: Record<string, unknown>, next: Record<string, unknown> = first) => {
+            const codex = vi.fn().mockResolvedValueOnce(first).mockResolvedValue(next);
+            const recordLimit = vi.fn().mockResolvedValue(undefined);
+            return { codex, recordLimit };
+        };
+        const key = { name: 'key-a', token: 'sk-secret-key' };
+
+        it('signs in with a pooled key over the protocol, kept out of the environment and off disk', async () => {
+            const server = new SimulatedCodexServer(report);
+            const { spawnCodex, output } = await run(server, { accounts: accounts(key) });
+            const options = spawnCodex.mock.calls[0]![0 as never] as unknown as { args: string[]; env: NodeJS.ProcessEnv };
+
+            expect(output.result).toEqual({ summary: 'done' });
+            expect(startOf(server, 'account/login/start')).toEqual({ type: 'apiKey', apiKey: 'sk-secret-key' });
+            expect(options.args).toEqual(['-c', 'cli_auth_credentials_store="ephemeral"', 'app-server']);
+            expect(JSON.stringify(options)).not.toContain('sk-secret-key');
+            const order = server.received.map(request => request.method);
+            expect(order.indexOf('account/login/start')).toBeLessThan(order.indexOf('thread/start'));
+        });
+
+        it('leaves the host’s own sign-in alone when there is no key', async () => {
+            const server = new SimulatedCodexServer(report);
+            const { spawnCodex } = await run(server, { accounts: accounts({ name: 'codex:isolated' }) });
+            const options = spawnCodex.mock.calls[0]![0 as never] as unknown as { args: string[] };
+
+            expect(options.args).toEqual(['app-server']);
+            expect(startOf(server, 'account/login/start')).toEqual({});
+        });
+
+        it('fails the stage, without the key, when the login is refused', async () => {
+            const server = new SimulatedCodexServer();
+            server.failing.set('account/login/start', 'bad key');
+            const { output } = await run(server, { accounts: accounts(key) });
+
+            expect(output.engineFailure).toMatch(/bad key/);
+            expect(JSON.stringify(output)).not.toContain('sk-secret-key');
+        });
+
+        it('does not start an engine on an account already limited', async () => {
+            const limit = { account: 'key-a', limitType: 'rateLimitExceeded', resetsAt: 5000 };
+            const server = new SimulatedCodexServer();
+            const { output, spawnCodex } = await run(server, { accounts: accounts({ ...key, limit }) });
+
+            expect(spawnCodex).not.toHaveBeenCalled();
+            expect(output).toMatchObject({ truncated: true, usageLimit: limit, heldUntil: 5000 });
+        });
+
+        it('records a limit on a failed turn and goes at once when another key is free', async () => {
+            const service = accounts(key, { name: 'key-b', token: 'other' });
+            const before = Date.now();
+            const { output } = await run(
+                new SimulatedCodexServer(async server =>
+                    server.completeTurn('failed', { message: 'no quota', codexErrorInfo: 'usageLimitExceeded' }),
+                ),
+                { accounts: service },
+            );
+
+            expect(service.recordLimit).toHaveBeenCalledWith(expect.objectContaining({ account: 'key-a', limitType: 'usageLimitExceeded' }));
+            expect(output.usageLimit).toMatchObject({ account: 'key-a' });
+            expect(output.heldUntil).toBeGreaterThanOrEqual(before);
+            expect(output.heldUntil).toBeLessThanOrEqual(Date.now());
+            expect(output.interrupted).toMatchObject({ sessionId: 'thread-1' });
+            expect(output.engineFailure).toBeUndefined();
+            expect(eventsOf('engine.failed')).toEqual([]);
+        });
+
+        it('waits for the soonest reset when every key is limited', async () => {
+            const next = { name: 'key-b', token: 'other', limit: { account: 'key-b', limitType: 'x', resetsAt: 7777 } };
+            const { output } = await run(
+                new SimulatedCodexServer(async server =>
+                    server.completeTurn('failed', { message: 'slow down', codexErrorInfo: 'rateLimitExceeded' }),
+                ),
+                { accounts: accounts(key, next) },
+            );
+
+            expect(output.heldUntil).toBe(7777);
+        });
+
+        it('takes the reset time from a plan’s rate limits', async () => {
+            const service = accounts({ name: 'codex:isolated' });
+            await run(
+                new SimulatedCodexServer(async server => {
+                    server.notify('account/rateLimits/updated', {
+                        rateLimits: {
+                            rateLimitReachedType: 'rate_limit_reached',
+                            primary: { resetsAt: 2_000_000_000 },
+                            secondary: { resetsAt: 2_000_000_100 },
+                        },
+                    });
+                    server.completeTurn('failed', { message: 'limited', codexErrorInfo: 'usageLimitExceeded' });
+                }),
+                { accounts: service },
+            );
+
+            expect(service.recordLimit).toHaveBeenCalledWith({
+                account: 'codex:isolated',
+                limitType: 'rate_limit_reached',
+                resetsAt: 2_000_000_100_000,
+            });
+        });
+
+        it('treats an engine stuck retrying a limit as limited, not silent', async () => {
+            const { output } = await run(
+                new SimulatedCodexServer(async server => {
+                    server.notify('error', { error: { message: 'slow down', codexErrorInfo: 'rateLimitExceeded' }, willRetry: true });
+                }),
+                { accounts: accounts(key), stageOver: { maxIdleMs: 20 } },
+            );
+
+            expect(output.usageLimit).toMatchObject({ limitType: 'rateLimitExceeded' });
+            expect(output.engineFailure).toBeUndefined();
+        });
+
+        it('does not call a retried error a limit once the engine has moved on', async () => {
+            const { output } = await run(
+                new SimulatedCodexServer(async server => {
+                    server.notify('error', { error: { message: 'slow down', codexErrorInfo: 'rateLimitExceeded' }, willRetry: true });
+                    server.notify('item/completed', { item: { type: 'agentMessage', id: 'm1', text: 'carrying on' } });
+                    server.completeTurn('failed', { message: 'something else' });
+                }),
+                { accounts: accounts(key) },
+            );
+
+            expect(output.usageLimit).toBeUndefined();
+            expect(output.engineFailure).toMatch(/something else/);
+        });
+
+        it('does not hold a stage that reported, whatever its account did', async () => {
+            const service = accounts(key);
+            const { output } = await run(
+                new SimulatedCodexServer(async server => {
+                    server.notify('error', { error: { message: 'slow down', codexErrorInfo: 'rateLimitExceeded' }, willRetry: true });
+                    await report(server);
+                }),
+                { accounts: service },
+            );
+
+            expect(output.result).toEqual({ summary: 'done' });
+            expect(output.usageLimit).toBeUndefined();
+            expect(service.recordLimit).not.toHaveBeenCalled();
         });
     });
 

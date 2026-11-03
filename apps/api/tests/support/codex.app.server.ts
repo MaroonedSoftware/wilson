@@ -19,8 +19,10 @@ export interface CodexAppServerOptions {
     binary: string;
     /** A throwaway `CODEX_HOME`, so nothing reads or writes the operator's own. */
     codexHome: string;
-    /** Added to a minimal environment, such as `CODEX_API_KEY`. */
+    /** Added to a minimal environment. */
     env?: Record<string, string>;
+    /** An OpenAI key to sign in with, the way the adapter does. */
+    apiKey?: string;
     /** Answers each server request. The default declines, which is the safe answer to an approval. */
     onRequest?: ServerRequestHandler;
 }
@@ -37,7 +39,7 @@ export class CodexAppServer {
         this.answerWith = handler => {
             onRequest = handler;
         };
-        const child = spawn(options.binary, ['app-server'], {
+        const child = spawn(options.binary, [...(options.apiKey ? ['-c', 'cli_auth_credentials_store="ephemeral"'] : []), 'app-server'], {
             env: {
                 PATH: process.env.PATH ?? '/usr/bin:/bin',
                 HOME: options.codexHome,
@@ -62,6 +64,7 @@ export class CodexAppServer {
     static async start(options: CodexAppServerOptions): Promise<CodexAppServer> {
         const server = new CodexAppServer(options);
         await server.connection.initialize('wilson-probe', false);
+        if (options.apiKey) await server.request('account/login/start', { type: 'apiKey', apiKey: options.apiKey });
         return server;
     }
 

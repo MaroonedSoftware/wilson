@@ -40,7 +40,7 @@ const command: CommandModule = {
             return 1;
         }
         const token = process.stdin.isTTY
-            ? await terminalIo.askSecret(`The token for ${name}, from \`claude setup-token\``)
+            ? await terminalIo.askSecret(`The token for ${name}, from \`claude setup-token\`, or an API key`)
             : await terminalIo.readStdin();
         if (token === undefined) return 1;
         const saved = await api.engineTokens.putEngineToken(name, {

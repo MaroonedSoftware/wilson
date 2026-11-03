@@ -179,7 +179,7 @@ public sealed record EngineTokenSummary
 
 public sealed record PutEngineTokenRequest
 {
-    /// <summary>What `claude setup-token` prints.</summary>
+    /// <summary>What `claude setup-token` prints, or an API key. An OpenAI token has to be an API key.</summary>
     [JsonPropertyName("token")]
     public required string Token { get; init; }
 

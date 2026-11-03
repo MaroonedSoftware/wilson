@@ -27,6 +27,12 @@ afterAll(async () => {
     await db.destroy();
 });
 
+/**
+ * Every run has its own key and the test database outlives a run, so a pooled token left by an earlier
+ * one cannot be decrypted, and `pool` refuses rather than skip it.
+ */
+const clearPool = () => db.deleteFrom('wilson.engineTokens').where('pooled', '=', true).where('name', 'like', 'test-%').execute();
+
 describe('EngineTokensService', () => {
     it('keeps only ciphertext and hands the token back only through resolve', async () => {
         const name = uniqueName();
@@ -101,6 +107,7 @@ describe('EngineTokensService', () => {
     });
 
     it('offers only pooled Anthropic tokens, by priority and then name, each with what to set it as', async () => {
+        await clearPool();
         const prefix = uniqueName();
         const named = (suffix: string) => `${prefix}-${suffix}`;
         await tokens.put(named('b'), { token: 'b', pooled: true, priority: 900 });
@@ -108,7 +115,7 @@ describe('EngineTokensService', () => {
         await tokens.put(named('c'), { token: 'c', pooled: true, priority: 800 });
         await tokens.put(named('out'), { token: 'out', priority: 800 });
         await tokens.put(named('key'), { token: 'key', pooled: true, kind: 'api_key', priority: 1000 });
-        await tokens.put(named('other'), { token: 'other', pooled: true, provider: 'openai' });
+        await tokens.put(named('other'), { token: 'other', pooled: true, provider: 'openai', kind: 'api_key' });
 
         const pool = (await tokens.pool()).filter(account => account.name.startsWith(prefix));
 
@@ -218,10 +225,37 @@ describe('EngineTokensService', () => {
         await expect(tokens.unassign(uniqueName())).rejects.toMatchObject({ statusCode: 404 });
     });
 
+    it('pools OpenAI keys apart from Anthropic tokens, with no variable to set', async () => {
+        await clearPool();
+        const prefix = uniqueName();
+        await tokens.put(`${prefix}-claude`, { token: 'claude', pooled: true });
+        await tokens.put(`${prefix}-b`, { token: 'b', pooled: true, provider: 'openai', kind: 'api_key', priority: 2 });
+        await tokens.put(`${prefix}-a`, { token: 'a', pooled: true, provider: 'openai', kind: 'api_key', priority: 1 });
+
+        const pool = (await tokens.pool('openai')).filter(account => account.name.startsWith(prefix));
+
+        expect(pool).toEqual([
+            { name: `${prefix}-a`, token: 'a' },
+            { name: `${prefix}-b`, token: 'b' },
+        ]);
+        await clearPool();
+    });
+
+    it('refuses with 400 an OpenAI token that is not an API key', async () => {
+        const name = uniqueName();
+
+        await expect(tokens.put(name, { token: 'value', provider: 'openai' })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(tokens.put(name, { token: 'value', provider: 'openai', kind: 'subscription' })).rejects.toMatchObject({ statusCode: 400 });
+
+        await tokens.put(name, { token: 'value', provider: 'openai', kind: 'api_key' });
+        await expect(tokens.update(name, { kind: 'subscription' })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(tokens.put(name, { token: 'rotated' })).resolves.toMatchObject({ kind: 'api_key' });
+    });
+
     it('refuses with 400 to assign a token a host engine cannot sign in with', async () => {
         const [host, other] = [uniqueName(), uniqueName()];
         await hosts.create({ name: host, kind: 'worker', slots: 1 });
-        await tokens.put(other, { token: 'value', provider: 'openai' });
+        await tokens.put(other, { token: 'value', provider: 'openai', kind: 'api_key' });
 
         await expect(tokens.assign(host, { name: other })).rejects.toMatchObject({ statusCode: 400 });
         expect((await hosts.find(host))?.engineToken).toBeUndefined();
@@ -243,7 +277,7 @@ describe('EngineTokensService', () => {
         await tokens.put(name, { token: 'value' });
         await tokens.assign(host, { name });
 
-        await expect(tokens.put(name, { token: 'other', provider: 'openai' })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(tokens.put(name, { token: 'other', provider: 'openai', kind: 'api_key' })).rejects.toMatchObject({ statusCode: 400 });
         await expect(tokens.forHost(host)).resolves.toMatchObject({ token: 'value' });
 
         expect(await tokens.put(name, { token: 'rotated', priority: 3 })).toMatchObject({ priority: 3, hosts: [host] });

@@ -35,7 +35,7 @@ contract EngineTokenSummary: {
 }
 
 contract PutEngineTokenRequest: {
-    # What `claude setup-token` prints.
+    # What `claude setup-token` prints, or an API key. An OpenAI token has to be an API key.
     token: string
     # Each of these keeps what is saved under this name when left out, or its default on a new name:
     # anthropic, subscription, 0 and not pooled.

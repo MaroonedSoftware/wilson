@@ -4,7 +4,7 @@ import type { UsageLimit } from '#modules/agent/usage.limit.js';
 import { EngineTokenSettingService } from '#modules/settings/engine.token.setting.service.js';
 import type { EngineAccount } from './execution.host.js';
 import { EngineLimitRepository, type EngineLimitRow } from './engine.limit.repository.js';
-import { EngineTokensService } from './engine.tokens.service.js';
+import { EngineTokensService, type EngineProvider } from './engine.tokens.service.js';
 
 /** The name of the sign-in engines on this machine use: the saved setting, the environment or the Claude login. */
 export const LOCAL_ACCOUNT = 'local';
@@ -41,13 +41,22 @@ export class EngineAccountsService {
         return (await this.fromPool()) ?? this.withLimit({ name: `worker:${hostName}` });
     }
 
+    /**
+     * The account for a `codex` engine on host `hostName`: an OpenAI key from the pool, or else the
+     * sign-in that machine was set up with, which is named apart from its `claude` one since the two
+     * run out separately.
+     */
+    async codex(hostName: string): Promise<EngineAccount> {
+        return (await this.fromPool('openai')) ?? this.withLimit({ name: `codex:${hostName}` });
+    }
+
     /** Record that an account hit a limit. */
     async recordLimit({ account, limitType, resetsAt }: UsageLimit): Promise<void> {
         await this.limits.record(account, limitType, DateTime.fromMillis(resetsAt));
     }
 
-    private async fromPool(): Promise<EngineAccount | undefined> {
-        const pool = await this.tokens.pool();
+    private async fromPool(provider: EngineProvider = 'anthropic'): Promise<EngineAccount | undefined> {
+        const pool = await this.tokens.pool(provider);
         if (pool.length === 0) return undefined;
         const active = await this.limits.active();
         const accounts = pool.map(account => limited(account, active));

@@ -53,6 +53,54 @@ export class UsageLimitWatch {
     }
 }
 
+/** What the `codex` engine's errors call running out, as opposed to any other failure. */
+const CODEX_LIMIT_ERRORS = new Set(['usageLimitExceeded', 'rateLimitExceeded']);
+
+/**
+ * The same watch for the `codex` engine, which reports a limit two ways. An account signed in to a plan
+ * gets `account/rateLimits/updated`, saying when it resets. An API key gets only an error, so no reset
+ * time. An error may be one the engine is still retrying, which `progress` then rules out.
+ */
+export class CodexLimitWatch {
+    private fromSnapshot?: { limitType: string; resetsAt: number };
+    private fromError?: { limitType: string; resetsAt: number };
+
+    constructor(private readonly account: string) {}
+
+    rateLimitsUpdated(snapshot: {
+        rateLimitReachedType?: string | null;
+        primary?: { resetsAt?: number | null } | null;
+        secondary?: { resetsAt?: number | null } | null;
+    }): void {
+        if (!snapshot.rateLimitReachedType) {
+            this.fromSnapshot = undefined;
+            return;
+        }
+        // Without saying which window ran out, so the later of the two, rather than try again too soon.
+        const resets = [snapshot.primary?.resetsAt, snapshot.secondary?.resetsAt].filter((at): at is number => typeof at === 'number');
+        this.fromSnapshot = {
+            limitType: snapshot.rateLimitReachedType,
+            resetsAt: resets.length > 0 ? toMillis(Math.max(...resets)) : Date.now() + UNKNOWN_RESET_MS,
+        };
+    }
+
+    error(error: { codexErrorInfo?: unknown } | null | undefined): void {
+        const info = error?.codexErrorInfo;
+        if (typeof info === 'string' && CODEX_LIMIT_ERRORS.has(info)) this.fromError = { limitType: info, resetsAt: Date.now() + UNKNOWN_RESET_MS };
+    }
+
+    /** The engine got something done, so an error seen before it was not the end of the account. */
+    progress(): void {
+        this.fromError = undefined;
+    }
+
+    /** The limit this run hit, if it has hit one. Only meaningful once the run has stopped. */
+    get limit(): UsageLimit | undefined {
+        const seen = this.fromSnapshot ?? this.fromError;
+        return seen && { account: this.account, ...seen };
+    }
+}
+
 /** A limit as a person reads it. */
 export const describeUsageLimit = ({ account, limitType, resetsAt }: UsageLimit): string =>
     `the account "${account}" hit its ${limitType} usage limit, which resets at ${new Date(resetsAt).toISOString()}`;

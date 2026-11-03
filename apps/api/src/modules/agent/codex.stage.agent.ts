@@ -2,11 +2,13 @@ import { join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { z } from 'zod';
+import { EngineAccountsService } from '#modules/host/engine.accounts.service.js';
 import { PASSED_THROUGH } from '#modules/stages/run.command.js';
 import { budgetedInputTokens, contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
 import { createToolGuard, ENGINE_PASSED_THROUGH } from './cli.stage.agent.js';
 import { CodexConnection, type CodexExit, type CodexNotification, type CodexServerRequest } from './codex.connection.js';
 import { buildRunTrace, type RunTrace } from './run.trace.js';
+import { CodexLimitWatch, type UsageLimit } from './usage.limit.js';
 import { REPORT_RESULT_PATH, SCRATCH_PREFIX } from './scope.guard.js';
 import { StageInterrupt } from './stage.interrupt.js';
 import { StageAgent, type AgentRunInput, type AgentRunOutput } from './stage.agent.js';
@@ -107,16 +109,23 @@ interface Turn {
  * an edit made after the result was reported is what `checkBeforeCommit` exists to catch, and this
  * engine leaves room to not have one at all. Usage then stops at the last figure the engine sent.
  *
+ * **Accounts.** An engine takes the first pooled OpenAI key with no limit in force, as `claude` does
+ * with its tokens, or else the host's own sign-in. A key is an argument to `account/login/start`, so it
+ * crosses stdio, is kept in memory (`EPHEMERAL_CREDENTIALS`), and is in no environment a command gets.
+ * A limit holds the stage through the interruption path, also as `CliStageAgent` does.
+ *
  * `provider` means nothing here (the engine runs OpenAI models), and neither does `maxBudgetUsd`,
  * which this engine has no option for. `stage.sandbox` does not apply either: the engine's own
  * sandbox is always on, with `stage.networkAccess` saying whether its commands get a network.
  */
 @Injectable()
 export class CodexStageAgent extends StageAgent {
-    // `interrupts` is optional as in `CliStageAgent`: none means nothing can interrupt the run.
+    // Optional as in `CliStageAgent`: no `interrupts` means nothing can interrupt the run, and no
+    // `accounts` means the sign-in the host was set up with.
     constructor(
         private readonly logger: Logger,
         private readonly interrupts?: StageInterrupt,
+        private readonly accounts?: EngineAccountsService,
     ) {
         super();
     }
@@ -141,6 +150,19 @@ export class CodexStageAgent extends StageAgent {
         if (!host.spawnCodex) {
             return { truncated: true, engineFailure: `host "${host.name}" cannot start the codex engine` };
         }
+
+        const account = await this.accounts?.codex(host.name);
+        // Refused before it starts, rather than spend an engine start learning what is already recorded.
+        if (account?.limit) {
+            const sessionId = resume?.sessionId;
+            return {
+                truncated: true,
+                usageLimit: account.limit,
+                heldUntil: account.limit.resetsAt,
+                interrupted: { ...(sessionId && { sessionId }), wallClockMs: 0, steps: 0 },
+            };
+        }
+        const limitWatch = new CodexLimitWatch(account?.name ?? `codex:${host.name}`);
 
         const schema = resultSchema as z.ZodTypeAny;
         const canWrite = stage.worktree === 'rw';
@@ -395,10 +417,14 @@ export class CodexStageAgent extends StageAgent {
             // An engine retrying a model it cannot reach reports each try, which is not progress: left
             // to count as a sign of life, a signed-out engine spends the stage's whole wall clock.
             if (method === 'error') {
-                lastError = ((params.error ?? {}) as { message?: string }).message;
+                const error = (params.error ?? {}) as { message?: string; codexErrorInfo?: unknown };
+                lastError = error.message;
+                limitWatch.error(error);
                 return;
             }
             beat();
+            if (method === 'account/rateLimits/updated') limitWatch.rateLimitsUpdated((params.rateLimits ?? {}) as never);
+            if (method === 'item/completed') limitWatch.progress();
             if (method === 'item/started') itemStarted((params.item ?? {}) as Record<string, unknown>);
             if (method === 'item/fileChange/patchUpdated') fileChanges.set(String(params.itemId), (params.changes ?? []) as FileChange[]);
             if (method === 'item/completed') itemCompleted((params.item ?? {}) as Record<string, unknown>);
@@ -407,7 +433,12 @@ export class CodexStageAgent extends StageAgent {
         };
 
         const connection = new CodexConnection(
-            host.spawnCodex({ command: 'codex', args: ['app-server'], cwd: context.worktreeRoot, env: codexEnv() }),
+            host.spawnCodex({
+                command: 'codex',
+                args: account?.token ? [...EPHEMERAL_CREDENTIALS, 'app-server'] : ['app-server'],
+                cwd: context.worktreeRoot,
+                env: codexEnv(),
+            }),
             { onRequest, onNotification },
         );
 
@@ -426,6 +457,15 @@ export class CodexStageAgent extends StageAgent {
         const interrupt = (): void => stopFor('interrupted');
         if (this.interrupts?.signal.aborted) interrupt();
         this.interrupts?.signal.addEventListener('abort', interrupt, { once: true });
+
+        // Only for a run with nothing reported, as in `CliStageAgent`. A failed write costs the next
+        // engine start a refusal, and an error asking again means waiting for what is known.
+        const limited = async (limit: UsageLimit): Promise<AgentRunOutput> => {
+            await this.accounts?.recordLimit(limit).catch((error: unknown) => this.logger.warn(`could not record a usage limit: ${String(error)}`));
+            const next = await this.accounts?.codex(host.name).catch(() => undefined);
+            const moved = next !== undefined && next.name !== limit.account;
+            return { ...interrupted(), usageLimit: limit, heldUntil: next?.limit?.resetsAt ?? (moved ? Date.now() : limit.resetsAt) };
+        };
 
         const engineFailed = async (message: string, exit?: CodexExit): Promise<AgentRunOutput> => {
             await append('engine.failed', {
@@ -450,6 +490,7 @@ export class CodexStageAgent extends StageAgent {
         try {
             const start = async (): Promise<Turn> => {
                 await connection.initialize('wilson', true);
+                if (account?.token) await connection.request('account/login/start', { type: 'apiKey', apiKey: account.token });
 
                 const sandbox = canWrite ? 'workspace-write' : 'read-only';
                 const thread = {
@@ -521,6 +562,7 @@ export class CodexStageAgent extends StageAgent {
                 };
             }
             if (stoppedBecause === 'interrupted') return interrupted();
+            if (stoppedBecause === 'silent' && limitWatch.limit) return await limited(limitWatch.limit);
             if (stoppedBecause) {
                 return {
                     result: reported ?? (summary ? { summary } : undefined),
@@ -537,6 +579,7 @@ export class CodexStageAgent extends StageAgent {
             }
             if (ending === STOPPED) return { truncated: true, ...trace() };
             if ('exit' in ending) {
+                if (limitWatch.limit) return await limited(limitWatch.limit);
                 return await engineFailed(
                     `the process exited on its own${ending.exit.error ? `: ${ending.exit.error.message}` : ''}${typeof ending.exit.code === 'number' ? `, exit code ${ending.exit.code}` : ''}${ending.exit.signal ? `, signal ${ending.exit.signal}` : ''}`,
                     ending.exit,
@@ -556,7 +599,8 @@ export class CodexStageAgent extends StageAgent {
                     ...trace(),
                 };
             }
-            // A failed turn includes an account limit, reported here like any other failure.
+            limitWatch.error(ending.error);
+            if (limitWatch.limit) return await limited(limitWatch.limit);
             const info = ending.error?.codexErrorInfo;
             return {
                 ...(await engineFailed(
@@ -579,6 +623,13 @@ export class CodexStageAgent extends StageAgent {
         }
     }
 }
+
+/**
+ * Keeps a key signed in with `account/login/start` in the engine's memory. By default the engine writes
+ * it to `auth.json` under its home, where any command it runs without asking could read it. Measured on
+ * codex-cli 0.166.0, which also ignores `CODEX_API_KEY` under `app-server`, hence the login at all.
+ */
+const EPHEMERAL_CREDENTIALS = ['-c', 'cli_auth_credentials_store="ephemeral"'];
 
 const STOPPED = Symbol('stopped');
 const RESUME_FAILED = Symbol('resume failed');

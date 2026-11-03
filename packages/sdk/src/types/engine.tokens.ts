@@ -68,7 +68,7 @@ export function reviveEngineTokenSummary(raw: EngineTokenSummary): EngineTokenSu
  * generated from [PutEngineTokenRequest](../../../../apps/api/data/contracts/engine.tokens.ck)
  */
 export interface PutEngineTokenRequest {
-    /** What `claude setup-token` prints. */
+    /** What `claude setup-token` prints, or an API key. An OpenAI token has to be an API key. */
     token: string;
     /**
      * Each of these keeps what is saved under this name when left out, or its default on a new name:
