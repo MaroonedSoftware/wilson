@@ -60,6 +60,10 @@ export class WorkerExecutionHost implements ExecutionHost {
         await this.connection.call({ op: 'writeFile', path, content }, FILE_OP_TIMEOUT_MS);
     }
 
+    async writeBytes(path: string, data: Buffer): Promise<void> {
+        await this.connection.call({ op: 'writeBytes', path, data: data.toString('base64') }, FILE_OP_TIMEOUT_MS);
+    }
+
     async mkdir(path: string): Promise<void> {
         await this.connection.call({ op: 'mkdir', path }, FILE_OP_TIMEOUT_MS);
     }

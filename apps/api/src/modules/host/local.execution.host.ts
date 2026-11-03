@@ -21,6 +21,10 @@ export class LocalHost implements ExecutionHost {
         return writeFile(path, content, 'utf8');
     }
 
+    writeBytes(path: string, data: Buffer): Promise<void> {
+        return writeFile(path, data);
+    }
+
     async mkdir(path: string): Promise<void> {
         await mkdir(path, { recursive: true });
     }

@@ -50,6 +50,14 @@ describe('LocalHost', () => {
         await expect(localHost.writeFile(join(root, 'no', 'such', 'dir.txt'), 'x')).rejects.toThrow(/ENOENT/);
     });
 
+    it('writes every byte value back unchanged with writeBytes, and does not create parent directories', async () => {
+        const data = Buffer.from(Array.from({ length: 256 }, (_, i) => i));
+        await localHost.writeBytes(join(root, 'all-bytes.bin'), data);
+
+        expect((await readFile(join(root, 'all-bytes.bin'))).equals(data)).toBe(true);
+        await expect(localHost.writeBytes(join(root, 'no', 'such', 'bytes.bin'), data)).rejects.toThrow(/ENOENT/);
+    });
+
     it('unlinks a file, and removeTree removes a directory and tolerates one that is absent', async () => {
         await localHost.writeFile(join(root, 'gone.txt'), 'x');
         await localHost.unlink(join(root, 'gone.txt'));

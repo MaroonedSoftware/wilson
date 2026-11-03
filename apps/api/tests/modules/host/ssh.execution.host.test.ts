@@ -40,6 +40,16 @@ describe('SshHost', () => {
         expect(Math.abs((await host.stat(path)).mtimeMs - (await stat(path)).mtimeMs)).toBeLessThan(1000);
     });
 
+    it('writes every byte value back unchanged with writeBytes, and does not create parent directories', async () => {
+        const data = Buffer.from(Array.from({ length: 256 }, (_, i) => i));
+        const path = join(root, "bytes 'quoted'.bin");
+        await host.writeBytes(path, data);
+
+        expect((await readFile(path)).equals(data)).toBe(true);
+        await expect(host.writeBytes(join(root, 'no', 'such', 'bytes.bin'), data)).rejects.toThrow();
+        await expect(host.writeFile(join(root, 'no', 'such', 'text.txt'), 'x')).rejects.toThrow();
+    });
+
     it('reports a missing path with an ENOENT message, as node:fs does', async () => {
         await expect(host.readFile(join(root, 'missing'))).rejects.toThrow(/^ENOENT: no such file or directory, open/);
         await expect(host.stat(join(root, 'missing'))).rejects.toThrow(/^ENOENT/);
