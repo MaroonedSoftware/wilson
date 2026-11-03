@@ -1,7 +1,9 @@
 name: Images
 
 # The single-container images (Dockerfile, targets `full` and `slim`) that unraid/wilson.xml installs.
-# amd64 only: that is what an Unraid server runs.
+# amd64 only: that is what an Unraid server runs. Nothing publishes until the checks pass on this commit:
+# they passed on each pull request, but a ruleset that does not require an up-to-date branch means
+# never on the two of them together.
 on:
     push:
         branches: [main]
@@ -9,7 +11,6 @@ on:
 
 permissions:
     contents: read
-    packages: write
 
 # One at a time, so an older commit cannot finish last and leave the moving tags on itself. A run waiting
 # here gives way to a newer one. Not cancelled once started: that could leave one variant published without the other.
@@ -21,9 +22,16 @@ env:
     IMAGE: ghcr.io/maroonedsoftware/wilson
 
 jobs:
+    check:
+        uses: ./.github/workflows/build.yml
+
     image:
+        needs: check
         runs-on: ubuntu-latest
         timeout-minutes: 60
+        permissions:
+            contents: read
+            packages: write
         strategy:
             # One variant failing should not hide the state of the other.
             fail-fast: false
