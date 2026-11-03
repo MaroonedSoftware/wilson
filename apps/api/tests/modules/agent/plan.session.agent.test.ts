@@ -104,6 +104,32 @@ describe('PlanSessionAgent', () => {
         expect(chunks).toEqual(['part1[hello]', 'part2']);
     });
 
+    it('says a turn succeeded only when the engine reported success', async () => {
+        const outcomes = [
+            { message: { type: 'result', subtype: 'success', is_error: false, session_id: 's' }, succeeded: true },
+            { message: { type: 'result', subtype: 'success', is_error: true, result: 'boom', session_id: 's' }, succeeded: false },
+            {
+                message: { type: 'result', subtype: 'success', is_error: true, result: "You've hit your usage limit", session_id: 's' },
+                succeeded: false,
+            },
+            { message: { type: 'result', subtype: 'error_during_execution', is_error: true, session_id: 's' }, succeeded: false },
+            { message: undefined, succeeded: false },
+        ];
+        for (const { message, succeeded } of outcomes) {
+            queryMock.mockImplementationOnce(() =>
+                (async function* () {
+                    yield { type: 'assistant', message: { content: [{ type: 'text', text: 'partial' }] }, session_id: 's' } as never;
+                    if (message) yield message as never;
+                })(),
+            );
+            const agent = new PlanSessionAgent({ worktreeRoot: '/tmp/worktree', model: 'claude-opus' });
+
+            await drain(agent.turn('hello'));
+
+            expect(agent.lastTurnSucceeded).toBe(succeeded);
+        }
+    });
+
     it("records the engine's session id once the stream reports one", async () => {
         armQuery('sess-xyz');
         const agent = new PlanSessionAgent({ worktreeRoot: '/tmp/worktree', model: 'claude-opus' });

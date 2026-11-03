@@ -295,10 +295,10 @@ export type SaveDraftRequest = z.infer<typeof SaveDraftRequest>;
 export const PlanTurnRequest = z.strictObject({
     text: z.string(),
     mode: z
-        .enum(['chat', 'cuts', 'draft'])
+        .enum(['chat', 'cuts', 'draft', 'comments'])
         .optional()
         .describe(
-            "Card 0240. `chat`, the default, sends exactly `text`. `cuts` prepends `PlanService`'s\n`cutsPreamble` to the prompt the engine sees — this contract carries no cuts-specific fields\nof its own because the preamble, not the request shape, is what changes. `draft` works the same\nway with `draftPreamble`, asking the agent to fill in the whole plan without being talked\nthrough it first.",
+            "Card 0240. `chat`, the default, sends exactly `text`. `cuts` prepends `PlanService`'s\n`cutsPreamble` to the prompt the engine sees — this contract carries no cuts-specific fields\nof its own because the preamble, not the request shape, is what changes. `draft` works the same\nway with `draftPreamble`, asking the agent to fill in the whole plan without being talked\nthrough it first. `comments` submits the card's open comments as one revision request, with\n`text` as optional guidance, and is refused when there are none.",
         ),
 });
 export type PlanTurnRequest = z.infer<typeof PlanTurnRequest>;
@@ -339,7 +339,8 @@ export type PlanDraft = z.infer<typeof PlanDraft>;
  * nowhere to put. Stores exactly the anchor [[0145]]'s `Anchor` captures — the quote plus its
  * surrounding window — never a resolved position: the draft is rewritten whole on every planning
  * turn, so a stored offset would be wrong by the very next revision. `resolved` is a state a
- * comment moves through, not a delete — a comment the agent addressed stays on record.
+ * comment moves through, not a delete: set by hand, or when a finished turn delivered it to the
+ * agent, and it stays on record either way.
  * generated from [PlanComment](../../data/contracts/board.ck)
  */
 export const PlanComment = z.strictObject({

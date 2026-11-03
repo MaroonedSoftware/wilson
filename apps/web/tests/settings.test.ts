@@ -556,8 +556,10 @@ describe('the engine token control', () => {
         await act(async () => {
             fireEvent.click(await screen.findByRole('button', { name: `More actions for ${name}` }));
         });
+        // `hidden`: with no layout in jsdom, the dropdown's positioning reads as detached and sets
+        // `display: none` as soon as it resolves, so this would otherwise race it.
         await act(async () => {
-            fireEvent.click(await screen.findByRole('menuitem', { name: item }));
+            fireEvent.click(await screen.findByRole('menuitem', { name: item, hidden: true }));
         });
     };
 

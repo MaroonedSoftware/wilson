@@ -18,7 +18,7 @@ namespace MaroonedSoftware.Wilson.Desktop.ViewModels;
 public sealed record TranscriptLine(string Who, string Text);
 
 /// <summary>A comment on the draft, as drawn.</summary>
-public sealed record PlanCommentRow(string Id, string Quote, string Text, bool Resolved, PlanAnchor Anchor);
+public sealed record PlanCommentRow(string Id, string Quote, string Text, bool Resolved, PlanAnchor Anchor, bool Active = false);
 
 /// <summary>
 /// Planning a card with its agent: the conversation, the draft it writes, and comments on that draft.
@@ -35,6 +35,7 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
     private string? _cardBody;
     private bool _applying;
     private List<PlanCommentRow> _comments = [];
+    private List<(PlanCommentRow Comment, AnchorRange Range)> _located = [];
 
     public ObservableCollection<TranscriptLine> Lines { get; } = [];
 
@@ -68,8 +69,11 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
     [NotifyPropertyChangedFor(nameof(CanApprove))]
     private string? _draft;
 
+    /// <summary>Where the draft is read and commented on, so it is what the page opens on. Editing is the exception.</summary>
     [ObservableProperty]
-    private bool _preview;
+    [NotifyPropertyChangedFor(nameof(Composing))]
+    [NotifyPropertyChangedFor(nameof(Viewing))]
+    private bool _preview = true;
 
     [ObservableProperty]
     private IReadOnlyList<MarkdownMark>? _marks;
@@ -81,13 +85,25 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
     private string? _approveError;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Composing))]
+    [NotifyPropertyChangedFor(nameof(Viewing))]
     private string? _quote;
+
+    /// <summary>The comment open beside its passage.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Viewing))]
+    private PlanCommentRow? _active;
+
+    /// <summary>The passage the card beside the draft belongs to. Null leaves the card where it is.</summary>
+    [ObservableProperty]
+    private AnchorRange? _cardAnchor;
 
     [ObservableProperty]
     private string? _commentText;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Idle))]
+    [NotifyPropertyChangedFor(nameof(CanSendFeedback))]
     private bool _sending;
 
     [ObservableProperty]
@@ -100,6 +116,18 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
     private string? _error;
 
     public bool Idle => !Sending;
+
+    public int OpenComments => _comments.Count(comment => !comment.Resolved);
+
+    public string FeedbackSummary => PlanFeedback.Summary(OpenComments);
+
+    public bool CanSendFeedback => PlanFeedback.CanSend(OpenComments, _edit.Dirty, Sending);
+
+    public string? FeedbackBlocked => PlanFeedback.Blocked(OpenComments, _edit.Dirty);
+
+    public bool Composing => Preview && Quote is not null;
+
+    public bool Viewing => Preview && Quote is null && Active is not null;
 
     public bool Unsaved => _edit.Dirty && !_edit.Collision;
 
@@ -118,7 +146,11 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
     [RelayCommand]
     public Task AskForDraftAsync() => TurnAsync(PlanTurnRequestMode.Draft);
 
-    /// <summary>Takes the agent's draft over an edit, once the person has chosen to.</summary>
+    /// <summary>The open comments as one revision request, with anything typed as guidance. A turn that finishes resolves them.</summary>
+    [RelayCommand]
+    public Task SendFeedbackAsync() => TurnAsync(PlanTurnRequestMode.Comments);
+
+    /// <summary>Takes the agent's draft over an edit, once the person has chosen to. With nothing new from the agent, that discards the edit.</summary>
     [RelayCommand]
     public void UseIncoming() => Apply(_edit.UseIncoming());
 
@@ -175,15 +207,55 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
         {
             _selected = PlanAnchors.Capture(text, start, end);
             Quote = _selected.Quote;
+            Active = null;
+            Sort();
         }
+    }
+
+    /// <summary>A press on the draft: opens the comment under it, and otherwise puts away what nothing has been written in.</summary>
+    public void PressPassage(int? offset)
+    {
+        if (Quote is not null && string.IsNullOrWhiteSpace(CommentText))
+        {
+            CancelComment();
+        }
+
+        if (Quote is null)
+        {
+            Active = _located.Find(item => offset >= item.Range.Start && offset < item.Range.End).Comment;
+            Sort();
+        }
+    }
+
+    /// <summary>A comment chosen from the list. One whose passage is gone has nowhere to open.</summary>
+    [RelayCommand]
+    public void ShowComment(PlanCommentRow comment)
+    {
+        ArgumentNullException.ThrowIfNull(comment);
+
+        CancelComment();
+        Active = _located.Exists(item => item.Comment.Id == comment.Id) ? comment : null;
+        Sort();
+    }
+
+    [RelayCommand]
+    public void CloseComment()
+    {
+        Active = null;
+        Sort();
     }
 
     [RelayCommand]
     public void CancelComment()
     {
+        var wasOpen = _selected is not null;
         _selected = null;
         Quote = null;
         CommentText = null;
+        if (wasOpen)
+        {
+            Sort();
+        }
     }
 
     [RelayCommand]
@@ -208,14 +280,27 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
     }
 
     [RelayCommand]
-    public async Task ResolveCommentAsync(PlanCommentRow comment)
+    public Task ResolveCommentAsync(PlanCommentRow comment)
     {
         ArgumentNullException.ThrowIfNull(comment);
 
+        return ChangeCommentAsync(comment, _sdk.Board.ResolveAPlanCommentAsync(id, comment.Id));
+    }
+
+    /// <summary>Back to open, so the next turn delivers it again: for a revision that missed the point.</summary>
+    [RelayCommand]
+    public Task ReopenCommentAsync(PlanCommentRow comment)
+    {
+        ArgumentNullException.ThrowIfNull(comment);
+
+        return ChangeCommentAsync(comment, _sdk.Board.ReopenAPlanCommentAsync(id, comment.Id));
+    }
+
+    private async Task ChangeCommentAsync(PlanCommentRow comment, Task<PlanComment> change)
+    {
         try
         {
-            var resolved = await _sdk.Board.ResolveAPlanCommentAsync(id, comment.Id);
-            _comments[_comments.IndexOf(comment)] = Row(resolved);
+            _comments[_comments.FindIndex(row => row.Id == comment.Id)] = Row(await change);
             Sort();
         }
         catch (HttpRequestException failure)
@@ -279,6 +364,7 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
             _edit = _edit.Typed(value);
             OnPropertyChanged(nameof(Unsaved));
             OnPropertyChanged(nameof(CanApprove));
+            NotifyFeedback();
         }
     }
 
@@ -295,6 +381,7 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
         OnPropertyChanged(nameof(Unsaved));
         OnPropertyChanged(nameof(Collision));
         OnPropertyChanged(nameof(CanApprove));
+        NotifyFeedback();
         // Not on every poll: redrawing the preview would lose a selection being made.
         if (changed)
         {
@@ -302,19 +389,48 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
         }
     }
 
+    private void NotifyFeedback()
+    {
+        OnPropertyChanged(nameof(OpenComments));
+        OnPropertyChanged(nameof(FeedbackSummary));
+        OnPropertyChanged(nameof(CanSendFeedback));
+        OnPropertyChanged(nameof(FeedbackBlocked));
+    }
+
     /// <summary>Every comment against the draft as it now reads: marked where it is found, and listed as outdated where it is not.</summary>
     private void Sort()
     {
         var text = ChatMarkdown.RenderedText(Draft ?? string.Empty);
         var found = _comments.Select(comment => (Comment: comment, Range: PlanAnchors.Locate(text, comment.Anchor))).ToList();
+        _located = [.. found.Where(item => item.Range is not null).Select(item => (item.Comment, item.Range!.Value))];
+        Active = _located.Find(item => item.Comment.Id == Active?.Id).Comment;
+
         Comments.Clear();
         Outdated.Clear();
-        foreach (var (comment, range) in found)
+        foreach (var (comment, range) in found.OrderBy(item => item.Comment.Resolved))
         {
-            (range is null ? Outdated : Comments).Add(comment);
+            (range is null ? Outdated : Comments).Add(comment with { Active = comment.Id == Active?.Id });
         }
 
-        Marks = [.. found.Where(item => item.Range is not null).Select(item => new MarkdownMark(item.Range!.Value.Start, item.Range.Value.End, item.Comment.Resolved))];
+        var marks = _located.Select(item => new MarkdownMark(item.Range.Start, item.Range.End, item.Comment.Resolved, item.Comment.Id == Active?.Id)).ToList();
+        var composing = _selected is { } selected ? PlanAnchors.Locate(text, selected) : null;
+        if (composing is { } passage)
+        {
+            marks.Add(new MarkdownMark(passage.Start, passage.End, Quiet: false, Active: true));
+        }
+
+        Marks = marks;
+        NotifyFeedback();
+
+        // A passage lost mid-comment leaves the card where it is, with what has been written in it.
+        if (_selected is null)
+        {
+            CardAnchor = _located.Where(item => item.Comment.Id == Active?.Id).Select(item => (AnchorRange?)item.Range).FirstOrDefault();
+        }
+        else if (composing is not null)
+        {
+            CardAnchor = composing;
+        }
     }
 
     private void Follow(StreamSignal signal)
@@ -354,7 +470,7 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
     private async Task TurnAsync(PlanTurnRequestMode? mode)
     {
         var text = Composer?.Trim() ?? string.Empty;
-        if (text.Length == 0 && mode is null)
+        if ((text.Length == 0 && mode is null) || (mode == PlanTurnRequestMode.Comments && !CanSendFeedback))
         {
             return;
         }
@@ -362,12 +478,14 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
         Sending = true;
         Error = null;
         Composer = null;
-        Sent = text;
+        var shown = text.Length == 0 && mode == PlanTurnRequestMode.Comments ? PlanFeedback.EmptyTurn : text;
+        Sent = shown;
         try
         {
             var reply = await _sdk.Board.SendAPlanTurnAsync(id, new PlanTurnRequest { Text = text, Mode = mode });
-            Show(PlanTranscript.WithReply(_turns, reply, text));
+            Show(PlanTranscript.WithReply(_turns, reply, shown));
             await RefreshDraftAsync();
+            await RefreshCommentsAsync();
         }
         catch (HttpRequestException failure)
         {
@@ -379,6 +497,20 @@ public sealed partial class PlanViewModel(ShellViewModel shell, string project, 
             Pending = string.Empty;
             Sent = null;
             Sending = false;
+        }
+    }
+
+    /// <summary>A finished turn resolves the comments it delivered, and the server is the only one who knows which.</summary>
+    private async Task RefreshCommentsAsync()
+    {
+        try
+        {
+            _comments = [.. (await _sdk.Board.ListPlanCommentsAsync(id)).Select(Row)];
+            Sort();
+        }
+        catch (HttpRequestException)
+        {
+            // The reply is in. The comments show as they were until the next turn.
         }
     }
 

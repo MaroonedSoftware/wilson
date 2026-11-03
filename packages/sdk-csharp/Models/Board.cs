@@ -467,7 +467,8 @@ public sealed record PlanTurnRequest
     /// `cutsPreamble` to the prompt the engine sees — this contract carries no cuts-specific fields
     /// of its own because the preamble, not the request shape, is what changes. `draft` works the same
     /// way with `draftPreamble`, asking the agent to fill in the whole plan without being talked
-    /// through it first.
+    /// through it first. `comments` submits the card's open comments as one revision request, with
+    /// `text` as optional guidance, and is refused when there are none.
     /// </summary>
     [JsonPropertyName("mode")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -516,7 +517,8 @@ public sealed record PlanDraft
 /// nowhere to put. Stores exactly the anchor [[0145]]'s `Anchor` captures — the quote plus its
 /// surrounding window — never a resolved position: the draft is rewritten whole on every planning
 /// turn, so a stored offset would be wrong by the very next revision. `resolved` is a state a
-/// comment moves through, not a delete — a comment the agent addressed stays on record.
+/// comment moves through, not a delete: set by hand, or when a finished turn delivered it to the
+/// agent, and it stays on record either way.
 /// </summary>
 public sealed record PlanComment
 {
@@ -1382,7 +1384,8 @@ public sealed class CardDiffFileStatusConverter : JsonConverter<CardDiffFileStat
 /// `cutsPreamble` to the prompt the engine sees — this contract carries no cuts-specific fields
 /// of its own because the preamble, not the request shape, is what changes. `draft` works the same
 /// way with `draftPreamble`, asking the agent to fill in the whole plan without being talked
-/// through it first.
+/// through it first. `comments` submits the card's open comments as one revision request, with
+/// `text` as optional guidance, and is refused when there are none.
 /// </summary>
 [JsonConverter(typeof(PlanTurnRequestModeConverter))]
 public enum PlanTurnRequestMode
@@ -1401,6 +1404,9 @@ public enum PlanTurnRequestMode
 
     [JsonStringEnumMemberName("draft")]
     Draft,
+
+    [JsonStringEnumMemberName("comments")]
+    Comments,
 }
 
 /// <summary>
@@ -1433,6 +1439,7 @@ public sealed class PlanTurnRequestModeConverter : JsonConverter<PlanTurnRequest
         "chat" => PlanTurnRequestMode.Chat,
         "cuts" => PlanTurnRequestMode.Cuts,
         "draft" => PlanTurnRequestMode.Draft,
+        "comments" => PlanTurnRequestMode.Comments,
         _ => PlanTurnRequestMode.Unknown,
     };
 
@@ -1441,6 +1448,7 @@ public sealed class PlanTurnRequestModeConverter : JsonConverter<PlanTurnRequest
         PlanTurnRequestMode.Chat => "chat",
         PlanTurnRequestMode.Cuts => "cuts",
         PlanTurnRequestMode.Draft => "draft",
+        PlanTurnRequestMode.Comments => "comments",
         _ => throw new JsonException($"PlanTurnRequestMode.{value} has no wire spelling, so it cannot be sent."),
     };
 }

@@ -335,9 +335,10 @@ export interface PlanTurnRequest {
      * `cutsPreamble` to the prompt the engine sees — this contract carries no cuts-specific fields
      * of its own because the preamble, not the request shape, is what changes. `draft` works the same
      * way with `draftPreamble`, asking the agent to fill in the whole plan without being talked
-     * through it first.
+     * through it first. `comments` submits the card's open comments as one revision request, with
+     * `text` as optional guidance, and is refused when there are none.
      */
-    mode?: 'chat' | 'cuts' | 'draft';
+    mode?: 'chat' | 'cuts' | 'draft' | 'comments';
 }
 
 /**
@@ -381,7 +382,8 @@ export interface PlanDraft {
  * nowhere to put. Stores exactly the anchor [[0145]]'s `Anchor` captures — the quote plus its
  * surrounding window — never a resolved position: the draft is rewritten whole on every planning
  * turn, so a stored offset would be wrong by the very next revision. `resolved` is a state a
- * comment moves through, not a delete — a comment the agent addressed stays on record.
+ * comment moves through, not a delete: set by hand, or when a finished turn delivered it to the
+ * agent, and it stays on record either way.
  * generated from [PlanComment](../../../../apps/api/data/contracts/board.ck)
  */
 export interface PlanComment {

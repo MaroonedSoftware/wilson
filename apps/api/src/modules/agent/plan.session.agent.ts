@@ -95,6 +95,10 @@ export class PlanSessionAgent {
      * process can resume this exact conversation via {@link PlanSessionOptions.resume}. */
     sessionId: string | undefined;
 
+    /** Whether the last `turn()` ended with the engine reporting success: not a dropped stream, an
+     * error result, or a usage limit reported as a finished turn. */
+    lastTurnSucceeded = false;
+
     private readonly usageWatch: UsageLimitWatch;
     private readonly onUsageLimit: PlanSessionOptions['onUsageLimit'];
 
@@ -130,6 +134,7 @@ export class PlanSessionAgent {
      * exactly one result message per turn... treat it as the turn-complete signal").
      */
     async *turn(text: string): AsyncGenerator<string> {
+        this.lastTurnSucceeded = false;
         this.inbox.push(text);
         for (;;) {
             const next = await this.iterator.next();
@@ -144,6 +149,7 @@ export class PlanSessionAgent {
                 if (chunk) yield chunk;
             }
             if (message.type === 'result') {
+                this.lastTurnSucceeded = message.subtype === 'success' && !message.is_error && !this.usageWatch.limit;
                 if (this.usageWatch.limit) this.onUsageLimit?.(this.usageWatch.limit);
                 return;
             }
