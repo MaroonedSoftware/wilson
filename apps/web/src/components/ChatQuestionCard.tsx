@@ -103,7 +103,10 @@ export function ChatQuestionCard({ question }: { question: ChatPendingQuestion }
                                       label={q.header}
                                       description={q.text}
                                       value={chosen[i]![0] ?? null}
-                                      onChange={value => setChosen(replaceAt(i, [value]))}
+                                      onChange={value => {
+                                          setChosen(replaceAt(i, [value]));
+                                          setOther(replaceAt(i, ''));
+                                      }}
                                   >
                                       <Stack gap="xs" mt="xs">
                                           {q.options.map((option, index) => (
@@ -123,7 +126,12 @@ export function ChatQuestionCard({ question }: { question: ChatPendingQuestion }
                                   placeholder="Something else…"
                                   maxLength={MAX_OTHER_LENGTH}
                                   value={other[i]}
-                                  onChange={event => setOther(replaceAt(i, event.currentTarget.value))}
+                                  onChange={event => {
+                                      const typed = event.currentTarget.value;
+                                      setOther(replaceAt(i, typed));
+                                      // A single choice is one answer: typing an "Other" replaces the option, since a radio cannot be unticked.
+                                      if (!q.multiSelect && typed.trim() !== '') setChosen(replaceAt<string[]>(i, []));
+                                  }}
                                   disabled={answer.isPending}
                               />
                           </Stack>

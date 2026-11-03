@@ -264,6 +264,52 @@ describe('a question the chat asked', () => {
         );
     });
 
+    it('treats a single-select option and its Other text as one answer: whichever came last replaces the other', async () => {
+        const answerChatQuestions = vi.spyOn(ChatClient.prototype, 'answerChatQuestions').mockResolvedValue(question({ status: 'answered' }));
+        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
+            detail([], [], [question({ id: '52', questions: [SINGLE_QUESTION] })]),
+        );
+        setActiveThread('7');
+        renderApp();
+        await openChat();
+
+        const radio = (await screen.findByRole('radio', { name: 'wilson' })) as HTMLInputElement;
+        const box = screen.getByRole('textbox', { name: 'Other' }) as HTMLInputElement;
+
+        fireEvent.click(radio);
+        fireEvent.change(box, { target: { value: 'Neither of those' } });
+        expect(radio.checked).toBe(false);
+
+        fireEvent.click(radio);
+        expect(radio.checked).toBe(true);
+        expect(box.value).toBe('');
+
+        fireEvent.change(box, { target: { value: 'Neither of those' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+        await waitFor(() =>
+            expect(answerChatQuestions).toHaveBeenCalledWith('7', '52', { answers: [{ chosen: [], other: 'Neither of those' }] }),
+        );
+    });
+
+    it('keeps a multi-select option alongside Other text', async () => {
+        const answerChatQuestions = vi.spyOn(ChatClient.prototype, 'answerChatQuestions').mockResolvedValue(question({ status: 'answered' }));
+        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
+            detail([], [], [question({ id: '53', questions: [MULTI_QUESTION] })]),
+        );
+        setActiveThread('7');
+        renderApp();
+        await openChat();
+
+        fireEvent.click(await screen.findByRole('checkbox', { name: 'lint' }));
+        fireEvent.change(screen.getByRole('textbox', { name: 'Other' }), { target: { value: 'and typecheck' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+        await waitFor(() =>
+            expect(answerChatQuestions).toHaveBeenCalledWith('7', '53', { answers: [{ chosen: [0], other: 'and typecheck' }] }),
+        );
+    });
+
     it('shows the chosen option labels and Other text once answered, and offers no controls', async () => {
         vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
             detail(
