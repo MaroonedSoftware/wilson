@@ -299,12 +299,7 @@ export class ReviewService {
                 });
 
                 await this.reviews.recordConversation(review.id, output.engineSessionId, prompt.commentsSeenId);
-                const answer = await this.conversation.append(
-                    review.id,
-                    'assistant',
-                    output.text.trim() || '(no answer)',
-                    output.usage?.outputTokens,
-                );
+                const answer = await this.conversation.append(review.id, 'assistant', output.text.trim() || '(no answer)', output.usage);
                 publishReview(this.boardConfig.project, id, { event: 'done', data: { seq: answer.seq } });
                 return answer;
             },

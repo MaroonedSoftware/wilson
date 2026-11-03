@@ -68,6 +68,9 @@ const ACTIVITY_TICK_MS = 10_000;
 /** The cache key of one project's activity page, which the feed below keeps fresh. */
 export const activityQueryKey = (project: string): string[] => ['project', project, 'activity'];
 
+/** The cache key of one project's stats page, every window of it, which the feed below keeps fresh. */
+export const statsQueryKey = (project: string): string[] => ['project', project, 'stats'];
+
 interface CardActivityValue {
     /** The latest feed event per card id, for a board tile's "last event" line. */
     activity: Record<string, CardActivity>;
@@ -236,6 +239,7 @@ export const useCardFeed = (project?: string): CardFeed => {
             if (project) {
                 void queryClient.invalidateQueries({ queryKey: ['cards'] });
                 void queryClient.invalidateQueries({ queryKey: activityQueryKey(project) });
+                void queryClient.invalidateQueries({ queryKey: statsQueryKey(project) });
             }
         });
 

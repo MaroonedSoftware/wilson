@@ -4,6 +4,7 @@ import type { DateTime } from 'luxon';
 import { Logger } from '@maroonedsoftware/logger';
 import type { DB } from '#modules/data/db.js';
 import { CARD_FEED_CHANNEL } from '#modules/feed/card.feed.js';
+import type { ProjectConversationStats, ProjectStageStats, ProjectStats, ProjectStatsCounts } from '../../generated/board.js';
 import type { CardEvent, CardEventType } from './card.event.js';
 
 export interface CardEventRow {
@@ -33,14 +34,39 @@ export interface CardStageUsage {
     stage: string;
     attempts: number;
     inputTokens: number;
+    /** How many of `inputTokens` were cached, not an addition to it. */
+    cachedInputTokens: number;
     outputTokens: number;
 }
 
 /** What a card cost, per stage and in total — see {@link EventLog.usageByStage}. */
 export interface CardUsage {
-    total: { attempts: number; inputTokens: number; outputTokens: number };
+    total: { attempts: number; inputTokens: number; cachedInputTokens: number; outputTokens: number };
     stages: CardStageUsage[];
 }
+
+/** How many cards {@link EventLog.projectStats} names. */
+const TOP_CARDS = 10;
+
+const noCounts = (): ProjectStatsCounts => ({
+    attempts: 0,
+    passed: 0,
+    failed: 0,
+    interrupted: 0,
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+});
+
+const addCounts = (into: ProjectStatsCounts, counts: ProjectStatsCounts): void => {
+    into.attempts += counts.attempts;
+    into.passed += counts.passed;
+    into.failed += counts.failed;
+    into.interrupted += counts.interrupted;
+    into.inputTokens += counts.inputTokens;
+    into.cachedInputTokens += counts.cachedInputTokens;
+    into.outputTokens += counts.outputTokens;
+};
 
 /**
  * `card.over-budget` (card 0018) belongs in the closed `CardEventType` union alongside
@@ -219,25 +245,29 @@ export class EventLog {
      * (card 0263's Constraints); these are token counts, and a subscription run's tokens are not a
      * price.
      *
-     * One grouped query over `stage.passed`/`stage.failed` rows, keyed by `stage`. `stages` comes
-     * back in the order each stage was first run — `min(id)` ascending, since `id` is a `BIGSERIAL`
-     * assigned in insertion order (`append`) — not alphabetically. An event whose payload has no
-     * `usage` still counts as an attempt, at zero tokens, so `attempts` can never disagree with what
-     * `tail` shows for the same card: nothing here is silently skipped. `inputTokens` includes cached
-     * tokens, the same total `totalInputTokens` holds a card to.
+     * One grouped query over `stage.passed`/`stage.failed`/`stage.interrupted` rows, keyed by `stage`.
+     * `stages` comes back in the order each stage was first run — `min(id)` ascending, since `id` is a
+     * `BIGSERIAL` assigned in insertion order (`append`) — not alphabetically. An interrupted run spent
+     * its tokens but ended in no verdict and spends no retry, so it adds to the token sums and not to
+     * `attempts`; a stage interrupted every time so far has a row with no attempts. A passed or failed
+     * event whose payload has no `usage` still counts as an attempt, at zero tokens, so `attempts` can
+     * never disagree with what `tail` shows for the same card: nothing here is silently skipped.
+     * `inputTokens` includes cached tokens, the same total `totalInputTokens` holds a card to, and
+     * `cachedInputTokens` says how many of them those are.
      */
     async usageByStage(project: string, cardId: string): Promise<CardUsage> {
         const rows = await this.db
             .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
-            .where('type', 'in', ['stage.passed', 'stage.failed'])
+            .where('type', 'in', ['stage.passed', 'stage.failed', 'stage.interrupted'])
             .select([
                 'stage',
-                sql<string>`count(*)`.as('attempts'),
+                sql<string>`count(*) filter (where type <> 'stage.interrupted')`.as('attempts'),
                 sql<string>`coalesce(sum(coalesce((payload->'usage'->>'inputTokens')::bigint, 0) + coalesce((payload->'usage'->>'cachedInputTokens')::bigint, 0)), 0)`.as(
                     'inputTokens',
                 ),
+                sql<string>`coalesce(sum((payload->'usage'->>'cachedInputTokens')::bigint), 0)`.as('cachedInputTokens'),
                 sql<string>`coalesce(sum((payload->'usage'->>'outputTokens')::bigint), 0)`.as('outputTokens'),
                 sql<string>`min(id)`.as('firstId'),
             ])
@@ -249,6 +279,7 @@ export class EventLog {
             stage: row.stage ?? '',
             attempts: Number(row.attempts),
             inputTokens: Number(row.inputTokens),
+            cachedInputTokens: Number(row.cachedInputTokens),
             outputTokens: Number(row.outputTokens),
         }));
 
@@ -256,24 +287,162 @@ export class EventLog {
             (acc, stage) => ({
                 attempts: acc.attempts + stage.attempts,
                 inputTokens: acc.inputTokens + stage.inputTokens,
+                cachedInputTokens: acc.cachedInputTokens + stage.cachedInputTokens,
                 outputTokens: acc.outputTokens + stage.outputTokens,
             }),
-            { attempts: 0, inputTokens: 0, outputTokens: 0 },
+            { attempts: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 },
         );
 
         return { total, stages };
     }
 
     /**
+     * What a project spent and how its stages went from `since` up to `until`, for reading: the same
+     * events and the same rules as {@link usageByStage}, across every card. Days are counted in
+     * `since`'s own zone, and every day from `since` to `until` is in the result, so a quiet day reads
+     * as zero rather than as missing.
+     *
+     * One grouped query, one row per day, stage and card, folded into each view here, so that the
+     * totals, the stages, the days and the cards are all sums of the same rows and cannot disagree.
+     * `conversations` is read from the turn tables instead, since those turns are not events.
+     */
+    async projectStats(project: string, since: DateTime, until: DateTime): Promise<ProjectStats> {
+        const zone = since.zoneName ?? 'UTC';
+        const conversations = await this.conversationStats(project, since, until);
+        const rows = await this.db
+            .selectFrom('wilson.cardEvents as event')
+            .leftJoin('wilson.cards as card', join => join.onRef('card.project', '=', 'event.project').onRef('card.id', '=', 'event.cardId'))
+            .where('event.project', '=', project)
+            .where('event.type', 'in', ['stage.passed', 'stage.failed', 'stage.interrupted'])
+            .where('event.createdAt', '>=', since)
+            .where('event.createdAt', '<', until)
+            .select([
+                'event.stage',
+                'event.cardId',
+                'card.title as cardTitle',
+                sql<string>`to_char(event.created_at at time zone ${zone}, 'YYYY-MM-DD')`.as('day'),
+                sql<string>`count(*) filter (where event.type = 'stage.passed')`.as('passed'),
+                sql<string>`count(*) filter (where event.type = 'stage.failed')`.as('failed'),
+                sql<string>`count(*) filter (where event.type = 'stage.interrupted')`.as('interrupted'),
+                sql<string>`coalesce(sum(coalesce((event.payload->'usage'->>'inputTokens')::bigint, 0) + coalesce((event.payload->'usage'->>'cachedInputTokens')::bigint, 0)), 0)`.as(
+                    'inputTokens',
+                ),
+                sql<string>`coalesce(sum((event.payload->'usage'->>'cachedInputTokens')::bigint), 0)`.as('cachedInputTokens'),
+                sql<string>`coalesce(sum((event.payload->'usage'->>'outputTokens')::bigint), 0)`.as('outputTokens'),
+                sql<string>`min(event.id)`.as('firstId'),
+            ])
+            .groupBy(['day', 'event.stage', 'event.cardId', 'card.title'])
+            .orderBy('firstId', 'asc')
+            .execute();
+
+        const total = noCounts();
+        const stages = new Map<string, ProjectStatsCounts & { cardIds: Set<string> }>();
+        const cards = new Map<string, ProjectStatsCounts & { cardTitle?: string }>();
+        const days = new Map<string, ProjectStatsCounts>();
+
+        for (let day = since.startOf('day'); day < until; day = day.plus({ days: 1 })) {
+            days.set(day.toFormat('yyyy-MM-dd'), noCounts());
+        }
+
+        for (const row of rows) {
+            const passed = Number(row.passed);
+            const failed = Number(row.failed);
+            const counts: ProjectStatsCounts = {
+                attempts: passed + failed,
+                passed,
+                failed,
+                interrupted: Number(row.interrupted),
+                inputTokens: Number(row.inputTokens),
+                cachedInputTokens: Number(row.cachedInputTokens),
+                outputTokens: Number(row.outputTokens),
+            };
+            const stageName = row.stage ?? '';
+            const stage = stages.get(stageName) ?? { ...noCounts(), cardIds: new Set<string>() };
+            stages.set(stageName, stage);
+            const card = cards.get(row.cardId) ?? { ...noCounts(), ...(row.cardTitle ? { cardTitle: row.cardTitle } : {}) };
+            cards.set(row.cardId, card);
+            const day = days.get(row.day) ?? noCounts();
+            days.set(row.day, day);
+
+            addCounts(total, counts);
+            addCounts(stage, counts);
+            addCounts(card, counts);
+            addCounts(day, counts);
+            stage.cardIds.add(row.cardId);
+        }
+
+        return {
+            since,
+            until,
+            zone,
+            total: { ...total, cards: cards.size },
+            stages: [...stages].map(([stage, { cardIds, ...counts }]): ProjectStageStats => ({ stage, cards: cardIds.size, ...counts })),
+            days: [...days].map(([date, counts]) => ({ date, ...counts })),
+            topCards: [...cards]
+                .map(([cardId, counts]) => ({ cardId, ...counts }))
+                .sort((a, b) => b.outputTokens - a.outputTokens || b.inputTokens - a.inputTokens || a.cardId.localeCompare(b.cardId))
+                .slice(0, TOP_CARDS),
+            conversations,
+        };
+    }
+
+    /** What planning and review turns spent from `since` up to `until`. Only an answer with a recorded cost counts as a turn. */
+    private async conversationStats(project: string, since: DateTime, until: DateTime): Promise<ProjectConversationStats[]> {
+        const figures = (card: string) =>
+            [
+                sql<string>`count(*)`.as('turns'),
+                sql<string>`count(distinct ${sql.ref(card)})`.as('cards'),
+                sql<string>`coalesce(sum(coalesce(turn.input_tokens, 0) + coalesce(turn.cached_input_tokens, 0)), 0)`.as('inputTokens'),
+                sql<string>`coalesce(sum(turn.cached_input_tokens), 0)`.as('cachedInputTokens'),
+                sql<string>`coalesce(sum(turn.output_tokens), 0)`.as('outputTokens'),
+            ] as const;
+
+        const [planning, review] = await Promise.all([
+            this.db
+                .selectFrom('wilson.planTurns as turn')
+                .where('turn.project', '=', project)
+                .where('turn.role', '=', 'assistant')
+                .where('turn.outputTokens', 'is not', null)
+                .where('turn.createdAt', '>=', since)
+                .where('turn.createdAt', '<', until)
+                .select(figures('turn.card_id'))
+                .executeTakeFirstOrThrow(),
+            this.db
+                .selectFrom('wilson.reviewTurns as turn')
+                .innerJoin('wilson.reviews as review', 'review.id', 'turn.reviewId')
+                .where('review.project', '=', project)
+                .where('turn.role', '=', 'assistant')
+                .where('turn.outputTokens', 'is not', null)
+                .where('turn.createdAt', '>=', since)
+                .where('turn.createdAt', '<', until)
+                .select(figures('review.card_id'))
+                .executeTakeFirstOrThrow(),
+        ]);
+
+        return (
+            [
+                ['planning', planning],
+                ['review', review],
+            ] as const
+        ).map(([kind, row]) => ({
+            kind,
+            turns: Number(row.turns),
+            cards: Number(row.cards),
+            inputTokens: Number(row.inputTokens),
+            cachedInputTokens: Number(row.cachedInputTokens),
+            outputTokens: Number(row.outputTokens),
+        }));
+    }
+
+    /**
      * What a project has spent in output tokens since a given instant — card 0264's rollup, beside
-     * `usageByStage`'s per-card one, that a daily ceiling is checked against. Same
-     * `stage.passed`/`stage.failed` rows, summed across every card in the project rather than grouped
-     * by one card's stages, and only `outputTokens`: the ceiling this backs is output-only for the
-     * reason `DAILY_OUTPUT_TOKEN_CEILING`'s own doc comment gives, and there is no per-stage grouping
-     * to preserve here the way `usageByStage` needs one. An event with no `usage` still coalesces to
-     * zero rather than being skipped, the same as `usageByStage`; every event type other than the two
-     * named never carries a `usage` payload, so restricting to them is about legible intent, not
-     * correctness `usageByStage` didn't already need to state outright.
+     * `usageByStage`'s per-card one, that a daily ceiling is checked against. `stage.passed`/
+     * `stage.failed` rows, summed across every card in the project rather than grouped by one card's
+     * stages, and only `outputTokens`: the ceiling this backs is output-only for the reason
+     * `DAILY_OUTPUT_TOKEN_CEILING`'s own doc comment gives, and there is no per-stage grouping to
+     * preserve here the way `usageByStage` needs one. An event with no `usage` still coalesces to zero
+     * rather than being skipped, the same as `usageByStage`. Unlike `usageByStage`, this leaves out
+     * `stage.interrupted` rows, so what an interrupted run spent does not count against the ceiling.
      *
      * `since` is compared straight against `createdAt` — a caller means whatever zone it computed
      * `since` in, and this does no conversion of its own. `createdAt` is stored in UTC (this table's

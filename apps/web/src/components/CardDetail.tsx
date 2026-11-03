@@ -424,6 +424,7 @@ function UsagePanel({ usage, error }: { usage: CardUsage | undefined; error: Err
                     <Table.Th>Stage</Table.Th>
                     <Table.Th>Attempts</Table.Th>
                     <Table.Th>Input tokens</Table.Th>
+                    <Table.Th>Of which cached</Table.Th>
                     <Table.Th>Output tokens</Table.Th>
                 </Table.Tr>
             </Table.Thead>
@@ -437,6 +438,7 @@ function UsagePanel({ usage, error }: { usage: CardUsage | undefined; error: Err
                         </Table.Td>
                         <Table.Td>{stage.attempts}</Table.Td>
                         <Table.Td>{stage.inputTokens.toLocaleString()}</Table.Td>
+                        <Table.Td>{stage.cachedInputTokens.toLocaleString()}</Table.Td>
                         <Table.Td>{stage.outputTokens.toLocaleString()}</Table.Td>
                     </Table.Tr>
                 ))}
@@ -444,6 +446,7 @@ function UsagePanel({ usage, error }: { usage: CardUsage | undefined; error: Err
                     <Table.Td>Total</Table.Td>
                     <Table.Td>{usage.total.attempts}</Table.Td>
                     <Table.Td>{usage.total.inputTokens.toLocaleString()}</Table.Td>
+                    <Table.Td>{usage.total.cachedInputTokens.toLocaleString()}</Table.Td>
                     <Table.Td>{usage.total.outputTokens.toLocaleString()}</Table.Td>
                 </Table.Tr>
             </Table.Tbody>

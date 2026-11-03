@@ -52,7 +52,7 @@ export interface ChatTurnOutput {
     /** The session to resume next turn ('cli'). */
     engineSessionId?: string;
     /** What the turn cost, when the engine reports it ('cli'). */
-    usage?: { outputTokens: number };
+    usage?: { inputTokens?: number; cachedInputTokens?: number; outputTokens: number };
 }
 
 /**

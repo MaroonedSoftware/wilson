@@ -86,12 +86,19 @@ describe('CliChatEngine', () => {
     });
 
     it('takes a step limit, and reports what the turn cost', async () => {
-        engineReplying([{ type: 'result', subtype: 'success', session_id: 's-1', usage: { output_tokens: 42 } }]);
+        engineReplying([
+            {
+                type: 'result',
+                subtype: 'success',
+                session_id: 's-1',
+                usage: { input_tokens: 5, cache_read_input_tokens: 100, cache_creation_input_tokens: 20, output_tokens: 42 },
+            },
+        ]);
 
         const output = await turn({ maxSteps: 40 });
 
         expect(optionsOf().maxTurns).toBe(40);
-        expect(output.usage).toEqual({ outputTokens: 42 });
+        expect(output.usage).toEqual({ inputTokens: 5, cachedInputTokens: 120, outputTokens: 42 });
     });
 
     describe('holding the engine to its own tools', () => {

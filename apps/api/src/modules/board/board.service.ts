@@ -1,5 +1,6 @@
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
+import { DateTime } from 'luxon';
 import { EventLog } from '#modules/events/event.log.js';
 import { stageEnteredAt } from '#modules/events/time.in.stage.js';
 import { CardBranchDiffSource } from '#modules/review/review.diff.source.js';
@@ -16,6 +17,8 @@ import type {
     CardUsage,
     CardVersion,
     ListQuery,
+    ProjectStats,
+    ProjectStatsQuery,
     SplitPieceSummary,
 } from '../../generated/board.js';
 import { BoardConfig } from './board.config.js';
@@ -30,6 +33,12 @@ const DEFAULT_HISTORY_LIMIT = 50;
 const MAX_HISTORY_LIMIT = 200;
 
 const clampLimit = (limit: number | undefined): number => Math.min(limit ?? DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
+
+/** `days` when a caller omits it. */
+const DEFAULT_STATS_DAYS = 30;
+
+/** Upper bound on `days`, applied even when a caller asks for more. */
+const MAX_STATS_DAYS = 365;
 
 /**
  * Card 0178. How far back {@link BoardService.withStageEnteredAt} looks for the transition that
@@ -226,6 +235,21 @@ export class BoardService {
             throw err;
         }
         return this.eventLog.usageByStage(this.boardConfig.project, id);
+    }
+
+    /**
+     * What the project spent over its last `days` days, today included. A day here starts at the
+     * server's midnight, the same one the daily ceiling counts from.
+     */
+    async stats(query: ProjectStatsQuery): Promise<ProjectStats> {
+        const days = Math.max(1, Math.min(query.days ?? DEFAULT_STATS_DAYS, MAX_STATS_DAYS));
+        const now = DateTime.now();
+        return this.eventLog.projectStats(
+            this.boardConfig.project,
+            now.startOf('day').minus({ days: days - 1 }),
+            // Past the current instant, so an event written in the same millisecond is not left out.
+            now.plus({ seconds: 1 }),
+        );
     }
 
     /**

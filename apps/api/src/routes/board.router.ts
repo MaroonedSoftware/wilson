@@ -33,6 +33,8 @@ import {
     PlanSession,
     PlanTurn,
     PlanTurnRequest,
+    ProjectStats,
+    ProjectStatsQuery,
     RecordFindingsRequest,
     ReleaseResult,
     RenameCardRequest,
@@ -723,6 +725,22 @@ BoardRouter.get('/api/activity', requirePolicy({ policy: 'wilson.view' }), async
 
     const service = ctx.container.get(BoardService);
     const result: ActivityEvent[] = await service.activity(query);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * What a project spent and how its stages went. Read-only, summed from `EventLog` on each request, in
+ * the server's time zone: the one the daily ceiling counts its day in.
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/stats`
+ */
+BoardRouter.get('/api/stats', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const query = await parseAndValidate(ctx.query, ProjectStatsQuery.strict());
+
+    const service = ctx.container.get(BoardService);
+    const result: ProjectStats = await service.stats(query);
 
     ctx.status = 200;
     ctx.type = 'application/json';

@@ -505,6 +505,21 @@ public sealed class BoardClient(SdkHttp http)
     }
 
     /// <summary>
+    /// Get project stats
+    /// What a project spent and how its stages went. Read-only, summed from `EventLog` on each request, in
+    /// the server's time zone: the one the daily ceiling counts its day in.
+    /// </summary>
+    public async Task<ProjectStats> GetProjectStatsAsync(ProjectStatsQuery? query = null, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "stats"),
+            query: http.Params(query),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<ProjectStats>(response);
+    }
+
+    /// <summary>
     /// Get card usage
     /// Card 0263. Read-only, like `division`/`lint` above: nothing here recomputes or stores anything,
     /// it only sums what `EventLog` already has. A card with no `stage.passed`/`stage.failed` events on

@@ -44,6 +44,13 @@ class TurnInbox implements AsyncIterable<SDKUserMessage> {
     }
 }
 
+/** What one planning turn spent. `inputTokens` leaves out `cachedInputTokens`, as a stage's `usage` does. */
+export interface TurnUsage {
+    inputTokens: number;
+    cachedInputTokens: number;
+    outputTokens: number;
+}
+
 export interface PlanSessionOptions {
     /** Absolute path to the throwaway plan worktree — `PlanService.open`'s `worktreePath`, or the
      * same deterministic path computed again for a card whose worktree `open` already cut. */
@@ -99,6 +106,11 @@ export class PlanSessionAgent {
      * error result, or a usage limit reported as a finished turn. */
     lastTurnSucceeded = false;
 
+    /** What the last `turn()` spent, when the engine reported it. A result's `usage` is the turn's own
+     * in a session like this one, not a running total, unlike its `modelUsage`. It covers the main
+     * loop only, so a subagent's spend is not in it, the same as what a stage records. */
+    lastTurnUsage: TurnUsage | undefined;
+
     private readonly usageWatch: UsageLimitWatch;
     private readonly onUsageLimit: PlanSessionOptions['onUsageLimit'];
 
@@ -135,6 +147,7 @@ export class PlanSessionAgent {
      */
     async *turn(text: string): AsyncGenerator<string> {
         this.lastTurnSucceeded = false;
+        this.lastTurnUsage = undefined;
         this.inbox.push(text);
         for (;;) {
             const next = await this.iterator.next();
@@ -151,6 +164,13 @@ export class PlanSessionAgent {
             if (message.type === 'result') {
                 this.lastTurnSucceeded = message.subtype === 'success' && !message.is_error && !this.usageWatch.limit;
                 if (this.usageWatch.limit) this.onUsageLimit?.(this.usageWatch.limit);
+                if (message.usage) {
+                    this.lastTurnUsage = {
+                        inputTokens: message.usage.input_tokens,
+                        cachedInputTokens: (message.usage.cache_read_input_tokens ?? 0) + (message.usage.cache_creation_input_tokens ?? 0),
+                        outputTokens: message.usage.output_tokens,
+                    };
+                }
                 return;
             }
         }

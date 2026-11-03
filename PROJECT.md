@@ -1178,10 +1178,11 @@ Wilson has no Redis, so there is nothing else to leave out.
 - **A blank `DATABASE_HOST` on `full` means the database inside.** Its password is generated into
   `/data/secrets` on first boot and it listens on loopback only. `slim` refuses to start without one.
 - **`slim` has no backup.** Backing up a database you brought is yours to arrange.
-- **Old images pile up on a deploy.** Each leaves a `slim-<sha>` tag of about 1.6 GB, and Unraid's Docker
-  disk is a fixed size shared with every other container. Before pulling, run `deploy/prune.images.sh`
-  on the host (its header has the command). It removes old tags by name and never runs a prune, since
-  a volume can hold data with no container attached.
+- **Old images pile up on a deploy.** Each leaves a `slim-<sha>` tag and an untagged build of about
+  1.6 GB, and Unraid's Docker disk is a fixed size shared with every other container. Before pulling,
+  run `deploy/prune.images.sh` on the host (its header has the command). It removes old tags and this
+  image's untagged builds one at a time and never runs a prune, since a volume can hold data with no
+  container attached.
 
 ### Following GitHub `main`
 

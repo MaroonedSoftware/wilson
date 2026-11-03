@@ -93,7 +93,10 @@ beforeEach(() => {
     // Card 0263: `ProjectCardDetailRoute` mounts a usage query alongside events/versions/columns
     // for every card page — defaulted to no usage recorded so the tests above, none of which are
     // about usage, see the "no usage recorded yet" placeholder rather than a rejected query.
-    vi.spyOn(BoardClient.prototype, 'getCardUsage').mockResolvedValue({ total: { attempts: 0, inputTokens: 0, outputTokens: 0 }, stages: [] });
+    vi.spyOn(BoardClient.prototype, 'getCardUsage').mockResolvedValue({
+        total: { attempts: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 },
+        stages: [],
+    });
     vi.stubGlobal('EventSource', FakeEventSource);
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     // jsdom has no layout engine, so floating-ui's own `scrollIntoView` call on the active option
@@ -838,10 +841,10 @@ describe('the usage panel', () => {
     it('renders a row per stage, each stage in the order the API returned it, plus a total row summing every stage', async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
         vi.spyOn(BoardClient.prototype, 'getCardUsage').mockResolvedValue({
-            total: { attempts: 3, inputTokens: 13345, outputTokens: 928 },
+            total: { attempts: 3, inputTokens: 13345, cachedInputTokens: 12900, outputTokens: 928 },
             stages: [
-                { stage: 'implementing', attempts: 2, inputTokens: 12345, outputTokens: 678 },
-                { stage: 'review', attempts: 1, inputTokens: 1000, outputTokens: 250 },
+                { stage: 'implementing', attempts: 2, inputTokens: 12345, cachedInputTokens: 12000, outputTokens: 678 },
+                { stage: 'review', attempts: 1, inputTokens: 1000, cachedInputTokens: 900, outputTokens: 250 },
             ],
         });
 
@@ -851,11 +854,14 @@ describe('the usage panel', () => {
         // Per-stage figures, formatted with `toLocaleString` (comma thousands separators) —
         // proof these came from `CardUsage.stages`, not the total row alone.
         expect(await screen.findByText('12,345')).toBeTruthy();
+        expect(await screen.findByText('12,000')).toBeTruthy();
+        expect(await screen.findByText('900')).toBeTruthy();
         expect(await screen.findByText('678')).toBeTruthy();
         expect(await screen.findByText('1,000')).toBeTruthy();
         expect(await screen.findByText('250')).toBeTruthy();
         // The total row, summed separately from the per-stage rows above.
         expect(await screen.findByText('13,345')).toBeTruthy();
+        expect(await screen.findByText('12,900')).toBeTruthy();
         expect(await screen.findByText('928')).toBeTruthy();
         expect(screen.getByText('Total')).toBeTruthy();
     });
@@ -863,7 +869,7 @@ describe('the usage panel', () => {
     it('shows a placeholder rather than a table for a card with no usage recorded yet', async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('testing'));
         vi.spyOn(BoardClient.prototype, 'getCardUsage').mockResolvedValue({
-            total: { attempts: 0, inputTokens: 0, outputTokens: 0 },
+            total: { attempts: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 },
             stages: [],
         });
 

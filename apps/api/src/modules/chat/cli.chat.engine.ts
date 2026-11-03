@@ -156,7 +156,13 @@ export class CliChatEngine extends ChatEngine {
                     }
                     if (message.subtype !== 'success')
                         throw new Error(`the engine stopped (${message.subtype}): ${message.errors.join('; ') || 'no reason given'}`);
-                    usage = message.usage ? { outputTokens: message.usage.output_tokens } : undefined;
+                    usage = message.usage
+                        ? {
+                              inputTokens: message.usage.input_tokens,
+                              cachedInputTokens: (message.usage.cache_read_input_tokens ?? 0) + (message.usage.cache_creation_input_tokens ?? 0),
+                              outputTokens: message.usage.output_tokens,
+                          }
+                        : undefined;
                     break;
                 }
             }
