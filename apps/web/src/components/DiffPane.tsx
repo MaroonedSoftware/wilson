@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useState } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { Alert, Badge, Button, Group, Paper, ScrollArea, SegmentedControl, Stack, Text, Textarea, Title } from '@mantine/core';
-import type { CardDiff, CardDiffFile, ReviewComment } from '@wilson/sdk';
+import type { CardDiff, CardDiffFile, Review, ReviewComment } from '@wilson/sdk';
 import { type DiffHunk, type DiffLine, parsePatch } from '#src/lib/patch.js';
 import { reasonFor } from '#src/lib/mutations.js';
-import { useAddReviewComment, useOpenReview, useRequestChanges, useResolveReviewComment, useReviewState } from '#src/lib/review.js';
+import { useAddReviewComment, useApproveReview, useOpenReview, useRequestChanges, useResolveReviewComment, useReviewState } from '#src/lib/review.js';
 
 /** Card 0265's status badge colours — the same three `git diff --name-status --no-renames` ever
  * reports (`WorktreeManager.patchSinceFork`'s own doc comment). */
@@ -275,26 +275,32 @@ function OutdatedComments({ comments, onResolve }: { comments: ReviewComment[]; 
     );
 }
 
-/** What sending the review costs and does, beside the one button that does it. Nothing to send, no panel. */
-function RequestChangesPanel({
+/** The review's two verdicts. An approval shows the commit it was for, and is not asked for twice. */
+function VerdictPanel({
+    review,
     openCount,
     onRequest,
     requesting,
+    onApprove,
+    approving,
     error,
 }: {
+    review: Review;
     openCount: number;
     onRequest: () => void;
     requesting: boolean;
+    onApprove: () => void;
+    approving: boolean;
     error: Error | null;
 }) {
-    if (openCount === 0 && !error) return null;
+    const approved = review.status === 'approved';
 
     return (
         <Paper withBorder p="sm" radius="sm">
             <Group justify="space-between" align="center">
                 <Stack gap={2}>
                     <Text size="sm">
-                        {openCount} open comment{openCount === 1 ? '' : 's'}
+                        {approved ? `Approved at ${review.head.slice(0, 7)}` : `${openCount} open comment${openCount === 1 ? '' : 's'}`}
                     </Text>
                     {error && (
                         <Text size="xs" c="red">
@@ -302,9 +308,16 @@ function RequestChangesPanel({
                         </Text>
                     )}
                 </Stack>
-                <Button size="xs" onClick={onRequest} loading={requesting} disabled={openCount === 0}>
-                    Request changes
-                </Button>
+                <Group gap={6}>
+                    <Button size="xs" variant="default" onClick={onRequest} loading={requesting} disabled={openCount === 0}>
+                        Request changes
+                    </Button>
+                    {!approved && (
+                        <Button size="xs" onClick={onApprove} loading={approving}>
+                            Approve
+                        </Button>
+                    )}
+                </Group>
             </Group>
         </Paper>
     );
@@ -331,6 +344,7 @@ export function DiffPane({ diff, error, reviewable }: { diff: CardDiff | undefin
     const addComment = useAddReviewComment(project, cardId);
     const resolveComment = useResolveReviewComment(project, cardId);
     const requestChanges = useRequestChanges(project, cardId);
+    const approve = useApproveReview(project, cardId);
 
     const { mutate: openReview } = open;
     useEffect(() => {
@@ -390,7 +404,10 @@ export function DiffPane({ diff, error, reviewable }: { diff: CardDiff | undefin
             {stale && reviewable && (
                 <Alert color="yellow" title="The branch has moved on">
                     <Stack gap={6} align="flex-start">
-                        <Text size="sm">This review read an older commit. Comments carry over to the new one.</Text>
+                        <Text size="sm">
+                            {review?.status === 'approved' ? `The approval was for ${review.head.slice(0, 7)}.` : 'This review read an older commit.'}{' '}
+                            Comments carry over to the new one.
+                        </Text>
                         <Button size="xs" onClick={() => openReview()} loading={open.isPending}>
                             Review the new commit
                         </Button>
@@ -417,11 +434,14 @@ export function DiffPane({ diff, error, reviewable }: { diff: CardDiff | undefin
             ))}
             <OutdatedComments comments={outdated} onResolve={onResolve} />
             {canWrite && (
-                <RequestChangesPanel
+                <VerdictPanel
+                    review={review}
                     openCount={openComments.length}
                     onRequest={() => requestChanges.mutate({ head: review.head })}
                     requesting={requestChanges.isPending}
-                    error={requestChanges.error}
+                    onApprove={() => approve.mutate({ head: review.head })}
+                    approving={approve.isPending}
+                    error={requestChanges.error ?? approve.error}
                 />
             )}
         </Stack>

@@ -112,3 +112,26 @@ ReviewRouter.post('/api/cards/:id/review/request-changes', requirePolicy({ polic
     ctx.type = 'application/json';
     ctx.body = result;
 });
+
+/**
+ * Records the person's approval of the branch at `head`. The card stays where it is and merging is not
+ * gated on this. An open blocker refuses it; an open concern does not.
+ * from [review.ck](../../data/contracts/review.ck) `POST /api/cards/{id}/review/approve`
+ */
+ReviewRouter.post('/api/cards/:id/review/approve', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, ReviewVerdictRequest);
+
+    const service = ctx.container.get(ReviewService);
+    const result: ReviewState = await service.approve(id, body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});

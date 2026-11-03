@@ -86,4 +86,20 @@ public sealed class ReviewClient(SdkHttp http)
             cancellationToken: cancellationToken).ConfigureAwait(false);
         return http.ReadJson<ReviewState>(response);
     }
+
+    /// <summary>
+    /// Approve a review
+    /// Records the person's approval of the branch at `head`. The card stays where it is and merging is not
+    /// gated on this. An open blocker refuses it; an open concern does not.
+    /// </summary>
+    /// <exception cref="SdkException">On 400, 404, 409.</exception>
+    public async Task<ReviewState> ApproveAReviewAsync(string id, ReviewVerdictRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Post,
+            http.Path("api", "cards", http.Segment(id), "review", "approve"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<ReviewState>(response);
+    }
 }

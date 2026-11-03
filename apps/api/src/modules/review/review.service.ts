@@ -7,6 +7,7 @@ import { BoardWriteService } from '#modules/board/board.write.service.js';
 import type { Card } from '#modules/board/card.js';
 import { CardNotFoundError } from '#modules/board/postgres.board.repository.js';
 import type { DB } from '#modules/data/db.js';
+import { EventLog } from '#modules/events/event.log.js';
 import { StageConfigError } from '#modules/stages/stage.config.js';
 import type { DiffFileEntry } from '#modules/worktree/worktree.manager.js';
 import type { HumanFinding } from '../../generated/board.js';
@@ -80,6 +81,7 @@ export class ReviewService {
         private readonly diffs: DiffSource,
         private readonly db: Kysely<DB>,
         private readonly boardWrites: BoardWriteService,
+        private readonly events: EventLog,
     ) {
         this.reviews = new ReviewRepository(this.boardConfig, this.db);
         this.comments = new ReviewCommentRepository(this.boardConfig, this.db);
@@ -169,6 +171,30 @@ export class ReviewService {
         );
         await this.reviews.conclude(id, review.id, 'changes_requested');
         return this.stateOf(await this.readOrThrow(id));
+    }
+
+    /** Record the person's approval of the branch at `head`. The card stays where it is. */
+    async approve(id: string, request: ReviewVerdictRequest): Promise<ReviewState> {
+        const card = await this.readOrThrow(id);
+        this.assertReviewable(card);
+        const diff = await this.currentDiff(card);
+        this.assertSameHead(id, request.head, diff.head);
+
+        const blockers = (await this.comments.list(id)).filter(comment => comment.status === 'open' && comment.severity === 'blocker');
+        if (blockers.length > 0) {
+            throw httpError(400).withDetails({ reason: `cannot approve ${id}: ${blockers.length} open blocker(s) to resolve or send first` });
+        }
+
+        const review = await this.reviews.openAt(id, diff.head, diff.base);
+        await this.reviews.conclude(id, review.id, 'approved');
+        await this.events.append({
+            project: this.boardConfig.project,
+            cardId: id,
+            stage: card.frontmatter.stage,
+            type: 'review.approved',
+            payload: { head: diff.head },
+        });
+        return this.stateOf(card);
     }
 
     private async stateOf(card: Card): Promise<ReviewState> {

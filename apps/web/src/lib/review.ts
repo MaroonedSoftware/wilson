@@ -66,3 +66,14 @@ export function useRequestChanges(project: string | undefined, cardId: string) {
         },
     });
 }
+
+/** Records the person's approval. Nothing about the card changes, so only the review is read again. */
+export function useApproveReview(project: string | undefined, cardId: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (body: ReviewVerdictRequest): Promise<ReviewState> => wilson.review.approveAReview(cardId, body),
+        onSuccess: state => {
+            queryClient.setQueryData(reviewKey(project, cardId), state);
+        },
+    });
+}

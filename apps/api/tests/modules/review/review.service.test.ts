@@ -65,6 +65,7 @@ const STAGES = [
 
 const fresh = async (stage = 'ready', stages = STAGES) => {
     const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
+    const events = { append: vi.fn(async () => {}) };
     const board = new PostgresBoardRepository(config, db, { append: vi.fn(async () => {}) } as unknown as EventLog);
     await board.create(card('0001', stage), 'seed');
     const diffs = new FakeDiffSource();
@@ -80,7 +81,7 @@ const fresh = async (stage = 'ready', stages = STAGES) => {
         {} as never,
         new StaticStageConfigStore(stages),
     );
-    return { board, diffs, service: new ReviewService(board, config, diffs, db, writes) };
+    return { board, diffs, events, service: new ReviewService(board, config, diffs, db, writes, events as unknown as EventLog) };
 };
 
 const onAdded = { head: 'sha-1', file: 'a.ts', side: 'new' as const, line: 2, text: 'not like this' };
@@ -314,6 +315,69 @@ describe('ReviewService', () => {
 
             await expect(service.requestChanges('0001', { head: 'sha-1' })).rejects.toMatchObject({ statusCode: 400 });
             expect((await service.state('0001')).comments.map(comment => comment.status)).toEqual(['open']);
+        });
+    });
+
+    describe('approve', () => {
+        it('records the verdict and an event naming the commit, and leaves the card in ready', async () => {
+            const { board, events, service } = await fresh();
+            await service.open('0001');
+
+            const { review } = await service.approve('0001', { head: 'sha-1' });
+
+            expect(review).toMatchObject({ status: 'approved', head: 'sha-1', verdictAt: expect.anything() });
+            expect((await board.read('0001')).frontmatter.stage).toBe('ready');
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({ cardId: '0001', type: 'review.approved', payload: { head: 'sha-1' } }),
+            );
+        });
+
+        it('is refused by an open blocker, then allowed once it is resolved', async () => {
+            const { events, service } = await fresh();
+            const blocker = await service.addComment('0001', onAdded);
+
+            await expect(service.approve('0001', { head: 'sha-1' })).rejects.toMatchObject({ statusCode: 400 });
+            expect(events.append).not.toHaveBeenCalled();
+
+            await service.resolveComment('0001', blocker.id);
+            await expect(service.approve('0001', { head: 'sha-1' })).resolves.toMatchObject({ review: { status: 'approved' } });
+        });
+
+        it('is not refused by an open concern', async () => {
+            const { service } = await fresh();
+            await service.addComment('0001', { ...onAdded, severity: 'concern' });
+
+            await expect(service.approve('0001', { head: 'sha-1' })).resolves.toMatchObject({ review: { status: 'approved' } });
+        });
+
+        it('answers a moved branch with a 409, and a card outside ready with a 400', async () => {
+            const { diffs, service } = await fresh();
+            diffs.moveTo('sha-2');
+            await expect(service.approve('0001', { head: 'sha-1' })).rejects.toMatchObject({ statusCode: 409 });
+
+            const notReady = await fresh('implementing');
+            await expect(notReady.service.approve('0001', { head: 'sha-1' })).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('stands when the review is reopened at the same commit, and goes stale when the branch moves', async () => {
+            const { diffs, service } = await fresh();
+            await service.approve('0001', { head: 'sha-1' });
+
+            await expect(service.open('0001')).resolves.toMatchObject({ review: { status: 'approved', stale: false } });
+
+            diffs.moveTo('sha-2');
+            await expect(service.state('0001')).resolves.toMatchObject({ review: { status: 'approved', stale: true } });
+            await expect(service.open('0001')).resolves.toMatchObject({ review: { status: 'open', head: 'sha-2' } });
+        });
+
+        it('starts a new open review when a comment follows an approval', async () => {
+            const { service } = await fresh();
+            const { review: approved } = await service.approve('0001', { head: 'sha-1' });
+
+            const comment = await service.addComment('0001', onAdded);
+
+            expect(comment.reviewId).not.toBe(approved!.id);
+            await expect(service.state('0001')).resolves.toMatchObject({ review: { status: 'open' } });
         });
     });
 });

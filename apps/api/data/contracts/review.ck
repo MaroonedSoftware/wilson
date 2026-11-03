@@ -163,3 +163,27 @@ operation /api/cards/{id}/review/request-changes: {
         }
     }
 }
+
+# Records the person's approval of the branch at `head`. The card stays where it is and merging is not
+# gated on this. An open blocker refuses it; an open concern does not.
+operation /api/cards/{id}/review/approve: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Approve a review
+        mcp: exclude # A review is a person's judgment of an agent's work
+        service: ReviewService.approve
+        request: {
+            application/json: ReviewVerdictRequest
+        }
+        response: {
+            200: {
+                application/json: ReviewState
+            }
+            400:
+            404:
+            409:
+        }
+    }
+}

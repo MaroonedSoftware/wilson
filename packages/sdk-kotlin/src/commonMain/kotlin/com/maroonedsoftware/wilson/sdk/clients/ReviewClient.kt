@@ -70,4 +70,18 @@ class ReviewClient(private val http: SdkHttp) {
         }
         return http.decodeJson(response)
     }
+
+    /**
+     * Approve a review
+     * Records the person's approval of the branch at `head`. The card stays where it is and merging is not
+     * gated on this. An open blocker refuses it; an open concern does not.
+     * @throws SdkError on 400, 404, 409
+     */
+    suspend fun approveAReview(id: String, body: ReviewVerdictRequest): ReviewState {
+        val response = http.execute(HttpMethod.Post) {
+            path("api", "cards", segment(id), "review", "approve")
+            jsonBody(body, "application/json")
+        }
+        return http.decodeJson(response)
+    }
 }

@@ -58,4 +58,18 @@ export class ReviewClient {
         });
         return reviveReviewState(await parseJson<ReviewState>(result));
     }
+
+    /**
+     * @name Approve a review
+     * @description Records the person's approval of the branch at `head`. The card stays where it is and merging is not
+     * gated on this. An open blocker refuses it; an open concern does not.
+     */
+    async approveAReview(id: string, body: ReviewVerdictRequest): Promise<ReviewState> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/review/approve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return reviveReviewState(await parseJson<ReviewState>(result));
+    }
 }

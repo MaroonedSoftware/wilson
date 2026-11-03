@@ -294,4 +294,43 @@ describe('review comments on the Diff tab', () => {
         expect(screen.queryByRole('button', { name: 'Resolve' })).toBeNull();
         expect(screen.queryByRole('button', { name: 'Request changes' })).toBeNull();
     });
+
+    it('approves at the commit on screen, then shows that commit in place of the button', async () => {
+        const approve = vi
+            .spyOn(ReviewClient.prototype, 'approveAReview')
+            .mockResolvedValue({ review: review({ status: 'approved' }), comments: [] });
+        await open({ review: review(), comments: [] });
+
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+        });
+
+        expect(approve).toHaveBeenCalledWith('0007', { head: 'sha-1' });
+        expect(await screen.findByText('Approved at sha-1')).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+    });
+
+    it("shows the server's reason when an open blocker refuses the approval", async () => {
+        vi.spyOn(ReviewClient.prototype, 'approveAReview').mockRejectedValue(
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, details: { reason: 'cannot approve 0007: 1 open blocker(s) to resolve or send first' } },
+                new Headers(),
+            ),
+        );
+        await open({ review: review(), comments: [comment()] });
+
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+        });
+
+        expect(await screen.findByText('cannot approve 0007: 1 open blocker(s) to resolve or send first')).toBeTruthy();
+    });
+
+    it('warns that an approval was for an older commit once the branch has moved', async () => {
+        await open({ review: review({ status: 'approved', stale: true }), comments: [] });
+
+        expect(await screen.findByText(/The approval was for sha-1/)).toBeTruthy();
+    });
 });
