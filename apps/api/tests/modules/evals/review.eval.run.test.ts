@@ -163,6 +163,29 @@ describe('seedCase and runCase', () => {
         expect(verifiedView(run.reported, run.verification).findings[0]?.kind).toBe('omission');
     });
 
+    it('turns an engine that throws into an unscored run, so earlier results survive', async () => {
+        seeded = await seedCase(evalCase, { sourceRepo: source, ordinal: 1, logger });
+        const agent = {
+            run: async (): Promise<AgentRunOutput> => {
+                throw new Error('engine went away');
+            },
+        };
+
+        const run = await runCase({ evalCase, seeded, stage, stages, agent, logger });
+
+        expect(run.unscored).toBe('the engine threw: engine went away');
+    });
+
+    it('marks a run that hit the usage limit, so the runner can stop', async () => {
+        seeded = await seedCase(evalCase, { sourceRepo: source, ordinal: 1, logger });
+        const usageLimit = { resetsAt: Date.now() } as unknown as AgentRunOutput['usageLimit'];
+
+        const run = await runCase({ evalCase, seeded, stage, stages, agent: agentReturning({ usageLimit }), logger });
+
+        expect(run.outOfUsage).toBe(true);
+        expect(run.unscored).toContain('usage limit');
+    });
+
     it('leaves a run that stopped short out of the score, saying why', async () => {
         seeded = await seedCase(evalCase, { sourceRepo: source, ordinal: 1, logger });
         const cases: [Partial<AgentRunOutput>, string][] = [

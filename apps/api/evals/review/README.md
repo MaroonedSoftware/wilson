@@ -15,6 +15,9 @@ That is a dry run: it seeds every case and starts no model, so it is free. Addin
 - `--snapshot` is a whole stage config document: the `review` lane, routed to the `cli` engine, and every lane it routes to, which can be stubs. The live prompt is only in the database, so this is a copy of it taken by hand. Its budgets apply, so lower `maxInputTokens` for a small run.
 - `--prompt-revision` labels that copy, usually with its lane revision. The report also records a hash of the prompt, so a mislabelled snapshot can be noticed.
 - `--cases a,b` runs only those cases, `--model` overrides the snapshot's model, `--out` sets the results file, and `--keep` leaves the scratch directories behind.
+- `--max-output-tokens <n>` stops starting new cases once that many have been spent.
+
+The results file is rewritten after every case, so a run that stops early keeps what it paid for. It also stops by itself if the account runs out of usage.
 
 The report goes to the terminal. The results file holds every finding, and it stays out of the repository.
 
@@ -61,7 +64,7 @@ What these numbers cannot say:
 
 A scratch repository is not a sandbox. A reviewer runs the lane's `allowedCommands` on this machine, in the operator's environment, and `pnpm exec vitest run` can execute any code it writes. In the first real run, one reviewer ran 1,240 of a base's tests and another probed the local test Postgres on port 15533 in a throwaway schema.
 
-So a run exercises the shared test database with old commits' code, and can collide with other test runs on this machine. Run it when nothing else is using that database, and check the database afterwards. Taking the test commands out of the snapshot's `allowedCommands` avoids this, but it measures a different reviewer, so label it as such.
+So a run exercises the shared test database with old commits' code, and can collide with other test runs on this machine. Point a run at its own database with `TEST_DATABASE_PORT`, which the engine passes through to every base with database tests. Older bases have no such tests, and some predate the setup that migrates the database, so migrate it first by running any API test with the same variable set. That stops the test suites sharing a database, but a reviewer writing its own probe could still read the default port from the repository. Taking the test commands out of the snapshot's `allowedCommands` avoids this, but it measures a different reviewer, so label it as such.
 
 ## Adding a case
 

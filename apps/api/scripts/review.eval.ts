@@ -10,7 +10,7 @@ import { CLAUDE_BINARY_VERSION } from '#modules/agent/cli.engine.version.js';
 import { CliStageAgent } from '#modules/agent/cli.stage.agent.js';
 import { caseProblems, loadCorpus } from '#modules/evals/review.eval.corpus.js';
 import { runCase, seedCase } from '#modules/evals/review.eval.run.js';
-import { buildReport, formatReport, type ReviewEvalRun } from '#modules/evals/review.eval.score.js';
+import { buildReport, formatReport, outputTokensSpent, type ReviewEvalRun } from '#modules/evals/review.eval.score.js';
 import { findStage, parseStages } from '#modules/stages/stage.config.js';
 
 // Scores the real review stage against apps/api/evals/review, which says how to read the result.
@@ -24,6 +24,7 @@ const { values: opts } = parseArgs({
         cases: { type: 'string' },
         model: { type: 'string' },
         out: { type: 'string' },
+        'max-output-tokens': { type: 'string' },
         keep: { type: 'boolean', default: false },
         'confirm-spend': { type: 'boolean', default: false },
     },
@@ -77,8 +78,22 @@ console.log(
 
 const agent = new CliStageAgent(quiet);
 const startedAt = new Date().toISOString();
+const out = opts.out ?? join(tmpdir(), `wilson-review-eval-${startedAt.replaceAll(':', '-')}.json`);
+const maxOutputTokens = opts['max-output-tokens'] === undefined ? undefined : Number(opts['max-output-tokens']);
+if (maxOutputTokens !== undefined && !(maxOutputTokens > 0)) fail('--max-output-tokens takes a positive number');
+
+// Written after every case, so a run stopped by anything at all keeps what it paid for.
+const save = async (runs: ReviewEvalRun[]): Promise<void> => {
+    await writeFile(out, `${JSON.stringify(buildReport(label, startedAt, runs), null, 2)}\n`, 'utf8');
+};
+
 const runs: ReviewEvalRun[] = [];
+let stoppedEarly: string | undefined;
 for (const [index, evalCase] of chosen.entries()) {
+    if (spend && maxOutputTokens !== undefined && outputTokensSpent(runs) >= maxOutputTokens) {
+        stoppedEarly = `stopped before ${evalCase.id}: ${outputTokensSpent(runs)} output tokens reached the ceiling of ${maxOutputTokens}`;
+        break;
+    }
     const seeded = await seedCase(evalCase, { sourceRepo, ordinal: index + 1, logger: quiet });
     try {
         if (!spend) {
@@ -86,7 +101,14 @@ for (const [index, evalCase] of chosen.entries()) {
             continue;
         }
         console.log(`  ${evalCase.id}: reviewing`);
-        runs.push(await runCase({ evalCase, seeded, stage, stages, agent, logger: quiet }));
+        const run = await runCase({ evalCase, seeded, stage, stages, agent, logger: quiet });
+        runs.push(run);
+        await save(runs);
+        console.log(`  ${evalCase.id}: ${run.unscored ?? 'scored'}, ${outputTokensSpent(runs)} output tokens so far`);
+        if (run.outOfUsage) {
+            stoppedEarly = `stopped after ${evalCase.id}: the account ran out of usage`;
+            break;
+        }
     } finally {
         if (opts.keep) console.log(`  kept ${seeded.root}`);
         else await seeded.remove();
@@ -94,8 +116,6 @@ for (const [index, evalCase] of chosen.entries()) {
 }
 
 if (spend) {
-    const report = buildReport(label, startedAt, runs);
-    const out = opts.out ?? join(tmpdir(), `wilson-review-eval-${startedAt.replaceAll(':', '-')}.json`);
-    await writeFile(out, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-    console.log(`\n${formatReport(report)}\nResults, with every finding: ${out}`);
+    console.log(`\n${formatReport(buildReport(label, startedAt, runs))}\nResults, with every finding: ${out}`);
+    if (stoppedEarly) console.log(`\nNot every case ran, so this is partial: ${stoppedEarly}`);
 }
