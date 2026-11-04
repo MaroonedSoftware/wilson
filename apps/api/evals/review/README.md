@@ -36,7 +36,7 @@ The bases are named by commit rather than copied here, so the corpus stays small
 
 ## Where the cases came from
 
-**Defects** are real ones from Wilson's history, not invented. Each started from a merged fix, traced by blame to the commit that introduced the mistake. The patch is that commit without its lockfile changes, and the base is its parent, so the reviewer sees the work as it first arrived. One comment in `defect-merge-check-branch` was reworded to drop an outside reference, which changes no code. Candidates were dropped when the fix depended on code that came later, so the mistake was not yet a mistake, or when the blamed commit only moved code that was already wrong.
+**Defects** are real ones from Wilson's history, not invented. Each started from a merged fix, traced by blame to the commit that introduced the mistake. The patch is that commit, without its lockfile changes unless it edits a `package.json`, and the base is its parent, so the reviewer sees the work as it first arrived. A patch that edits a `package.json` needs them, or the first install rewrites the lockfile and the verifier blames the reviewer. One comment in `defect-merge-check-branch` was reworded to drop an outside reference, which changes no code. Candidates were dropped when the fix depended on code that came later, so the mistake was not yet a mistake, or when the blamed commit only moved code that was already wrong.
 
 **Controls** are merged commits with no sign of a later correction: at least three quarters of their lines survive, and none of the next six commits to their files reads as a fix. That is evidence, not proof. A blocker on a control may be a real find, so read it before counting it against the reviewer.
 

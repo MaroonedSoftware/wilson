@@ -76,6 +76,14 @@ describe('caseProblems', () => {
         expect(caseProblems(aCase({ truth: outOfRange }))[0]).toContain('include none the patch adds');
     });
 
+    it('refuses a package.json edit with no lockfile, which the first install would rewrite', () => {
+        const edit = (path: string) =>
+            [`diff --git a/${path} b/${path}`, `--- a/${path}`, `+++ b/${path}`, '@@ -1 +1,2 @@', ' {', '+"x": 1', ''].join('\n');
+        const problem = 'the patch edits a package.json and leaves out pnpm-lock.yaml';
+        expect(caseProblems(aCase({ patch: PATCH + edit('apps/api/package.json') }))).toContain(problem);
+        expect(caseProblems(aCase({ patch: PATCH + edit('apps/api/package.json') + edit('pnpm-lock.yaml') }))).not.toContain(problem);
+    });
+
     it('refuses a plan that gives the game away or has no scope', () => {
         expect(caseProblems(aCase({ plan: '## Goal\n\nA seeded defect.\n\n## Files in scope\n\n- x\n' }))[0]).toContain('gives away');
         expect(caseProblems(aCase({ plan: '## Goal\n\nDo it.\n' }))[0]).toContain('Files in scope');
