@@ -38,6 +38,7 @@ import { incomingReview } from './challenge.verifier.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
 import { computeReviewEvidence, REVIEW_PREPARATION_DEADLINE_MS, reviewEvidenceApplies } from './review.evidence.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
+import { atDepth, scalesWithDiff, withDepth } from './lane.depth.js';
 import { findStage, isPlanCheck, type ProjectStages, type StageConfig } from './stage.config.js';
 import { StageConfigStore } from './stage.config.store.js';
 import {
@@ -310,7 +311,7 @@ export class StageDispatcher {
     /** `interrupted` names the tree a shutdown left, for a stage being sent again after one. */
     async run(cardId: string, stageName: string, interrupted?: InterruptedAttempt, stepName?: string): Promise<StageOutcome> {
         const stages = await this.stageConfigs.load();
-        const stage = findStage(stages, stageName, stepName);
+        const lane = findStage(stages, stageName, stepName);
 
         // Two reads answer two different questions about this card, and conflating them was card
         // 0109's bug: `head` is the live row — stage, retries, needsHuman, dependsOn — the runner
@@ -331,7 +332,10 @@ export class StageDispatcher {
         }
 
         const boardCards = await this.board.list();
-        this.assertDispatchable(head, card, stage, boardCards);
+        this.assertDispatchable(head, card, lane, boardCards);
+
+        // Before the budget check and placement, so both see what will actually run.
+        const stage = await this.atCardDepth(lane, head, interrupted);
 
         // Checked before any worktree is cut, not after: an over-budget card must not cut a tree,
         // install dependencies or reach a model. Absent `maxCardInputTokens` means unbounded, so
@@ -417,6 +421,24 @@ export class StageDispatcher {
                 this.logger.warn(`could not release ${cardId}'s ${placed.slotKey}: ${(err as Error).message}`);
             });
         }
+    }
+
+    /**
+     * `lane` scaled to the card's diff (`withDepth`), measured on this machine before any rebase, which
+     * can only move the count by what the rebase resolves. An interrupted stage goes back on the tier it
+     * started on, or on none, whatever the diff or the lane says now. A diff that cannot be measured
+     * runs the lane as written: a sizing problem is no reason to stop a card.
+     */
+    private async atCardDepth(lane: StageConfig, head: Card, interrupted: InterruptedAttempt | undefined): Promise<StageConfig> {
+        if (lane.step) return lane;
+        if (interrupted) return interrupted.depth ? atDepth(lane, interrupted.depth) : lane;
+        if (!scalesWithDiff(lane)) return lane;
+
+        const diffstat = await this.worktrees.diffstatSinceFork(this.worktrees.resolveBranch(head)).catch((err: unknown) => {
+            this.logger.warn(`could not measure ${head.frontmatter.id}'s diff, so ${lane.name} runs as written: ${(err as Error).message}`);
+            return undefined;
+        });
+        return withDepth(lane, diffstat);
     }
 
     /**
@@ -679,7 +701,7 @@ export class StageDispatcher {
             cardId,
             stage: stageName,
             type: 'stage.dispatched',
-            payload: { provider: stage.provider, model: stage.model, planPath, scope: scoped },
+            payload: { provider: stage.provider, model: stage.model, planPath, scope: scoped, ...(stage.depth && { depth: stage.depth }) },
         });
 
         let outcome: StageOutcome;
@@ -1585,6 +1607,7 @@ export class StageDispatcher {
                 baseSha: worktree.baseSha,
                 ...(worktree.placement && { host: worktree.placement.hostName }),
                 ...(sessionId && { sessionId }),
+                ...(stage.depth && { depth: stage.depth }),
                 spent: {
                     wallClockMs: (interrupted?.spent?.wallClockMs ?? 0) + wallClockMs,
                     steps: (interrupted?.spent?.steps ?? 0) + steps,
