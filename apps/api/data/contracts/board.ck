@@ -377,6 +377,76 @@ contract ProjectStats: {
     conversations: array(ProjectConversationStats)
 }
 
+# A judgment that sent a card back, by where it came from: a review's or a challenge's `revise`, or a
+# verifier's own failed check. `step` names the step of `stage` that judged, absent for the lane's own
+# run. `matched` is how many of `count` are older events placed by matching their text.
+contract ProjectGateKickback: {
+    stage: string
+    step?: string
+    reason: enum(revise, verifier)
+    count: int
+    matched: int
+}
+
+# Every failed attempt by why, including those that retried in place and judged nothing. `matched` is as
+# on `ProjectGateKickback`, and older failures that match no known message count as `verifier`.
+contract ProjectGateFailure: {
+    failureClass: enum(verifier, reportRejected, schemaInvalid, noReport, resultDropped, budget, engine, loop, error)
+    count: int
+    matched: int
+}
+
+# How many of a stage's passed attempts were a `revise`, which `ProjectStats` counts as passed.
+contract ProjectGateRevised: {
+    stage: string
+    count: int
+}
+
+# What the judges fresh in this window said about one rule. A verdict reused from an earlier run is not
+# counted again.
+contract ProjectGateRule: {
+    rule: string
+    statement: string
+    failed: int
+    unavailable: int
+}
+
+# A card flagged for a person by what flagged it. A flag on a card still flagged counts once.
+contract ProjectGateTouchpoint: {
+    cause: enum(question, kickbackLimit, overBudget, contextOverflow, rebaseConflict, poisoned, dead, sourceClosed)
+    count: int
+}
+
+# `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
+# person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
+# with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
+# re-review keep. `matched` is every older event in these figures placed by matching its text, since
+# those events do not say why they failed.
+contract ProjectGateStats: {
+    since: datetime
+    until: datetime
+    zone: string
+    kickbacks: array(ProjectGateKickback)
+    failures: array(ProjectGateFailure)
+    revised: array(ProjectGateRevised)
+    challenge: {
+        upheld: int
+        overturned: int
+    }
+    questions: {
+        asked: int
+        answered: int
+    }
+    rules: array(ProjectGateRule)
+    loopStops: int
+    touchpoints: array(ProjectGateTouchpoint)
+    firstPass: {
+        reached: int
+        firstPass: int
+    }
+    matched: int
+}
+
 # Card 0265. One file changed in a card's branch since it forked from `main` —
 # `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
 # `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
@@ -1311,6 +1381,24 @@ operation /api/stats: {
         response: {
             200: {
                 application/json: ProjectStats
+            }
+        }
+    }
+}
+
+# What the gates caught and how often a person was pulled in. Separate from `/api/stats` because it reads
+# different events, from the same window in the same time zone.
+operation /api/stats/gates: {
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: Get project gate stats
+        service: BoardService.gateStats
+        query: ProjectStatsQuery
+        response: {
+            200: {
+                application/json: ProjectGateStats
             }
         }
     }

@@ -28,6 +28,7 @@ import com.maroonedsoftware.wilson.sdk.models.PlanDraft
 import com.maroonedsoftware.wilson.sdk.models.PlanSession
 import com.maroonedsoftware.wilson.sdk.models.PlanTurn
 import com.maroonedsoftware.wilson.sdk.models.PlanTurnRequest
+import com.maroonedsoftware.wilson.sdk.models.ProjectGateStats
 import com.maroonedsoftware.wilson.sdk.models.ProjectStats
 import com.maroonedsoftware.wilson.sdk.models.ProjectStatsQuery
 import com.maroonedsoftware.wilson.sdk.models.RecordFindingsRequest
@@ -497,6 +498,19 @@ class BoardClient(private val http: SdkHttp) {
     suspend fun getProjectStats(query: ProjectStatsQuery? = null): ProjectStats {
         val response = http.execute(HttpMethod.Get) {
             path("api", "stats")
+            params(query)
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Get project gate stats
+     * What the gates caught and how often a person was pulled in. Separate from `/api/stats` because it reads
+     * different events, from the same window in the same time zone.
+     */
+    suspend fun getProjectGateStats(query: ProjectStatsQuery? = null): ProjectGateStats {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "stats", "gates")
             params(query)
         }
         return http.decodeJson(response)

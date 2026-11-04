@@ -115,6 +115,9 @@ export const wallClockExceeded = (capMs: number): string => `wall-clock budget e
  * refused fifty times has a different problem from one that simply had too much to do, and the
  * operator cannot tell them apart from "used all its steps" alone.
  */
+/** Whether `text` is one of the budget cutoffs below or above, for events that kept only the text. */
+export const isOverBudgetMessage = (text: string): boolean => /^(input token|context window|wall-clock|step) budget exceeded/.test(text);
+
 /**
  * A run abandoned because the engine stopped producing anything.
  *

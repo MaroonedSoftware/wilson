@@ -17,6 +17,7 @@ import type {
     CardUsage,
     CardVersion,
     ListQuery,
+    ProjectGateStats,
     ProjectStats,
     ProjectStatsQuery,
     SplitPieceSummary,
@@ -260,14 +261,24 @@ export class BoardService {
      * server's midnight, the same one the daily ceiling counts from.
      */
     async stats(query: ProjectStatsQuery): Promise<ProjectStats> {
+        const { since, until } = this.statsWindow(query);
+        return this.eventLog.projectStats(this.boardConfig.project, since, until);
+    }
+
+    /** What the gates caught and how often a person was pulled in, over the same window as {@link stats}. */
+    async gateStats(query: ProjectStatsQuery): Promise<ProjectGateStats> {
+        const { since, until } = this.statsWindow(query);
+        return this.eventLog.gateStats(this.boardConfig.project, since, until);
+    }
+
+    private statsWindow(query: ProjectStatsQuery): { since: DateTime; until: DateTime } {
         const days = Math.max(1, Math.min(query.days ?? DEFAULT_STATS_DAYS, MAX_STATS_DAYS));
         const now = DateTime.now();
-        return this.eventLog.projectStats(
-            this.boardConfig.project,
-            now.startOf('day').minus({ days: days - 1 }),
+        return {
+            since: now.startOf('day').minus({ days: days - 1 }),
             // Past the current instant, so an event written in the same millisecond is not left out.
-            now.plus({ seconds: 1 }),
-        );
+            until: now.plus({ seconds: 1 }),
+        };
     }
 
     /**

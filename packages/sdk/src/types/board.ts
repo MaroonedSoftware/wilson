@@ -290,6 +290,61 @@ export interface ProjectConversationStats {
 }
 
 /**
+ * A judgment that sent a card back, by where it came from: a review's or a challenge's `revise`, or a
+ * verifier's own failed check. `step` names the step of `stage` that judged, absent for the lane's own
+ * run. `matched` is how many of `count` are older events placed by matching their text.
+ * generated from [ProjectGateKickback](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectGateKickback {
+    stage: string;
+    step?: string;
+    reason: 'revise' | 'verifier';
+    count: number;
+    matched: number;
+}
+
+/**
+ * Every failed attempt by why, including those that retried in place and judged nothing. `matched` is as
+ * on `ProjectGateKickback`, and older failures that match no known message count as `verifier`.
+ * generated from [ProjectGateFailure](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectGateFailure {
+    failureClass: 'verifier' | 'reportRejected' | 'schemaInvalid' | 'noReport' | 'resultDropped' | 'budget' | 'engine' | 'loop' | 'error';
+    count: number;
+    matched: number;
+}
+
+/**
+ * How many of a stage's passed attempts were a `revise`, which `ProjectStats` counts as passed.
+ * generated from [ProjectGateRevised](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectGateRevised {
+    stage: string;
+    count: number;
+}
+
+/**
+ * What the judges fresh in this window said about one rule. A verdict reused from an earlier run is not
+ * counted again.
+ * generated from [ProjectGateRule](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectGateRule {
+    rule: string;
+    statement: string;
+    failed: number;
+    unavailable: number;
+}
+
+/**
+ * A card flagged for a person by what flagged it. A flag on a card still flagged counts once.
+ * generated from [ProjectGateTouchpoint](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectGateTouchpoint {
+    cause: 'question' | 'kickbackLimit' | 'overBudget' | 'contextOverflow' | 'rebaseConflict' | 'poisoned' | 'dead' | 'sourceClosed';
+    count: number;
+}
+
+/**
  * Card 0265. One file changed in a card's branch since it forked from `main` —
  * `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
  * `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
@@ -705,6 +760,38 @@ export interface ProjectCardStats extends ProjectStatsCounts {
  */
 export interface ProjectStatsTotal extends ProjectStatsCounts {
     cards: number;
+}
+
+/**
+ * `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
+ * person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
+ * with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
+ * re-review keep. `matched` is every older event in these figures placed by matching its text, since
+ * those events do not say why they failed.
+ * generated from [ProjectGateStats](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectGateStats {
+    since: DateTime;
+    until: DateTime;
+    zone: string;
+    kickbacks: ProjectGateKickback[];
+    failures: ProjectGateFailure[];
+    revised: ProjectGateRevised[];
+    challenge: { upheld: number; overturned: number };
+    questions: { asked: number; answered: number };
+    rules: ProjectGateRule[];
+    loopStops: number;
+    touchpoints: ProjectGateTouchpoint[];
+    firstPass: { reached: number; firstPass: number };
+    matched: number;
+}
+
+/** Rehydrates every wire-encoded scalar in a ProjectGateStats into its runtime type. Mutates and returns `raw`. */
+export function reviveProjectGateStats(raw: ProjectGateStats): ProjectGateStats {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['since'] = __dt(__o0['since'], 'ProjectGateStats.since');
+    __o0['until'] = __dt(__o0['until'], 'ProjectGateStats.until');
+    return raw;
 }
 
 /**

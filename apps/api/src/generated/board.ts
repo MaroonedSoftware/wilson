@@ -273,6 +273,66 @@ export const ProjectConversationStats = z.strictObject({
 export type ProjectConversationStats = z.infer<typeof ProjectConversationStats>;
 
 /**
+ * A judgment that sent a card back, by where it came from: a review's or a challenge's `revise`, or a
+ * verifier's own failed check. `step` names the step of `stage` that judged, absent for the lane's own
+ * run. `matched` is how many of `count` are older events placed by matching their text.
+ * generated from [ProjectGateKickback](../../data/contracts/board.ck)
+ */
+export const ProjectGateKickback = z.strictObject({
+    stage: z.string(),
+    step: z.string().optional(),
+    reason: z.enum(['revise', 'verifier']),
+    count: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    matched: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type ProjectGateKickback = z.infer<typeof ProjectGateKickback>;
+
+/**
+ * Every failed attempt by why, including those that retried in place and judged nothing. `matched` is as
+ * on `ProjectGateKickback`, and older failures that match no known message count as `verifier`.
+ * generated from [ProjectGateFailure](../../data/contracts/board.ck)
+ */
+export const ProjectGateFailure = z.strictObject({
+    failureClass: z.enum(['verifier', 'reportRejected', 'schemaInvalid', 'noReport', 'resultDropped', 'budget', 'engine', 'loop', 'error']),
+    count: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    matched: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type ProjectGateFailure = z.infer<typeof ProjectGateFailure>;
+
+/**
+ * How many of a stage's passed attempts were a `revise`, which `ProjectStats` counts as passed.
+ * generated from [ProjectGateRevised](../../data/contracts/board.ck)
+ */
+export const ProjectGateRevised = z.strictObject({
+    stage: z.string(),
+    count: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type ProjectGateRevised = z.infer<typeof ProjectGateRevised>;
+
+/**
+ * What the judges fresh in this window said about one rule. A verdict reused from an earlier run is not
+ * counted again.
+ * generated from [ProjectGateRule](../../data/contracts/board.ck)
+ */
+export const ProjectGateRule = z.strictObject({
+    rule: z.string(),
+    statement: z.string(),
+    failed: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    unavailable: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type ProjectGateRule = z.infer<typeof ProjectGateRule>;
+
+/**
+ * A card flagged for a person by what flagged it. A flag on a card still flagged counts once.
+ * generated from [ProjectGateTouchpoint](../../data/contracts/board.ck)
+ */
+export const ProjectGateTouchpoint = z.strictObject({
+    cause: z.enum(['question', 'kickbackLimit', 'overBudget', 'contextOverflow', 'rebaseConflict', 'poisoned', 'dead', 'sourceClosed']),
+    count: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type ProjectGateTouchpoint = z.infer<typeof ProjectGateTouchpoint>;
+
+/**
  * Card 0265. One file changed in a card's branch since it forked from `main` —
  * `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
  * `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
@@ -655,6 +715,40 @@ export const ProjectStatsTotal = ProjectStatsCounts.extend({
     cards: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
 });
 export type ProjectStatsTotal = z.infer<typeof ProjectStatsTotal>;
+
+/**
+ * `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
+ * person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
+ * with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
+ * re-review keep. `matched` is every older event in these figures placed by matching its text, since
+ * those events do not say why they failed.
+ * generated from [ProjectGateStats](../../data/contracts/board.ck)
+ */
+export const ProjectGateStats = z.strictObject({
+    since: _ZodDatetime,
+    until: _ZodDatetime,
+    zone: z.string(),
+    kickbacks: z.array(ProjectGateKickback),
+    failures: z.array(ProjectGateFailure),
+    revised: z.array(ProjectGateRevised),
+    challenge: z.strictObject({
+        upheld: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+        overturned: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    }),
+    questions: z.strictObject({
+        asked: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+        answered: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    }),
+    rules: z.array(ProjectGateRule),
+    loopStops: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    touchpoints: z.array(ProjectGateTouchpoint),
+    firstPass: z.strictObject({
+        reached: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+        firstPass: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    }),
+    matched: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type ProjectGateStats = z.infer<typeof ProjectGateStats>;
 
 /**
  * `GET /api/cards/{id}/diff`'s response: every file the card's branch touched since

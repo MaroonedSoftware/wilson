@@ -274,6 +274,57 @@ data class ProjectConversationStats(
 )
 
 /**
+ * A judgment that sent a card back, by where it came from: a review's or a challenge's `revise`, or a
+ * verifier's own failed check. `step` names the step of `stage` that judged, absent for the lane's own
+ * run. `matched` is how many of `count` are older events placed by matching their text.
+ */
+@Serializable
+data class ProjectGateKickback(
+    val stage: String,
+    val step: String? = null,
+    val reason: ProjectGateKickbackReason,
+    val count: Long,
+    val matched: Long,
+)
+
+/**
+ * Every failed attempt by why, including those that retried in place and judged nothing. `matched` is as
+ * on `ProjectGateKickback`, and older failures that match no known message count as `verifier`.
+ */
+@Serializable
+data class ProjectGateFailure(
+    val failureClass: ProjectGateFailureFailureClass,
+    val count: Long,
+    val matched: Long,
+)
+
+/** How many of a stage's passed attempts were a `revise`, which `ProjectStats` counts as passed. */
+@Serializable
+data class ProjectGateRevised(
+    val stage: String,
+    val count: Long,
+)
+
+/**
+ * What the judges fresh in this window said about one rule. A verdict reused from an earlier run is not
+ * counted again.
+ */
+@Serializable
+data class ProjectGateRule(
+    val rule: String,
+    val statement: String,
+    val failed: Long,
+    val unavailable: Long,
+)
+
+/** A card flagged for a person by what flagged it. A flag on a card still flagged counts once. */
+@Serializable
+data class ProjectGateTouchpoint(
+    val cause: ProjectGateTouchpointCause,
+    val count: Long,
+)
+
+/**
  * Card 0265. One file changed in a card's branch since it forked from `main` —
  * `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
  * `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
@@ -678,6 +729,30 @@ data class ProjectStatsTotal(
     val cachedInputTokens: Long,
     val outputTokens: Long,
     val cards: Long,
+)
+
+/**
+ * `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
+ * person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
+ * with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
+ * re-review keep. `matched` is every older event in these figures placed by matching its text, since
+ * those events do not say why they failed.
+ */
+@Serializable
+data class ProjectGateStats(
+    val since: Instant,
+    val until: Instant,
+    val zone: String,
+    val kickbacks: List<ProjectGateKickback>,
+    val failures: List<ProjectGateFailure>,
+    val revised: List<ProjectGateRevised>,
+    val challenge: ProjectGateStatsChallenge,
+    val questions: ProjectGateStatsQuestions,
+    val rules: List<ProjectGateRule>,
+    val loopStops: Long,
+    val touchpoints: List<ProjectGateTouchpoint>,
+    val firstPass: ProjectGateStatsFirstPass,
+    val matched: Long,
 )
 
 /**
@@ -1216,6 +1291,110 @@ object ProjectConversationStatsKindSerializer : SdkEnumSerializer<ProjectConvers
     ProjectConversationStatsKind.UNKNOWN,
     ProjectConversationStatsKind.PLANNING to "planning",
     ProjectConversationStatsKind.REVIEW to "review",
+)
+
+@Serializable(with = ProjectGateKickbackReasonSerializer::class)
+enum class ProjectGateKickbackReason {
+    REVISE,
+    VERIFIER,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [ProjectGateKickbackReason] by its wire spelling. A spelling it does not know reads as [ProjectGateKickbackReason.UNKNOWN]. */
+object ProjectGateKickbackReasonSerializer : SdkEnumSerializer<ProjectGateKickbackReason>(
+    "ProjectGateKickbackReason",
+    ProjectGateKickbackReason.UNKNOWN,
+    ProjectGateKickbackReason.REVISE to "revise",
+    ProjectGateKickbackReason.VERIFIER to "verifier",
+)
+
+@Serializable(with = ProjectGateFailureFailureClassSerializer::class)
+enum class ProjectGateFailureFailureClass {
+    VERIFIER,
+    REPORT_REJECTED,
+    SCHEMA_INVALID,
+    NO_REPORT,
+    RESULT_DROPPED,
+    BUDGET,
+    ENGINE,
+    LOOP,
+    ERROR,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [ProjectGateFailureFailureClass] by its wire spelling. A spelling it does not know reads as [ProjectGateFailureFailureClass.UNKNOWN]. */
+object ProjectGateFailureFailureClassSerializer : SdkEnumSerializer<ProjectGateFailureFailureClass>(
+    "ProjectGateFailureFailureClass",
+    ProjectGateFailureFailureClass.UNKNOWN,
+    ProjectGateFailureFailureClass.VERIFIER to "verifier",
+    ProjectGateFailureFailureClass.REPORT_REJECTED to "reportRejected",
+    ProjectGateFailureFailureClass.SCHEMA_INVALID to "schemaInvalid",
+    ProjectGateFailureFailureClass.NO_REPORT to "noReport",
+    ProjectGateFailureFailureClass.RESULT_DROPPED to "resultDropped",
+    ProjectGateFailureFailureClass.BUDGET to "budget",
+    ProjectGateFailureFailureClass.ENGINE to "engine",
+    ProjectGateFailureFailureClass.LOOP to "loop",
+    ProjectGateFailureFailureClass.ERROR to "error",
+)
+
+@Serializable(with = ProjectGateTouchpointCauseSerializer::class)
+enum class ProjectGateTouchpointCause {
+    QUESTION,
+    KICKBACK_LIMIT,
+    OVER_BUDGET,
+    CONTEXT_OVERFLOW,
+    REBASE_CONFLICT,
+    POISONED,
+    DEAD,
+    SOURCE_CLOSED,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [ProjectGateTouchpointCause] by its wire spelling. A spelling it does not know reads as [ProjectGateTouchpointCause.UNKNOWN]. */
+object ProjectGateTouchpointCauseSerializer : SdkEnumSerializer<ProjectGateTouchpointCause>(
+    "ProjectGateTouchpointCause",
+    ProjectGateTouchpointCause.UNKNOWN,
+    ProjectGateTouchpointCause.QUESTION to "question",
+    ProjectGateTouchpointCause.KICKBACK_LIMIT to "kickbackLimit",
+    ProjectGateTouchpointCause.OVER_BUDGET to "overBudget",
+    ProjectGateTouchpointCause.CONTEXT_OVERFLOW to "contextOverflow",
+    ProjectGateTouchpointCause.REBASE_CONFLICT to "rebaseConflict",
+    ProjectGateTouchpointCause.POISONED to "poisoned",
+    ProjectGateTouchpointCause.DEAD to "dead",
+    ProjectGateTouchpointCause.SOURCE_CLOSED to "sourceClosed",
+)
+
+@Serializable
+data class ProjectGateStatsChallenge(
+    val upheld: Long,
+    val overturned: Long,
+)
+
+@Serializable
+data class ProjectGateStatsQuestions(
+    val asked: Long,
+    val answered: Long,
+)
+
+@Serializable
+data class ProjectGateStatsFirstPass(
+    val reached: Long,
+    val firstPass: Long,
 )
 
 @Serializable(with = CardDiffFileStatusSerializer::class)

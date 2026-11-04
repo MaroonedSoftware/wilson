@@ -5,8 +5,9 @@ import { Logger } from '@maroonedsoftware/logger';
 import { budgetedInputTokens } from '#modules/agent/budget.js';
 import type { DB } from '#modules/data/db.js';
 import { CARD_FEED_CHANNEL } from '#modules/feed/card.feed.js';
-import type { ProjectConversationStats, ProjectStageStats, ProjectStats, ProjectStatsCounts } from '../../generated/board.js';
+import type { ProjectConversationStats, ProjectGateStats, ProjectStageStats, ProjectStats, ProjectStatsCounts } from '../../generated/board.js';
 import type { CardEvent, CardEventType } from './card.event.js';
+import { foldGateStats, type GateEventRow } from './gate.stats.js';
 
 export interface CardEventRow {
     id: string;
@@ -48,6 +49,21 @@ export interface CardUsage {
 
 /** How many cards {@link EventLog.projectStats} names. */
 const TOP_CARDS = 10;
+
+/** Every event {@link EventLog.gateStats} folds. */
+const GATE_EVENT_TYPES: AppendableCardEventType[] = [
+    'stage.passed',
+    'stage.failed',
+    'stage.blocked',
+    'transition.written',
+    'card.answered',
+    'card.acked',
+    'card.over-budget',
+    'context.overflow',
+    'rebase.conflict',
+    'stage.poisoned',
+    'stage.dead',
+];
 
 const noCounts = (): ProjectStatsCounts => ({
     attempts: 0,
@@ -392,6 +408,81 @@ export class EventLog {
                 .sort((a, b) => b.outputTokens - a.outputTokens || b.inputTokens - a.inputTokens || a.cardId.localeCompare(b.cardId))
                 .slice(0, TOP_CARDS),
             conversations,
+        };
+    }
+
+    /**
+     * What the gates caught from `since` up to `until`, and how often a person was pulled in. Reads only
+     * the fields it folds out of each `payload`, in `foldGateStats`, since a run's whole payload is large.
+     * Rule verdicts are grouped here instead, as one event holds many.
+     */
+    async gateStats(project: string, since: DateTime, until: DateTime): Promise<ProjectGateStats> {
+        const [rows, rules] = await Promise.all([
+            this.db
+                .selectFrom('wilson.cardEvents as event')
+                .where('event.project', '=', project)
+                .where('event.type', 'in', GATE_EVENT_TYPES)
+                .where('event.createdAt', '>=', since)
+                .where('event.createdAt', '<', until)
+                .select([
+                    'event.cardId',
+                    'event.stage',
+                    'event.type',
+                    sql<string | null>`event.payload->>'step'`.as('step'),
+                    sql<string | null>`event.payload->'result'->>'verdict'`.as('verdict'),
+                    sql<string | null>`event.payload->>'failureClass'`.as('failureClass'),
+                    sql<string | null>`event.payload->>'error'`.as('error'),
+                    sql<string | null>`event.payload->'failures'->>0`.as('firstFailure'),
+                    sql<boolean | null>`(event.payload->>'loopStopped')::boolean`.as('loopStopped'),
+                    sql<boolean | null>`(event.payload->>'alreadyResolved')::boolean`.as('alreadyResolved'),
+                    sql<string | null>`event.payload->>'from'`.as('from'),
+                    sql<string | null>`event.payload->>'to'`.as('to'),
+                    sql<string | null>`event.payload->>'by'`.as('by'),
+                    sql<boolean | null>`(event.payload->>'needsHuman')::boolean`.as('needsHuman'),
+                    sql<string | null>`event.payload->>'reason'`.as('reason'),
+                    sql<GateEventRow['retries']>`event.payload->'retries'`.as('retries'),
+                ])
+                .orderBy('event.id', 'asc')
+                .execute(),
+            this.db
+                .selectFrom('wilson.cardEvents as event')
+                .innerJoinLateral(
+                    eb =>
+                        eb
+                            .selectFrom(sql<{ value: unknown }>`jsonb_array_elements(event.payload->'verdicts')`.as('element'))
+                            .select([
+                                sql<string>`element.value->>'rule'`.as('rule'),
+                                sql<string>`element.value->>'statement'`.as('statement'),
+                                sql<string>`element.value->>'verdict'`.as('verdict'),
+                                sql<boolean>`coalesce((element.value->>'reused')::boolean, false)`.as('reused'),
+                            ])
+                            .as('verdict'),
+                    join => join.onTrue(),
+                )
+                .where('event.project', '=', project)
+                .where('event.type', '=', 'rule.verdicts')
+                .where('event.createdAt', '>=', since)
+                .where('event.createdAt', '<', until)
+                .where('verdict.reused', '=', false)
+                .select([
+                    'verdict.rule',
+                    sql<string>`max(verdict.statement)`.as('statement'),
+                    sql<string>`count(*) filter (where verdict.verdict = 'fail')`.as('failed'),
+                    sql<string>`count(*) filter (where verdict.verdict = 'unavailable')`.as('unavailable'),
+                ])
+                .groupBy('verdict.rule')
+                .execute(),
+        ]);
+
+        return {
+            since,
+            until,
+            zone: since.zoneName ?? 'UTC',
+            ...foldGateStats(rows),
+            rules: rules
+                .map(({ rule, statement, failed, unavailable }) => ({ rule, statement, failed: Number(failed), unavailable: Number(unavailable) }))
+                .filter(rule => rule.failed > 0 || rule.unavailable > 0)
+                .sort((a, b) => b.failed - a.failed || b.unavailable - a.unavailable || a.rule.localeCompare(b.rule)),
         };
     }
 
