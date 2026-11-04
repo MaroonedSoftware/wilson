@@ -580,7 +580,8 @@ failing to work it out writes "could not compute" and leaves the stage to run.
 - **Net-new type errors.** A lane with a `typecheckCommand` has it run on the branch and, only if the
   branch has errors, on a second tree at `baseSha`, cached by `baseSha` and command. Errors compare by
   package, file, code and message, never by line, and are counted, so a second identical error is new.
-  Under turbo the command needs `--continue`, or the first failing package cancels the rest. A command
+  Under turbo the command needs `--continue`, or the first failing package cancels the rest and an
+  existing error can hide a new one, so without it the section reads "could not compute". A command
   that writes outside ignored files has its writes reverted and reports "could not compute", because
   the review verifier rejects uncommitted paths.
 - **Exports nothing references.** Exports the branch adds, by the AST, whose name `git grep` finds

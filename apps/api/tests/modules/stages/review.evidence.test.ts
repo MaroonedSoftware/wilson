@@ -161,6 +161,27 @@ describe('computeReviewEvidence type errors', () => {
         expect(evidence.markdown).toContain('orphan orphan.ts:1');
     });
 
+    it('refuses turbo without --continue, whose error list depends on which package failed first', async () => {
+        const { deps, worktree } = await setUp('', '');
+        const evidence = await computeReviewEvidence(deps, {
+            cardId: '0001',
+            worktree,
+            stage: stage({ typecheckCommand: 'pnpm exec turbo run typecheck' }),
+        });
+        expect(evidence.markdown).toContain('Could not compute');
+        expect(evidence.markdown).toContain('Add --continue');
+        expect(evidence.summary.netNewTypeErrors).toBeUndefined();
+    });
+
+    it('does not refuse turbo with --continue, in either spelling', async () => {
+        const { deps, worktree } = await setUp('', '');
+        // Neither binary exists here: what matters is that it was run and failed, not refused.
+        for (const typecheckCommand of ['./turbo run typecheck --continue', './turbo run typecheck --continue=dependencies-successful']) {
+            const evidence = await computeReviewEvidence(deps, { cardId: '0001', worktree, stage: stage({ typecheckCommand }) });
+            expect(evidence.markdown).not.toContain('Add --continue');
+        }
+    });
+
     it('says it could not compute, rather than throwing, when the tree is gone', async () => {
         const { deps, worktree } = await setUp('', '');
         const gone = { ...worktree, path: join(worktree.path, 'nope') };

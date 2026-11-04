@@ -207,8 +207,8 @@ export const StageConfigSchema = z
          * On a lane that reviews: the type checker to run on the branch and on its base before the agent
          * starts, so the reviewer's plan lists the errors the branch adds. Evidence only, it fails nothing.
          * It must not write outside ignored files, and it needs `setupCommand` if it needs dependencies.
-         * Under turbo pass `--continue`, or the first failing package cancels the rest and the two lists
-         * stop being comparable.
+         * Under turbo it needs `--continue`, or the first failing package cancels the rest and the two
+         * lists stop being comparable; without it the evidence reads "could not compute".
          */
         typecheckCommand: z.string().optional(),
         /**

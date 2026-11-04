@@ -71,6 +71,13 @@ const readRun = (run: CommandOutput, command: string, root: string): { errors: T
     return { errors };
 };
 
+/**
+ * Turbo cancels the remaining packages at the first failure, so which errors it prints depends on
+ * which package lost the race. Run that way on a branch, an existing error elsewhere can hide a new
+ * one and read as zero net-new, which is worse than no answer.
+ */
+const cancelsOnFirstFailure = (command: string): boolean => /\bturbo\b/.test(command) && !/(^|\s)--continue(=|\s|$)/.test(command);
+
 const baseCachePath = (runRoot: string, baseSha: string, command: string): string =>
     join(runRoot, 'evidence', 'typecheck', `${baseSha}-${createHash('sha256').update(command).digest('hex').slice(0, 16)}.json`);
 
@@ -167,6 +174,9 @@ const computeTypeEvidence = async (
     command: string,
     remaining: () => number,
 ): Promise<TypeEvidence> => {
+    if (cancelsOnFirstFailure(command)) {
+        return { status: 'failed', reason: `\`${command}\` stops at the first failing package, so its errors cannot be compared. Add --continue.` };
+    }
     try {
         const head = await checkHead(deps, worktree, command, remaining);
         if ('reason' in head) return { status: 'failed', reason: head.reason };
