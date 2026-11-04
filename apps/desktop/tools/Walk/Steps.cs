@@ -77,6 +77,12 @@ internal static class Steps
             return;
         }
 
+        if (only == "actions")
+        {
+            await ChatActionsAsync(walk, home);
+            return;
+        }
+
         if (only == "dock")
         {
             await DockByDefaultAsync(walk);
@@ -1442,6 +1448,40 @@ internal static class Steps
     }
 
     /// <summary>A real image through a real turn: refused, scaled, shown in the box, sent, answered and drawn from the API.</summary>
+    /// <summary>Proposals read back from the API, so the arguments arrive as stored: nothing makes the agent propose on cue.</summary>
+    private static async Task ChatActionsAsync(Walker walk, ThreadsViewModel home)
+    {
+        const string CardBody = """{"body":{"title":"Stage agents: read public GitHub repos (per-stage web access, github tier)","stage":"parking-lot","body":"## Goal\n\nLet a stage agent read files from **public** GitHub repositories, and nothing else on the network.\n\n## Constraints\n\n1. The guard stays the only source of permission.\n2. The default is `none`.\n3. See [the docs](https://example.com/docs).\n\n## Tasks\n\n- Add the setting.\n- Add the tool.\n- Gate it in the guard.\n- Tell the stage agent.\n\n## Acceptance criteria\n\n- AC1: refused with no setting.\n- AC2: fetches at the github level.\n- AC3: other hosts refused.\n- AC4: a redirect off the list refused.\n- AC5: the size cap holds.\n- AC6: no request carries a token.\n- AC7: every call is recorded."}}""";
+        var thread = await walk.Shell.Connection!.Sdk.Chat.StartAChatThreadAsync();
+        var propose = (string operation, string arguments, string summary) => Walker.Sql(
+            $"insert into wilson.chat_pending_actions (thread_id, project, operation, arguments, summary, expires_at) values ({thread.Id}, 'wilson', '{operation}', $json${arguments}$json$::jsonb, '{summary}', now() + interval '10 minutes')");
+        propose("create_card", CardBody, "Create a parking-lot card for reading public GitHub repos");
+        propose("move_card", """{"id":"0003","body":{"stage":"review"}}""", "Move 0003 to review");
+        propose("set_labels", """{"id":"0004","body":{"labels":["agents","web"],"reason":null}}""", "Label 0004");
+
+        await home.AnsweredAsync();
+        await walk.UntilAsync("the proposed chat listed", () => home.Threads.Any(row => row.Id == thread.Id));
+        home.Open(home.Threads.First(row => row.Id == thread.Id));
+        var chat = home.Chat!;
+        await walk.UntilAsync("the proposals read back", () => chat.Entries.OfType<ActionRow>().Count() == 3);
+        var card = chat.Entries.OfType<ActionRow>().First();
+        Console.WriteLine($"     fields: {string.Join(", ", card.Fields.Select(field => $"{field.Label}={field.Kind}"))}");
+        walk.ScrollTo("Create a parking-lot card for reading public GitHub repos");
+        walk.Shot("14c-actions-fields");
+        walk.Click(walk.CenterOf("RawArguments"));
+        walk.Shot("14d-actions-raw");
+        walk.Click(walk.CenterOf("RawArguments"));
+
+        await home.ArchiveCommand.ExecuteAsync(home.Threads.First(row => row.Id == thread.Id));
+    }
+
+    /// <summary>A proposal drawn from arguments as the API sends them.</summary>
+    private static ActionRow Posed(string id, string summary, string detail, string arguments, string status, bool awaiting, bool failed, string? error)
+    {
+        var parsed = JsonDocument.Parse(arguments).RootElement;
+        return new ActionRow(id, summary, detail, ChatArguments.Fields(parsed), ChatArguments.Pretty(parsed), status, awaiting, failed, error);
+    }
+
     private static async Task ChatImagesAsync(Walker walk, ThreadsViewModel home)
     {
         home.NewChat();
@@ -1610,8 +1650,9 @@ internal static class Steps
 
         // Posed: nothing in a walk can make the agent propose a change on cue.
         chat.Entries.Add(new AnswerEntry("Moving it now needs your say-so.", [new ChatActivity("get card in wilson", false, "{}"), new ChatActivity("list stages", true, "{}")]));
-        chat.Entries.Add(new ActionRow("posed", "Move 0003 to review", "Runs move_card in wilson as you. Expires in 10 minutes.", """{"id":"0003","stage":"review"}""", "pending", true, false, null));
-        chat.Entries.Add(new ActionRow("posed-2", "Merge 0002", "Runs merge_card in wilson as you.", """{"id":"0002"}""", "failed", false, true, "cannot merge 0002: it is in \"planning\", not \"ready\""));
+        chat.Entries.Add(Posed("posed", "Move 0003 to review", "Runs move_card in wilson as you. Expires in 10 minutes.", """{"id":"0003","body":{"stage":"review"}}""", "pending", true, false, null));
+        chat.Entries.Add(Posed("posed-2", "Merge 0002", "Runs merge_card in wilson as you.", """{"id":"0002"}""", "failed", false, true, "cannot merge 0002: it is in \"planning\", not \"ready\""));
+        chat.Entries.Add(Posed("posed-3", "Create a parking-lot card", "Runs create_card in wilson as you. Expires in 9 minutes.", """{"body":{"body":"## Goal\n\nLet a stage agent read **public** GitHub repositories, and nothing else.\n\n## Constraints\n\n1. The guard stays the only source of permission.\n2. The default is `none`.\n3. See [the docs](https://example.com/docs).\n\n## Tasks\n\n- Add the setting.\n- Add the tool.\n- Gate it in the guard.\n- Tell the stage agent.\n\n## Acceptance criteria\n\n- AC1: refused with no setting.\n- AC2: fetches at the github level.\n- AC3: other hosts refused.\n- AC4: a redirect off the list refused.\n- AC5: the size cap holds.","stage":"parking-lot","title":"Stage agents: read public GitHub repos","labels":["agents","web"],"webAccess":null}}""", "pending", true, false, null));
         walk.Shot("14b-chat-actions");
 
         walk.Shell.ShowBoardCommand.Execute(null);

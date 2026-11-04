@@ -25,7 +25,10 @@ public sealed record AnswerEntry(string Text, IReadOnlyList<ChatActivity> Activi
 }
 
 /// <summary>A proposed action, as drawn. It runs only once the operator confirms it.</summary>
-public sealed record ActionRow(string Id, string Summary, string Detail, string Arguments, string Status, bool Awaiting, bool Failed, string? Error);
+public sealed record ActionRow(string Id, string Summary, string Detail, IReadOnlyList<ChatActionField> Fields, string Arguments, string Status, bool Awaiting, bool Failed, string? Error)
+{
+    public bool HasFields => Fields.Count > 0;
+}
 
 /// <summary>One chat, or a new one until its first message. The stored thread is the record, and the stream is only what is still arriving.</summary>
 public sealed partial class ChatViewModel(ShellViewModel shell, ThreadsViewModel home, string? id) : PageViewModel
@@ -330,7 +333,8 @@ public sealed partial class ChatViewModel(ShellViewModel shell, ThreadsViewModel
             action.Id,
             action.Summary,
             $"Runs {action.Operation}{where} as you.{until}",
-            action.Arguments.GetRawText(),
+            ChatArguments.Fields(action.Arguments),
+            ChatArguments.Pretty(action.Arguments),
             expired ? "expired" : action.Status.ToString().ToLowerInvariant(),
             awaiting,
             action.Status == ChatPendingActionStatus.Failed,

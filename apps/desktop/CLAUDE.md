@@ -52,7 +52,7 @@ cd apps/desktop && dotnet run --project tools/Walk -- /tmp/walk http://localhost
 
 Then Read the PNGs. Add a step for what you built, and pass `light` as a fifth argument for the other
 appearance. `admin` as a sixth walks only hosts, settings and security, which waits out the five minutes a
-session must age for a step-up, so a whole walk's end is that wait too. `plan` walks only planning, on a card of its own. `images` walks only sending an image in chat. `lanes` walks only the lanes page, then waits out those five minutes for a save behind a step-up. `dock` walks only the chat dock, and is
+session must age for a step-up, so a whole walk's end is that wait too. `plan` walks only planning, on a card of its own. `images` walks only sending an image in chat. `actions` walks only proposed changes, written to the throwaway database and read back through the API, with no agent turn. `lanes` walks only the lanes page, then waits out those five minutes for a save behind a step-up. `dock` walks only the chat dock, and is
 the one walk that starts with it open, as a person does: the others close it to keep their pages whole. A planning or chat step sends a real turn to the agent, using the machine's Claude login.
 The older diff step needs a card with a branch: that API's `code_root` is its own scratch repo (see
 `wilson.projects`), so make a branch there and set `wilson.cards.branch`. `Walker.ScratchBranch` does
@@ -296,6 +296,8 @@ chat turn, chat as the home page opening the latest thread and surviving a trip 
 diff of a real branch (that diff step was not repeated after chat became the home page). The Keychain
 round trip passed on a real Keychain, and `Wilson.app` launched and opened its window. The first
 release built, signed and published from the workflow, and that download launched from `/Applications`.
+
+2026-11-04, proposed changes: with `tools/Walk -- ... actions`, in the dark appearance, rows written to the throwaway database and read back through the API as labelled fields, a body as Markdown in its scrolling box, a list as JSON and the raw view. `ChatArguments` is `lib/chat.arguments.ts`. A proposal from a real agent turn was not seen, and neither was Confirm.
 
 2026-11-01, chat: with `tools/Walk`, the greeting, Tab, typing and Enter by headless keyboard, a real
 streamed turn, Markdown, the working state, rename and archive, in both appearances. A proposed
