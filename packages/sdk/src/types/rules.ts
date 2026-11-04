@@ -1,0 +1,89 @@
+import { DateTime } from 'luxon';
+import type { JsonValue } from '../sdk-options.js';
+
+const __dt = (v: unknown, path: string): DateTime => {
+    if (typeof v !== 'string') {
+        throw new TypeError(`ContractKit: expected an ISO 8601 string at '${path}', received ${typeof v}.`);
+    }
+    const d = DateTime.fromISO(v);
+    if (!d.isValid) throw new TypeError(`ContractKit: '${v}' at '${path}' is not a valid ISO 8601 datetime.`);
+    return d;
+};
+
+/**
+ * `revision` is the newest `wilson.rule_revisions` id, which a verdict is keyed on.
+ * generated from [Rule](../../../../apps/api/data/contracts/rules.ck)
+ */
+export interface Rule {
+    id: string;
+    statement: string;
+    paths: string[];
+    severity: 'blocker' | 'concern';
+    revision: string;
+    createdAt: DateTime;
+    updatedAt: DateTime;
+}
+
+/** Rehydrates every wire-encoded scalar in a Rule into its runtime type. Mutates and returns `raw`. */
+export function reviveRule(raw: Rule): Rule {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['createdAt'] = __dt(__o0['createdAt'], 'Rule.createdAt');
+    __o0['updatedAt'] = __dt(__o0['updatedAt'], 'Rule.updatedAt');
+    return raw;
+}
+
+/**
+ * generated from [CreateRuleRequest](../../../../apps/api/data/contracts/rules.ck)
+ */
+export interface CreateRuleRequest {
+    id: string;
+    statement: string;
+    paths: string[];
+    severity?: 'blocker' | 'concern';
+    message?: string;
+}
+
+/**
+ * Only what changes.
+ * generated from [PatchRuleRequest](../../../../apps/api/data/contracts/rules.ck)
+ */
+export interface PatchRuleRequest {
+    statement?: string;
+    paths?: string[];
+    severity?: 'blocker' | 'concern';
+    message?: string;
+}
+
+/**
+ * generated from [DeleteRuleQuery](../../../../apps/api/data/contracts/rules.ck)
+ */
+export interface DeleteRuleQuery {
+    message?: string;
+}
+
+/**
+ * One change to a rule. No `snapshot` means the rule was removed.
+ * generated from [RuleRevision](../../../../apps/api/data/contracts/rules.ck)
+ */
+export interface RuleRevision {
+    id: string;
+    rule: string;
+    snapshot?: JsonValue;
+    message: string;
+    createdAt: DateTime;
+}
+
+/** Rehydrates every wire-encoded scalar in a RuleRevision into its runtime type. Mutates and returns `raw`. */
+export function reviveRuleRevision(raw: RuleRevision): RuleRevision {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['createdAt'] = __dt(__o0['createdAt'], 'RuleRevision.createdAt');
+    return raw;
+}
+
+/**
+ * generated from [RuleRevisionsQuery](../../../../apps/api/data/contracts/rules.ck)
+ */
+export interface RuleRevisionsQuery {
+    rule?: string;
+    limit?: number;
+}

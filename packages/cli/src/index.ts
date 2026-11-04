@@ -63,6 +63,10 @@ import learningsShowCommand from './commands/learnings/show.command.js';
 import learningsEditCommand from './commands/learnings/edit.command.js';
 import learningsSetCommand from './commands/learnings/set.command.js';
 import learningsVersionsCommand from './commands/learnings/versions.command.js';
+import rulesListCommand from './commands/rules/list.command.js';
+import rulesAddCommand from './commands/rules/add.command.js';
+import rulesEditCommand from './commands/rules/edit.command.js';
+import rulesRmCommand from './commands/rules/rm.command.js';
 
 import { apiSignedIn } from './checks/api.signed.in.js';
 import { boardReady } from './checks/board.ready.js';
@@ -140,6 +144,10 @@ const app = await createCliApp({
         reg(['learnings', 'edit'], learningsEditCommand),
         reg(['learnings', 'set'], learningsSetCommand),
         reg(['learnings', 'versions'], learningsVersionsCommand),
+        reg(['rules', 'list'], rulesListCommand),
+        reg(['rules', 'add'], rulesAddCommand),
+        reg(['rules', 'edit'], rulesEditCommand),
+        reg(['rules', 'rm'], rulesRmCommand),
     ],
     checks: [
         nodeVersion({ min: 22 }),

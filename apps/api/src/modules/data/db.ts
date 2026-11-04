@@ -427,6 +427,26 @@ export interface WilsonLanes {
   worktree: string;
 }
 
+export interface WilsonRuleRevisions {
+  createdAt: Generated<DateTime>;
+  id: Generated<bigint>;
+  message: string;
+  project: string;
+  rule: string;
+  snapshot: Json | null;
+}
+
+export interface WilsonRules {
+  createdAt: Generated<DateTime>;
+  id: string;
+  paths: string[];
+  project: string;
+  revisionId: bigint;
+  severity: string;
+  statement: string;
+  updatedAt: Generated<DateTime>;
+}
+
 export interface WilsonProjectLaneSettings {
   alwaysAllowed: Generated<string[]>;
   deny: Generated<string[]>;
@@ -503,6 +523,8 @@ export interface DB {
   "wilson.laneRevisions": WilsonLaneRevisions;
   "wilson.lanes": WilsonLanes;
   "wilson.projectLaneSettings": WilsonProjectLaneSettings;
+  "wilson.ruleRevisions": WilsonRuleRevisions;
+  "wilson.rules": WilsonRules;
   "wilson.stageConfigs": WilsonStageConfigs;
   "wilson.stageRouting": WilsonStageRouting;
 }

@@ -50,6 +50,7 @@ describe('the operation catalog', () => {
         const stepUp = (await routes()).filter(({ policy }) => policy === 'wilson.step.up').map(({ route }) => route);
 
         expect(stepUp).toContain('PATCH /api/stages/lanes/{name}');
+        expect(stepUp).toEqual(expect.arrayContaining(['POST /api/rules', 'PATCH /api/rules/{id}', 'DELETE /api/rules/{id}']));
         expect(stepUp).toEqual(
             expect.arrayContaining([
                 'POST /api/hosts',

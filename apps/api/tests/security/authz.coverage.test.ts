@@ -113,5 +113,6 @@ describe('authorization coverage', () => {
     it('lets a view key read', async () => {
         expect((await request(server, 'GET', '/api/auth/session', { token: viewKey })).status).toBe(200);
         expect((await request(server, 'GET', '/api/learnings', { token: viewKey })).status).not.toBe(403);
+        expect((await request(server, 'GET', '/api/rules', { token: viewKey })).status).not.toBe(403);
     });
 });
