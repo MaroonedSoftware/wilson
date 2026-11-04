@@ -1,0 +1,8 @@
+{
+    "kind": "defect",
+    "class": "concurrency",
+    "file": "apps/api/src/modules/plan/plan.turn.repository.ts",
+    "lines": [32, 53],
+    "about": "Locking the latest row cannot cover a card with no rows yet, so two first turns can pick the same seq.",
+    "fixedBy": "c8a89356d688eacd04ac0304723fb81c147aa16c"
+}

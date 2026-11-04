@@ -218,6 +218,12 @@ const otherStagesScopeNote = (stages: ProjectStages, currentStageName: string): 
     ].join('\n');
 };
 
+/** What a stage's plan file holds: the card, then the scope notes, then any evidence. */
+export const planMaterial = (card: Card, stages: ProjectStages, stage: StageConfig, evidence?: string): string => {
+    const notes = [ownScopeNote(stage), otherStagesScopeNote(stages, stage.name), evidence ?? ''].filter(note => note.length > 0);
+    return notes.length > 0 ? `${serializeCard(card).trimEnd()}\n\n${notes.join('\n\n')}\n` : serializeCard(card);
+};
+
 /**
  * Folds collateral writes into the stage's own caveats.
  *
@@ -1356,9 +1362,7 @@ export class StageDispatcher {
         const dir = join(this.config.runRoot, 'cards', card.frontmatter.id);
         await mkdir(dir, { recursive: true });
         const path = join(dir, 'plan.md');
-        const notes = [ownScopeNote(stage), otherStagesScopeNote(stages, stage.name), evidence ?? ''].filter(note => note.length > 0);
-        const material = notes.length > 0 ? `${serializeCard(card).trimEnd()}\n\n${notes.join('\n\n')}\n` : serializeCard(card);
-        await writeFile(path, material, 'utf8');
+        await writeFile(path, planMaterial(card, stages, stage, evidence), 'utf8');
         this.logger.info(`plan for ${card.frontmatter.id} materialized at ${path}${sha ? ` (${sha.slice(0, 8)})` : ''}`);
         return path;
     }

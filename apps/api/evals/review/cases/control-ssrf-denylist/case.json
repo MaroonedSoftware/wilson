@@ -1,0 +1,5 @@
+{
+    "base": "4fdcbc3fd05ae5b4f11368b1522d502555377f2c",
+    "source": "f236cb1c7643ae862568f133d3973094ed193207",
+    "title": "Extend the webhook SSRF denylist"
+}
