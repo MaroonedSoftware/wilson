@@ -228,9 +228,24 @@ export interface ReviewEvalReport {
     raw: { scores: ReviewCaseScore[]; summary: ReviewViewSummary };
     verified: { scores: ReviewCaseScore[]; summary: ReviewViewSummary };
     unscored: { caseId: string; reason: string }[];
+    /** Cases the run set out to do and has no result for. A run that was killed still shows them. */
+    notRun: string[];
+    /** Why the run stopped, when it decided to. */
+    stoppedEarly?: string;
 }
 
-export const buildReport = (label: ReviewEvalLabel, startedAt: string, runs: ReviewEvalRun[]): ReviewEvalReport => {
+/** What the run set out to do, which is what makes a report recognizably partial. */
+export interface ReviewEvalProgress {
+    plannedCaseIds?: string[];
+    stoppedEarly?: string;
+}
+
+export const buildReport = (
+    label: ReviewEvalLabel,
+    startedAt: string,
+    runs: ReviewEvalRun[],
+    progress: ReviewEvalProgress = {},
+): ReviewEvalReport => {
     const scored = runs.filter(run => run.unscored === undefined);
     const raw = scored.map(run => scoreCase(run.caseId, run.truth, rawView(run.reported)));
     const verified = scored.map(run => scoreCase(run.caseId, run.truth, verifiedView(run.reported, run.verification)));
@@ -241,6 +256,8 @@ export const buildReport = (label: ReviewEvalLabel, startedAt: string, runs: Rev
         raw: { scores: raw, summary: summarizeView(raw) },
         verified: { scores: verified, summary: summarizeView(verified) },
         unscored: runs.flatMap(run => (run.unscored === undefined ? [] : [{ caseId: run.caseId, reason: run.unscored }])),
+        notRun: (progress.plannedCaseIds ?? []).filter(id => !runs.some(run => run.caseId === id)),
+        ...(progress.stoppedEarly !== undefined && { stoppedEarly: progress.stoppedEarly }),
     };
 };
 
@@ -275,6 +292,9 @@ export const formatReport = (report: ReviewEvalReport): string =>
         `Model ${report.label.model} on ${report.label.engine}, prompt ${report.label.promptRevision} (sha256 ${report.label.promptSha256.slice(0, 12)}).`,
         `Corpus at ${report.label.corpusCommit.slice(0, 12)}, started ${report.startedAt}.`,
         '',
+        ...(report.notRun.length > 0
+            ? [`**Partial: planned cases that did not run: ${report.notRun.length}.** ${report.stoppedEarly ?? 'The run ended before them.'}`, '']
+            : []),
         '- These scores stop at review. A blocker still has to survive challenge, so they overstate what would reach a kickback.',
         '- A match is by location only. Read the matched findings in the results file before quoting recall.',
         '- Type-check evidence, rule judges and learnings did not run, so a live review had more to go on.',
@@ -286,4 +306,5 @@ export const formatReport = (report: ReviewEvalReport): string =>
         ...(report.unscored.length > 0
             ? ['## Not scored', '', 'Left out of every n above:', '', ...report.unscored.map(({ caseId, reason }) => `- ${caseId}: ${reason}`), '']
             : []),
+        ...(report.notRun.length > 0 ? ['## Not run', '', ...report.notRun.map(caseId => `- ${caseId}`), ''] : []),
     ].join('\n');
