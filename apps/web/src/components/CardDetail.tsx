@@ -1,4 +1,23 @@
-import { Badge, Button, Code, Divider, Grid, Group, List, Loader, Paper, Select, Stack, Table, Tabs, Text, Timeline, Title } from '@mantine/core';
+import { useState } from 'react';
+import {
+    Badge,
+    Button,
+    Code,
+    Divider,
+    Grid,
+    Group,
+    List,
+    Loader,
+    Paper,
+    Select,
+    Stack,
+    Table,
+    Tabs,
+    Text,
+    Textarea,
+    Timeline,
+    Title,
+} from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -15,7 +34,16 @@ import { LiveActivity } from '#src/components/LiveActivity.js';
 import { Markdown } from '#src/components/Markdown.js';
 import { PlanningSessionPane } from '#src/components/PlanningSession.js';
 import { acceptanceCriteria, filesInScope, formatTimestamp, lastStageHost, payloadString } from '#src/lib/card.js';
-import { invalidateCard, invalidateCardsList, reasonFor, useAckCard, useMoveCard, useReleaseCard, useStartCard } from '#src/lib/mutations.js';
+import {
+    invalidateCard,
+    invalidateCardsList,
+    reasonFor,
+    useAckCard,
+    useAnswerCard,
+    useMoveCard,
+    useReleaseCard,
+    useStartCard,
+} from '#src/lib/mutations.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
 import { mergeStatusBadge, mergeStatusLine } from '#src/lib/board.js';
@@ -302,6 +330,63 @@ function AckButton({ card }: { card: CardDetail }) {
         <Button size="xs" variant="light" color="red" onClick={() => ackCard.mutate()} loading={ackCard.isPending}>
             Acknowledge
         </Button>
+    );
+}
+
+/**
+ * A question a stage stopped to ask, and where to answer it. Sending writes the answer into the plan
+ * and clears the flag, and the stage runs again in a fresh session with its retries as they were.
+ * Acknowledging is still there for a question someone would rather not answer. Likely answers fill the
+ * box rather than send, so one can be reworded, and the panel stays until the refetched card has no
+ * question.
+ */
+function QuestionPanel({ card, blocked }: { card: CardDetail; blocked: NonNullable<CardDetail['blocked']> }) {
+    const answerCard = useAnswerCard(card.id);
+    const [answer, setAnswer] = useState('');
+
+    return (
+        <Paper withBorder p="sm" radius="sm" style={{ borderColor: 'var(--mantine-color-orange-6)' }}>
+            <Stack gap="xs">
+                <Text size="xs" c="dimmed">
+                    {blocked.stage} stopped to ask ({blocked.category})
+                </Text>
+                <Text size="sm" fw={500} style={{ whiteSpace: 'pre-wrap' }}>
+                    {blocked.question}
+                </Text>
+                <Text size="sm" c="dimmed" style={{ whiteSpace: 'pre-wrap' }}>
+                    Already tried: {blocked.tried}
+                </Text>
+                {blocked.options && blocked.options.length > 0 && (
+                    <Group gap="xs">
+                        {blocked.options.map(option => (
+                            <Button key={option} size="compact-xs" variant="default" onClick={() => setAnswer(option)}>
+                                {option}
+                            </Button>
+                        ))}
+                    </Group>
+                )}
+                <Textarea
+                    aria-label="Your answer"
+                    placeholder="Your answer"
+                    autosize
+                    minRows={2}
+                    value={answer}
+                    onChange={event => setAnswer(event.currentTarget.value)}
+                />
+                <Group gap="xs">
+                    <Button
+                        size="xs"
+                        color="orange"
+                        disabled={answer.trim().length === 0}
+                        onClick={() => answerCard.mutate(answer)}
+                        loading={answerCard.isPending}
+                    >
+                        Send answer
+                    </Button>
+                    <AckButton card={card} />
+                </Group>
+            </Stack>
+        </Paper>
     );
 }
 
@@ -608,7 +693,9 @@ export function CardDetailView({
                 </Text>
             )}
 
-            {card.needsHuman && (
+            {card.blocked && <QuestionPanel card={card} blocked={card.blocked} />}
+
+            {card.needsHuman && !card.blocked && (
                 <Paper withBorder p="sm" radius="sm" style={{ borderColor: 'var(--mantine-color-red-6)' }}>
                     <Stack gap={6}>
                         <Text size="sm" fw={500} c="red">

@@ -31,6 +31,8 @@ const SUMMARIES: Record<string, ActivitySummary> = {
     'chain.stopped': { label: 'Stopped after {stage}', color: 'gray' },
     'card.flagged': { label: 'Flagged for a human', color: 'red' },
     'card.acked': { label: 'Flag acknowledged', color: 'green' },
+    'card.answered': { label: 'Question answered', color: 'green' },
+    'stage.blocked': { label: '{stage} asked a question', color: 'orange' },
     'card.over-budget': { label: 'Went over budget', color: 'red' },
     'card.auto-split': { label: 'Split automatically', color: 'blue' },
     'card.plan-drafted': { label: 'Drafted a plan', color: 'green' },
