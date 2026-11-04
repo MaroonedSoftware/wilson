@@ -1082,7 +1082,8 @@ more and the operator learns to ignore them:
 A webhook message deep-links to the card in the web app when `notifyBaseUrl` is set.
 
 Push to the Android app is a second channel beside the webhook, registered with `Notifier` at boot
-and off unless `FCM_SERVICE_ACCOUNT_FILE` names a Firebase service-account file. Delivery is
+and off unless `FCM_SERVICE_ACCOUNT_FILE` names a Firebase service-account file. It needs no webhook:
+callers always go through `Notifier`, which decides what is on. Delivery is
 at-most-once, like the webhook, and a failure can never reach a stage. Phones sign up through
 `POST /api/devices`, and FCM reporting a token `UNREGISTERED` removes it from `wilson.push_devices`.
 A message carries only the moment, the project and the card id, so card titles and failure reasons

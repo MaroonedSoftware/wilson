@@ -264,13 +264,10 @@ export class CardStageJob extends Job<CardStagePayload> {
     }
 
     /**
-     * Tell a person the card is waiting on them at a manual gate — one webhook call, off entirely
-     * when `NOTIFY_WEBHOOK_URL` is unset (card 0050). The card is re-read for its title only when a
-     * webhook is actually configured, so this costs nothing on the common, notification-off path.
+     * Tell a person the card is waiting on them at a manual gate (card 0050). Not gated on the
+     * webhook: `Notifier` decides what is switched on, and a registered channel works without one.
      */
     private async notifyManualGate(cardId: string, stage: string): Promise<void> {
-        if (!this.board.notifyWebhookUrl) return;
-
         const card = await this.boardRepo.read(cardId).catch(() => undefined);
         await new Notifier(this.board.notifyWebhookUrl, this.board.notifyBaseUrl).notify({
             project: this.board.project,
@@ -324,7 +321,7 @@ export class CardStageJob extends Job<CardStagePayload> {
             },
         );
 
-        if (this.board.notifyWebhookUrl && !alreadyFlagged) {
+        if (!alreadyFlagged) {
             await new Notifier(this.board.notifyWebhookUrl, this.board.notifyBaseUrl).notify({
                 project: this.board.project,
                 cardId,

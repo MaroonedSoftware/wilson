@@ -230,9 +230,24 @@ export interface ReviewEvalReport {
     raw: { scores: ReviewCaseScore[]; summary: ReviewViewSummary };
     verified: { scores: ReviewCaseScore[]; summary: ReviewViewSummary };
     unscored: { caseId: string; reason: string }[];
+    /** Cases the run set out to do and has no result for. A run that was killed still shows them. */
+    notRun: string[];
+    /** Why the run stopped, when it decided to. */
+    stoppedEarly?: string;
 }
 
-export const buildReport = (label: ReviewEvalLabel, startedAt: string, runs: ReviewEvalRun[]): ReviewEvalReport => {
+/** What the run set out to do, which is what makes a report recognizably partial. */
+export interface ReviewEvalProgress {
+    plannedCaseIds?: string[];
+    stoppedEarly?: string;
+}
+
+export const buildReport = (
+    label: ReviewEvalLabel,
+    startedAt: string,
+    runs: ReviewEvalRun[],
+    progress: ReviewEvalProgress = {},
+): ReviewEvalReport => {
     const scored = runs.filter(run => run.unscored === undefined);
     const raw = scored.map(run => scoreCase(run.caseId, run.truth, rawView(run.reported)));
     const verified = scored.map(run => scoreCase(run.caseId, run.truth, verifiedView(run.reported, run.verification)));
@@ -243,6 +258,8 @@ export const buildReport = (label: ReviewEvalLabel, startedAt: string, runs: Rev
         raw: { scores: raw, summary: summarizeView(raw) },
         verified: { scores: verified, summary: summarizeView(verified) },
         unscored: runs.flatMap(run => (run.unscored === undefined ? [] : [{ caseId: run.caseId, reason: run.unscored }])),
+        notRun: (progress.plannedCaseIds ?? []).filter(id => !runs.some(run => run.caseId === id)),
+        ...(progress.stoppedEarly !== undefined && { stoppedEarly: progress.stoppedEarly }),
     };
 };
 
@@ -252,7 +269,8 @@ export const buildReport = (label: ReviewEvalLabel, startedAt: string, runs: Rev
  * in a new run.
  */
 export const rescoreReport = (
-    saved: Pick<ReviewEvalReport, 'label' | 'startedAt' | 'runs'>,
+    // A file saved before partial runs were recorded has neither of the optional two.
+    saved: Pick<ReviewEvalReport, 'label' | 'startedAt' | 'runs'> & Partial<Pick<ReviewEvalReport, 'notRun' | 'stoppedEarly'>>,
     truthOf: (caseId: string) => ReviewEvalTruth | undefined,
     rescoredAt: string,
 ): ReviewEvalReport => {
@@ -261,7 +279,10 @@ export const rescoreReport = (
         if (!truth) throw new Error(`the corpus has no case ${run.caseId}, so it cannot rescore this run`);
         return { ...run, truth };
     });
-    return buildReport({ ...saved.label, rescoredAt }, saved.startedAt, runs);
+    return buildReport({ ...saved.label, rescoredAt }, saved.startedAt, runs, {
+        plannedCaseIds: [...runs.map(run => run.caseId), ...(saved.notRun ?? [])],
+        ...(saved.stoppedEarly !== undefined && { stoppedEarly: saved.stoppedEarly }),
+    });
 };
 
 /** Output tokens across runs, which is what the runner's ceiling counts. */
@@ -296,6 +317,9 @@ export const formatReport = (report: ReviewEvalReport): string =>
         `Corpus at ${report.label.corpusCommit.slice(0, 12)}, started ${report.startedAt}.`,
         ...(report.label.rescoredAt ? [`Rescored at ${report.label.rescoredAt.slice(0, 12)}, with no new reviews.`] : []),
         '',
+        ...(report.notRun.length > 0
+            ? [`**Partial: planned cases that did not run: ${report.notRun.length}.** ${report.stoppedEarly ?? 'The run ended before them.'}`, '']
+            : []),
         '- These scores stop at review. A blocker still has to survive challenge, so they overstate what would reach a kickback.',
         '- A match is a file and some chosen words, not a judgement. Read the matched findings in the results file before quoting recall.',
         '- Type-check evidence, rule judges and learnings did not run, so a live review had more to go on.',
@@ -307,4 +331,5 @@ export const formatReport = (report: ReviewEvalReport): string =>
         ...(report.unscored.length > 0
             ? ['## Not scored', '', 'Left out of every n above:', '', ...report.unscored.map(({ caseId, reason }) => `- ${caseId}: ${reason}`), '']
             : []),
+        ...(report.notRun.length > 0 ? ['## Not run', '', ...report.notRun.map(caseId => `- ${caseId}`), ''] : []),
     ].join('\n');

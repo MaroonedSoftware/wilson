@@ -15,9 +15,9 @@ That is a dry run: it seeds every case and starts no model, so it is free. Addin
 - `--snapshot` is a whole stage config document: the `review` lane, routed to the `cli` engine, and every lane it routes to, which can be stubs. The live prompt is only in the database, so this is a copy of it taken by hand. Its budgets apply, so lower `maxInputTokens` for a small run.
 - `--prompt-revision` labels that copy, usually with its lane revision. The report also records a hash of the prompt, so a mislabelled snapshot can be noticed.
 - `--cases a,b` runs only those cases, `--model` overrides the snapshot's model, `--out` sets the results file, and `--keep` leaves the scratch directories behind.
-- `--max-output-tokens <n>` stops starting new cases once that many have been spent.
+- `--max-output-tokens <n>` stops starting new cases once that many have been spent. It is checked between cases, so a run can pass it by one case, and a case whose engine throws reports no usage to count.
 
-The results file is rewritten after every case, so a run that stops early keeps what it paid for. It also stops by itself if the account runs out of usage.
+The results file is rewritten after every case, so a run that stops early keeps what it paid for. It also stops by itself if the account runs out of usage. A case that throws is listed under "Not scored" and the run moves on. `notRun` in the results file lists the planned cases with no result, even if the process was killed, and the report opens by saying so.
 
 The report goes to the terminal. The results file holds every finding, and it stays out of the repository.
 
