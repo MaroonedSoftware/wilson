@@ -25,6 +25,26 @@ contract BoardColumns: {
     nonStages: array(string)   # parking-lot and the terminal states
 }
 
+# What pressing Merge on a `ready` card would do right now, worked out on read and never by trying it.
+# `BoardWriteService.merge` checks re-review before it computes the merge, so `state` follows the same
+# order: `rereview` wins over `conflict` when `RE_REVIEW_ON_MERGE` is on and both apply, and `conflicts`
+# still lists what the rebase on re-entry will hit. `capped` is the same overlap on a card that has
+# used up its re-reviews, so Merge flags it for a human instead of sending it back. `unknown` is a read
+# that failed (a branch missing from `codeRoot`, say), not a claim about the merge; `reason` carries
+# the error.
+contract MergeStatus: {
+    state: enum(clean, conflict, rereview, capped, unknown)
+    # The ref the answer was computed against: `main`, or `dry-run-integration` when a dry run would
+    # land there. Absent when the read failed before it got that far.
+    target?: string
+    # Paths `git merge-tree` could not resolve. Empty can still mean `conflict`: a conflict git reports
+    # without naming a path.
+    conflicts: array(string)
+    # Paths both the card and the target changed since they forked: what sends a merge back to review.
+    movedUnder: array(string)
+    reason?: string
+}
+
 # Card 0091. Orders the parking lot; `list`'s `position, id` ordering (PostgresBoardRepository)
 # sorts a card with one ahead of every card without. Absent for a card nothing has ever dragged —
 # including every card that predates this, since there is no migration to back-fill it — and such a
@@ -70,6 +90,9 @@ contract CardSummary: {
     # transition among them — a history that cannot answer the question either way, not the same
     # fact as "just entered".
     stageEnteredAt?: datetime
+    # Populated only for a card in `ready`, and only by the reads `BoardService` itself serves (`list`,
+    # `getById`), the same way `resolvedBranch` is. A write response leaves it absent rather than guess.
+    mergeStatus?: MergeStatus
 }
 
 # One card cut from a split origin, as `CardDetail.pieces` lists it: enough to show how far the split

@@ -737,6 +737,26 @@ export class WorktreeManager {
     }
 
     /**
+     * The ref a merge would land on, for a caller that only wants to look: the integration branch
+     * when a dry run is on and it exists, otherwise `main`. A dry run with no integration branch yet
+     * would cut one from `main` ({@link ensureIntegrationBranch}), so `main` is the same answer
+     * without the write.
+     */
+    async peekMergeTarget(dryRun: boolean): Promise<string> {
+        if (!dryRun) return 'main';
+        const exists = await git(this.config.codeRoot, ['rev-parse', '--verify', `refs/heads/${DRY_RUN_INTEGRATION_BRANCH}`]).then(
+            () => true,
+            () => false,
+        );
+        return exists ? DRY_RUN_INTEGRATION_BRANCH : 'main';
+    }
+
+    /** The commit `ref` names in `codeRoot`. Throws when it names nothing. */
+    async shaOf(ref: string): Promise<string> {
+        return (await git(this.config.codeRoot, ['rev-parse', ref])).stdout.trim();
+    }
+
+    /**
      * Paths this stage has touched but not committed, relative to the worktree root.
      *
      * Distinct from `changedPaths`, which measures from the fork point and therefore describes the

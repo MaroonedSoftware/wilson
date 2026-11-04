@@ -14,7 +14,7 @@ import { endedAs } from '#modules/stages/terminal.js';
  * How many splits deep a card may be and still split automatically: a card that was never split and
  * its pieces may, their pieces may not. Cards 0153, 0155 and 0156 were each a further split of the one
  * before, and a division that keeps coming back too large is a plan a person should look at. Small
- * and fixed, the same posture `RE_REVIEW_CAP` (`board.write.service.ts`) takes.
+ * and fixed, the same posture `RE_REVIEW_CAP` (`re.review.ts`) takes.
  */
 export const AUTO_SPLIT_MAX_DEPTH = 2;
 

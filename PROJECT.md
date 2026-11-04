@@ -424,6 +424,15 @@ lane's provider, model and routes, with the card staying in the lane throughout.
 or until a person reads why it did not. `review` runs `challenge` when it reports `revise`, a fresh
 context trying to refute each blocker before anything is kicked back.
 
+A card in `ready` also reports a `mergeStatus` on every board read: what Merge would do right now,
+`clean`, `conflict`, `rereview` (it would go back to review, because the target moved under files the
+card changed), `capped` (the same, on a card out of re-reviews, so Merge would flag a human) or
+`unknown` (the read failed). It is worked out on read and cached by the two commits,
+since an operator fast-forwarding `main` emits no event. A read moves no ref, creates no branch, and
+leaves only unreferenced objects behind. It answers against `dry-run-integration` when a dry run would
+land there. The status is advice and refreshes when a client next reads the card: Merge still decides
+for itself.
+
 The table above shows only where a stage goes when it passes; a kickback target — a stage's
 `onFail` — is a separate decision and is not automatically the stage before the one that failed. It
 is the stage that can fix the failure. `review.onFail: implementing` is correct: a review blocker

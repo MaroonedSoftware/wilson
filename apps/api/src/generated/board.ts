@@ -24,56 +24,30 @@ export const BoardColumns = z.strictObject({
 export type BoardColumns = z.infer<typeof BoardColumns>;
 
 /**
- * Card 0091. Orders the parking lot; `list`'s `position, id` ordering (PostgresBoardRepository)
- * sorts a card with one ahead of every card without. Absent for a card nothing has ever dragged —
- * including every card that predates this, since there is no migration to back-fill it — and such a
- * card sorts by `id` among the others like it, not at either end of the column. Meaningless outside
- * `parking-lot`: no other stage's order is an operator's to set (POST .../reposition refuses it).
- * generated from [CardSummary](../../data/contracts/board.ck)
+ * What pressing Merge on a `ready` card would do right now, worked out on read and never by trying it.
+ * `BoardWriteService.merge` checks re-review before it computes the merge, so `state` follows the same
+ * order: `rereview` wins over `conflict` when `RE_REVIEW_ON_MERGE` is on and both apply, and `conflicts`
+ * still lists what the rebase on re-entry will hit. `capped` is the same overlap on a card that has
+ * used up its re-reviews, so Merge flags it for a human instead of sending it back. `unknown` is a read
+ * that failed (a branch missing from `codeRoot`, say), not a claim about the merge; `reason` carries
+ * the error.
+ * generated from [MergeStatus](../../data/contracts/board.ck)
  */
-export const CardSummary = z.strictObject({
-    id: z.string(),
-    title: z.string(),
-    stage: z.string(),
-    doneReason: z
-        .enum(['merged', 'poisoned', 'dropped', 'split'])
-        .optional()
-        .describe('How the card ended, once it has. Absent for a card still on the board.'),
-    planCheck: z
-        .enum(['checking', 'refused'])
-        .optional()
-        .describe(
-            "Where an approved plan's scope check has got to. The card stays in planning for both, and moves\nto backlog when the check passes.",
-        ),
-    planCheckReason: z.string().optional(),
-    branch: z.string().optional(),
-    resolvedBranch: z
+export const MergeStatus = z.strictObject({
+    state: z.enum(['clean', 'conflict', 'rereview', 'capped', 'unknown']),
+    target: z
         .string()
         .optional()
         .describe(
-            "Card 0160. `WorktreeManager.resolveBranch`'s own answer — `branch` above when something\nrecorded one, otherwise the same derivation from the card's title `branchName` computes.\n`branch` alone cannot answer \"which branch is this card's work on\" for most cards (card 0095),\nand re-deriving the fallback anywhere but `WorktreeManager` would risk drifting from it, so this\nis that single answer carried onto the wire rather than a second copy of its logic. Optional\nbecause only the reads `BoardService` itself serves (`list`, `getById`) compute it; a write\nresponse built through `BoardWriteService`/`PlanService`'s shared `toCardDetail` leaves it\nabsent rather than guess.",
+            'The ref the answer was computed against: `main`, or `dry-run-integration` when a dry run would\nland there. Absent when the read failed before it got that far.',
         ),
-    dependsOn: z.array(z.string()),
-    needsHuman: z
-        .preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean())
-        .describe(
-            'Required, unlike the frontmatter\'s optional `needsHuman?`, so the web never has to write\n`?? false` — every card has an answer to "does this need a human", even if that answer is no.',
-        ),
-    needsHumanReason: z.string().optional(),
-    position: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
-    splitFrom: z
-        .string()
-        .optional()
-        .describe(
-            'The card this one was split out of. Absent on every other card, including pieces split before\nthe field existed, so absence does not prove a card has no origin.',
-        ),
-    stageEnteredAt: _ZodDatetime
-        .optional()
-        .describe(
-            "Card 0178. The moment this card entered its current stage — the most recent\n`transition.written` event's timestamp, or its earliest recorded event if the card has never\ntransitioned, mirroring `wilson card show`'s own `timeInCurrentStage` derivation\n(apps/api/src/modules/events/time.in.stage.ts, factored out as `stageEnteredAt` there).\nPopulated only by the reads `BoardService` itself serves (`list`, `getById`), the same way\n`resolvedBranch` above is: a write response built through `BoardWriteService`/`PlanService`'s\nshared `toCardDetail` leaves it absent rather than guess. Also absent for a card whose fetched\nevent history holds no events at all, or whose fetched window is full of events with no\ntransition among them — a history that cannot answer the question either way, not the same\nfact as \"just entered\".",
-        ),
+    conflicts: z
+        .array(z.string())
+        .describe('Paths `git merge-tree` could not resolve. Empty can still mean `conflict`: a conflict git reports\nwithout naming a path.'),
+    movedUnder: z.array(z.string()).describe('Paths both the card and the target changed since they forked: what sends a merge back to review.'),
+    reason: z.string().optional(),
 });
-export type CardSummary = z.infer<typeof CardSummary>;
+export type MergeStatus = z.infer<typeof MergeStatus>;
 
 /**
  * One card cut from a split origin, as `CardDetail.pieces` lists it: enough to show how far the split
@@ -487,19 +461,59 @@ export const HumanFinding = z.strictObject({
 export type HumanFinding = z.infer<typeof HumanFinding>;
 
 /**
- * generated from [CardDetail](../../data/contracts/board.ck)
+ * Card 0091. Orders the parking lot; `list`'s `position, id` ordering (PostgresBoardRepository)
+ * sorts a card with one ahead of every card without. Absent for a card nothing has ever dragged —
+ * including every card that predates this, since there is no migration to back-fill it — and such a
+ * card sorts by `id` among the others like it, not at either end of the column. Meaningless outside
+ * `parking-lot`: no other stage's order is an operator's to set (POST .../reposition refuses it).
+ * generated from [CardSummary](../../data/contracts/board.ck)
  */
-export const CardDetail = CardSummary.extend({
-    body: z.string(),
-    sections: z.record(z.string(), z.string()),
-    pieces: z
-        .array(SplitPieceSummary)
+export const CardSummary = z.strictObject({
+    id: z.string(),
+    title: z.string(),
+    stage: z.string(),
+    doneReason: z
+        .enum(['merged', 'poisoned', 'dropped', 'split'])
+        .optional()
+        .describe('How the card ended, once it has. Absent for a card still on the board.'),
+    planCheck: z
+        .enum(['checking', 'refused'])
         .optional()
         .describe(
-            'The cards split out of this one, lowest id first. Populated only by `BoardService.getById`, the\nsame way `resolvedBranch` is: a write response built through the shared `toCardDetail` leaves it\nabsent rather than guess. Empty, from `getById`, on a card that was never split.',
+            "Where an approved plan's scope check has got to. The card stays in planning for both, and moves\nto backlog when the check passes.",
         ),
+    planCheckReason: z.string().optional(),
+    branch: z.string().optional(),
+    resolvedBranch: z
+        .string()
+        .optional()
+        .describe(
+            "Card 0160. `WorktreeManager.resolveBranch`'s own answer — `branch` above when something\nrecorded one, otherwise the same derivation from the card's title `branchName` computes.\n`branch` alone cannot answer \"which branch is this card's work on\" for most cards (card 0095),\nand re-deriving the fallback anywhere but `WorktreeManager` would risk drifting from it, so this\nis that single answer carried onto the wire rather than a second copy of its logic. Optional\nbecause only the reads `BoardService` itself serves (`list`, `getById`) compute it; a write\nresponse built through `BoardWriteService`/`PlanService`'s shared `toCardDetail` leaves it\nabsent rather than guess.",
+        ),
+    dependsOn: z.array(z.string()),
+    needsHuman: z
+        .preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean())
+        .describe(
+            'Required, unlike the frontmatter\'s optional `needsHuman?`, so the web never has to write\n`?? false` — every card has an answer to "does this need a human", even if that answer is no.',
+        ),
+    needsHumanReason: z.string().optional(),
+    position: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
+    splitFrom: z
+        .string()
+        .optional()
+        .describe(
+            'The card this one was split out of. Absent on every other card, including pieces split before\nthe field existed, so absence does not prove a card has no origin.',
+        ),
+    stageEnteredAt: _ZodDatetime
+        .optional()
+        .describe(
+            "Card 0178. The moment this card entered its current stage — the most recent\n`transition.written` event's timestamp, or its earliest recorded event if the card has never\ntransitioned, mirroring `wilson card show`'s own `timeInCurrentStage` derivation\n(apps/api/src/modules/events/time.in.stage.ts, factored out as `stageEnteredAt` there).\nPopulated only by the reads `BoardService` itself serves (`list`, `getById`), the same way\n`resolvedBranch` above is: a write response built through `BoardWriteService`/`PlanService`'s\nshared `toCardDetail` leaves it absent rather than guess. Also absent for a card whose fetched\nevent history holds no events at all, or whose fetched window is full of events with no\ntransition among them — a history that cannot answer the question either way, not the same\nfact as \"just entered\".",
+        ),
+    mergeStatus: MergeStatus.optional().describe(
+        'Populated only for a card in `ready`, and only by the reads `BoardService` itself serves (`list`,\n`getById`), the same way `resolvedBranch` is. A write response leaves it absent rather than guess.',
+    ),
 });
-export type CardDetail = z.infer<typeof CardDetail>;
+export type CardSummary = z.infer<typeof CardSummary>;
 
 /**
  * generated from [CardPlanQuery](../../data/contracts/board.ck)
@@ -683,6 +697,41 @@ export const RecordFindingsRequest = z.strictObject({
 export type RecordFindingsRequest = z.infer<typeof RecordFindingsRequest>;
 
 /**
+ * generated from [CardDetail](../../data/contracts/board.ck)
+ */
+export const CardDetail = CardSummary.extend({
+    body: z.string(),
+    sections: z.record(z.string(), z.string()),
+    pieces: z
+        .array(SplitPieceSummary)
+        .optional()
+        .describe(
+            'The cards split out of this one, lowest id first. Populated only by `BoardService.getById`, the\nsame way `resolvedBranch` is: a write response built through the shared `toCardDetail` leaves it\nabsent rather than guess. Empty, from `getById`, on a card that was never split.',
+        ),
+});
+export type CardDetail = z.infer<typeof CardDetail>;
+
+/**
+ * `GET /api/stats`'s response: what a project spent and how its stages went, read from
+ * `EventLog.projectStats`. Tokens only, for the reason `CardUsage` gives. `topCards` is the ten cards
+ * that wrote the most output tokens, the figure the daily ceiling is held to, since a cached input
+ * total says little about what a run cost. Planning and review turns are not stage events, so only
+ * `conversations` includes them: one row for each kind, always in that order, at zero when there are none.
+ * generated from [ProjectStats](../../data/contracts/board.ck)
+ */
+export const ProjectStats = z.strictObject({
+    since: _ZodDatetime,
+    until: _ZodDatetime,
+    zone: z.string(),
+    total: ProjectStatsTotal,
+    stages: z.array(ProjectStageStats),
+    days: z.array(ProjectDayStats),
+    topCards: z.array(ProjectCardStats),
+    conversations: z.array(ProjectConversationStats),
+});
+export type ProjectStats = z.infer<typeof ProjectStats>;
+
+/**
  * `BoardWriteService.release`'s response (card 0087): the card, plus which of the two safe-to-cancel
  * cases it took. `queued` is a job in `created` or `retry` — by definition nothing has picked it up,
  * so cancelling it cannot interrupt anything. `orphan` is a job the broker still shows `active` but
@@ -726,23 +775,3 @@ export const SplitResult = z.strictObject({
     pieces: z.array(CardDetail),
 });
 export type SplitResult = z.infer<typeof SplitResult>;
-
-/**
- * `GET /api/stats`'s response: what a project spent and how its stages went, read from
- * `EventLog.projectStats`. Tokens only, for the reason `CardUsage` gives. `topCards` is the ten cards
- * that wrote the most output tokens, the figure the daily ceiling is held to, since a cached input
- * total says little about what a run cost. Planning and review turns are not stage events, so only
- * `conversations` includes them: one row for each kind, always in that order, at zero when there are none.
- * generated from [ProjectStats](../../data/contracts/board.ck)
- */
-export const ProjectStats = z.strictObject({
-    since: _ZodDatetime,
-    until: _ZodDatetime,
-    zone: z.string(),
-    total: ProjectStatsTotal,
-    stages: z.array(ProjectStageStats),
-    days: z.array(ProjectDayStats),
-    topCards: z.array(ProjectCardStats),
-    conversations: z.array(ProjectConversationStats),
-});
-export type ProjectStats = z.infer<typeof ProjectStats>;

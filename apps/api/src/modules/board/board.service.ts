@@ -23,6 +23,8 @@ import type {
 } from '../../generated/board.js';
 import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
+import { MergeStatusReader } from './merge.status.reader.js';
+import { RE_REVIEW_RETRY_KEY } from './re.review.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
 import { acceptanceCriteria, authoredText, PLAN_SECTIONS, sectionKey, type Card } from './card.js';
 
@@ -93,6 +95,8 @@ export class BoardService {
         private readonly eventLog: EventLog,
         private readonly boardConfig: BoardConfig,
         private readonly worktrees: WorktreeManager,
+        // Optional so a test can build the service without one; unset, no card reports a merge status.
+        private readonly mergeStatus?: MergeStatusReader,
     ) {}
 
     /**
@@ -124,6 +128,15 @@ export class BoardService {
         return { ...summary, stageEnteredAt: stageEnteredAt(events, { fullHistory }) };
     }
 
+    /** Adds `mergeStatus` to a card in `ready`, the one stage Merge acts on. */
+    private async withMergeStatus<T extends CardSummary>(card: Card, summary: T): Promise<T> {
+        if (!this.mergeStatus || card.frontmatter.stage !== 'ready') return summary;
+        return {
+            ...summary,
+            mergeStatus: await this.mergeStatus.read(this.worktrees.resolveBranch(card), card.frontmatter.retries[RE_REVIEW_RETRY_KEY]),
+        };
+    }
+
     /** The cards split out of `id`, lowest id first; empty for a card that was never split. */
     private async piecesOf(id: string): Promise<SplitPieceSummary[]> {
         const cards = await this.boardRepository.list();
@@ -140,13 +153,17 @@ export class BoardService {
 
     async list(): Promise<CardSummary[]> {
         const cards = await this.boardRepository.list();
-        return Promise.all(cards.map(card => this.withStageEnteredAt(card, this.withResolvedBranch(card, toCardSummary(card)))));
+        return Promise.all(
+            cards.map(async card =>
+                this.withMergeStatus(card, await this.withStageEnteredAt(card, this.withResolvedBranch(card, toCardSummary(card)))),
+            ),
+        );
     }
 
     async getById(id: string): Promise<CardDetail> {
         try {
             const card = await this.boardRepository.read(id);
-            const detail = await this.withStageEnteredAt(card, this.withResolvedBranch(card, toCardDetail(card)));
+            const detail = await this.withMergeStatus(card, await this.withStageEnteredAt(card, this.withResolvedBranch(card, toCardDetail(card))));
             return { ...detail, pieces: await this.piecesOf(id) };
         } catch (err) {
             if (err instanceof CardNotFoundError) throw httpError(404);
