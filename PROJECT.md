@@ -506,6 +506,20 @@ chose a blanket self-loop for it). `unjudged` only closes the narrower gap card 
 would need the same signal — the run's own outcome, not just which stage failed and how many times —
 and remains a human call via `wilson card move`, exactly as card 0062 left it.
 
+A run repeating itself is stopped the same way, and sooner than any budget would. Every adapter feeds
+its tool calls to a `RepeatedCallWatch` (`apps/api/src/modules/agent/repeated.call.ts`), which counts
+identical calls (tool name plus canonical JSON of the input) and sets `AgentRunOutput.loopFailure` at
+`REPEATED_CALL_LIMIT`. A successful write clears the count, because the same command against a changed
+tree is a new question, so re-running the tests after an edit never trips it; a refused write, or one
+identical to the last, clears nothing. `cli` watches the stream rather than the guard, `codex` watches
+`item/started` because a read-only command may never ask, and `api` replays its steps in a `stopWhen`.
+A write made through a shell command looks like any other command, so it does not clear the count.
+The stop is unjudged: it retries in the same stage, in a fresh session, and charges `retries[stage.name]`
+so `maxKickbacks` bounds it. It differs from other unjudged failures twice over. The dispatcher skips the
+verifier, since the outcome is already decided and testing would run its whole suite to confirm it. And
+it writes an attempt bullet, the only unjudged failure that does, so the fresh session knows what the
+last one got stuck on. `stage.failed` carries `loopStopped: true`.
+
 `plan-review` is a separate stage rather than a gate inside planning. It has its own
 model, budget, retry policy, and structured output — all stage-level concepts — and
 folding it into planning would make planning a stage with two models and two

@@ -61,6 +61,12 @@ export interface AgentRunOutput {
      */
     engineFailure?: string;
     /**
+     * Set when the run was stopped for repeating the same tool call (`RepeatedCallWatch`), naming the
+     * call. Neither a budget nor the engine was at fault, so an operator has no cap to raise, and the
+     * run never reported, so the dispatcher has nothing to verify.
+     */
+    loopFailure?: string;
+    /**
      * Set when the run ended because its account hit a usage limit, which says nothing about the card.
      * Comes with `interrupted`, which says where to pick up, and `heldUntil`, which says when.
      */
