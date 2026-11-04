@@ -4,6 +4,8 @@ import com.maroonedsoftware.wilson.sdk.models.BoardColumns
 import com.maroonedsoftware.wilson.sdk.models.CardSummaryDoneReason
 import com.maroonedsoftware.wilson.sdk.models.CardSummaryPlanCheck
 import com.maroonedsoftware.wilson.sdk.models.CardSummary
+import com.maroonedsoftware.wilson.sdk.models.MergeStatus
+import com.maroonedsoftware.wilson.sdk.models.MergeStatusState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -12,6 +14,34 @@ private fun card(id: String, stage: String, flagged: Boolean = false, position: 
     CardSummary(id = id, title = id, stage = stage, dependsOn = emptyList(), needsHuman = flagged, position = position)
 
 class BoardTest {
+    private fun merge(state: MergeStatusState, conflicts: List<String> = emptyList(), movedUnder: List<String> = emptyList(), reason: String? = null) =
+        MergeStatus(state = state, target = "main", conflicts = conflicts, movedUnder = movedUnder, reason = reason)
+
+    @Test
+    fun theMergeStatusNamesWhatItWouldHit() {
+        assertEquals("Merges cleanly into main.", mergeStatusLine(merge(MergeStatusState.CLEAN)))
+        assertEquals("Conflicts with main: a, b", mergeStatusLine(merge(MergeStatusState.CONFLICT, listOf("a", "b"))))
+        assertEquals("Conflicts with main.", mergeStatusLine(merge(MergeStatusState.CONFLICT)))
+        assertEquals(
+            "Merge would send this back to review: main moved under a. It also conflicts: a",
+            mergeStatusLine(merge(MergeStatusState.REREVIEW, listOf("a"), listOf("a"))),
+        )
+        assertEquals(
+            "Merge would stop and flag this for a human: main moved under a, and it has used up its re-reviews.",
+            mergeStatusLine(merge(MergeStatusState.CAPPED, movedUnder = listOf("a"))),
+        )
+        assertEquals("Could not check the merge: gone", mergeStatusLine(merge(MergeStatusState.UNKNOWN, reason = "gone")))
+    }
+
+    @Test
+    fun onlyAMergeThatWouldNotLandWarns() {
+        assertEquals(false, mergeStatusWarns(merge(MergeStatusState.CLEAN)))
+        assertEquals(false, mergeStatusWarns(merge(MergeStatusState.UNKNOWN)))
+        assertEquals(true, mergeStatusWarns(merge(MergeStatusState.CONFLICT)))
+        assertEquals(true, mergeStatusWarns(merge(MergeStatusState.REREVIEW)))
+        assertEquals(true, mergeStatusWarns(merge(MergeStatusState.CAPPED)))
+    }
+
     @Test
     fun theFlagBeatsTheStage() {
         assertEquals(CardState.NEEDS_HUMAN, cardState(true, "merged"))
