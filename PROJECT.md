@@ -721,6 +721,15 @@ since they are one `ToolLoopAgent` model argument apart. Routing lives in
 without rewriting it (`wilson stages route`, or Settings in the web app). Provider
 credentials are per-deployment, not per-project.
 
+A lane can also scale with the card's diff. Its optional `depths` is a ladder of
+`{ minChangedLines, model?, maxSteps?, maxInputTokens? }`, smallest first. The highest tier the
+diff reaches applies, measured as lines added plus removed from `merge-base..branch` on this
+machine before the rebase. A diff below every tier, or one that can't be measured, runs the lane
+as written. A step such as `challenge` always runs on the lane's own model, an interrupted stage
+goes back on the tier it started on, and `stage.dispatched` records the tier. `maxInputTokens` is
+cost-weighted here as everywhere. No lane should turn this on without a comparison from the
+reviewer measurement in `apps/api/evals/review/`.
+
 The adversarial reviewer reads the plan cold, with no access to the planning
 conversation, and emits `{verdict, findings[]}`.
 

@@ -1,5 +1,6 @@
 import { Injectable } from 'injectkit';
 import type { AgentRunOutput } from './stage.agent.js';
+import type { LaneDepth } from '#modules/stages/stage.config.js';
 import { describeUsageLimit, type UsageLimit } from './usage.limit.js';
 
 /**
@@ -31,13 +32,15 @@ export interface InterruptedSpend {
 /**
  * Where an interrupted stage left off, carried on the job that sends it again. Plain data, since it
  * travels in the job's payload. `host` is unset for a tree on this machine, and `sessionId` for a run
- * stopped before the engine named one.
+ * stopped before the engine named one. `depth` is the tier it ran on, unset when it ran the lane as
+ * written, so going back to it cannot change its model part way through.
  */
 export interface InterruptedAttempt {
     baseSha: string;
     host?: string;
     sessionId?: string;
     spent?: InterruptedSpend;
+    depth?: LaneDepth;
 }
 
 /**
