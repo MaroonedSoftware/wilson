@@ -15,6 +15,7 @@ import { StageAgentMap, type AgentRunInput, type AgentRunOutput } from '#modules
 import { StageVerifierMap, type StageVerifier } from '#modules/stages/stage.verifier.js';
 import { StageResultSchemaMap } from '#modules/stages/stage.result.js';
 import { StaticLearningsStore } from '#modules/learnings/learnings.store.js';
+import { StaticRuleStore } from '#modules/rules/rule.store.js';
 import type { ScopeDecision } from '#modules/agent/scope.guard.js';
 import type { Card } from '#modules/board/card.js';
 import type { EventLog } from '#modules/events/event.log.js';
@@ -110,6 +111,8 @@ describe('StageDispatcher.run materializes the project learnings document (card 
         events: { append: ReturnType<typeof vi.fn> },
         probe: (input: AgentRunInput) => Promise<void>,
         learnings?: StaticLearningsStore,
+        rules?: StaticRuleStore,
+        stagesDocument = stagesYaml,
     ) => {
         const agents = new StageAgentMap();
         agents.set('api', {
@@ -122,13 +125,15 @@ describe('StageDispatcher.run materializes the project learnings document (card 
         const verifiers = new StageVerifierMap();
         const verifier: StageVerifier = { verify: async () => ({ passed: true, failures: [], changedPaths: [] }) };
         verifiers.set('testing', verifier);
+        verifiers.set('implementing', verifier);
 
         const resultSchemas = new StageResultSchemaMap();
         resultSchemas.set('testing', {} as never);
+        resultSchemas.set('implementing', {} as never);
 
         return new StageDispatcher(
             config,
-            new StaticStageConfigStore(stagesYaml),
+            new StaticStageConfigStore(stagesDocument),
             board,
             worktrees as unknown as WorktreeManager,
             agents,
@@ -139,6 +144,9 @@ describe('StageDispatcher.run materializes the project learnings document (card 
             undefined,
             undefined,
             learnings as never,
+            undefined,
+            undefined,
+            rules,
         );
     };
 
@@ -237,5 +245,44 @@ describe('StageDispatcher.run materializes the project learnings document (card 
 
         expect(result.passed).toBe(true);
         expect(writeDecision).toMatchObject({ allowed: false });
+    });
+
+    describe('with checked rules', () => {
+        const rulesWithOne = async () => {
+            const rules = new StaticRuleStore();
+            await rules.create('no-raw-sql', { statement: 'Queries go through Kysely', paths: ['src/**'], severity: 'blocker' }, 'x');
+            return rules;
+        };
+
+        it('hands them to implementing beside the learnings', async () => {
+            const { config, board, worktrees, events, learningsPath } = await setUp();
+            await board.write('0001', 'to implementing', current => ({ ...current, frontmatter: { ...current.frontmatter, stage: 'implementing' } }));
+            const implementing = stagesYaml.replace('name: testing', 'name: implementing').replace('onFail: testing', 'onFail: implementing');
+            const dispatcher = buildDispatcher(
+                config,
+                board,
+                worktrees,
+                events,
+                async () => {},
+                new StaticLearningsStore('# Lessons\n'),
+                await rulesWithOne(),
+                implementing,
+            );
+
+            await dispatcher.run('0001', 'implementing');
+
+            const written = await readFile(learningsPath, 'utf8');
+            expect(written).toContain('# Lessons');
+            expect(written).toContain('**no-raw-sql**');
+        });
+
+        it('leaves them out of a stage that writes no work', async () => {
+            const { config, board, worktrees, events, learningsPath } = await setUp();
+            const dispatcher = buildDispatcher(config, board, worktrees, events, async () => {}, new StaticLearningsStore(''), await rulesWithOne());
+
+            await dispatcher.run('0001', 'testing');
+
+            expect(existsSync(learningsPath)).toBe(false);
+        });
     });
 });

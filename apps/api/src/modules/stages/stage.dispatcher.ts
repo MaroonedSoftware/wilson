@@ -25,6 +25,8 @@ import { HostLostError, type RemotePlacement } from '#modules/host/placement.js'
 import { LearningsStore } from '#modules/learnings/learnings.store.js';
 import { DevServerPortAllocator } from '#modules/lease/dev.server.port.allocator.js';
 import { Notifier } from '#modules/notify/notifier.js';
+import { withRulesGuidance } from '#modules/rules/rule.guidance.js';
+import { RuleStore } from '#modules/rules/rule.store.js';
 import type { CardNotification } from '#modules/notify/notification.js';
 import { DEV_SERVER_PORT_RANGE } from '#modules/settings/dev.server.port.range.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
@@ -282,6 +284,8 @@ export class StageDispatcher {
         // Optional for the reason the four above are. Left undefined, a refusal routes as it always
         // has, which is also what `AUTO_SPLIT_ENABLED` being off does.
         private readonly autoSplitter?: AutoSplitter,
+        // Optional for the reason the five above are. Left undefined, a project has no rules.
+        private readonly rules?: RuleStore,
     ) {}
 
     /** `interrupted` names the tree a shutdown left, for a stage being sent again after one. */
@@ -597,7 +601,12 @@ export class StageDispatcher {
         // PROJECT.md decision 8) or `this.learnings` altogether unset (see the constructor's own
         // comment) both mean no file is written and no path reaches the adapter at all — an empty
         // document means "no learnings", not an empty file to hand the agent.
-        const learningsMarkdown = (await this.learnings?.load()) ?? '';
+        //
+        // The rules go with them where work gets written, so it can meet them before review judges it.
+        const learningsMarkdown = withRulesGuidance(
+            (await this.learnings?.load()) ?? '',
+            (stage.verifier ?? stage.name) === 'implementing' ? ((await this.rules?.list()) ?? []) : [],
+        );
         const localLearningsPath = learningsMarkdown.trim().length > 0 ? await this.materializeLearnings(cardId, learningsMarkdown) : undefined;
         const learningsPath = placement && localLearningsPath ? await this.mirrorToHost(placement, cardId, localLearningsPath) : localLearningsPath;
 
