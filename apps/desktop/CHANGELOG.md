@@ -1,5 +1,11 @@
 # @wilson/desktop
 
+## 0.17.2
+
+### Patch Changes
+
+- dfeb89f: The activity feed now names the two events checked rules write: judges looking at a review's diff, and a rule being proposed after a kickback.
+
 ## 0.17.1
 
 ### Patch Changes
