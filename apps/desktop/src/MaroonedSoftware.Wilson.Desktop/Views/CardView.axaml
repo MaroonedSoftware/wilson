@@ -18,6 +18,7 @@
         <SelectableTextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding Card.Branch}" IsVisible="{Binding Card.Branch, Converter={x:Static ObjectConverters.IsNotNull}}" />
         <TextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding RanOn}" ToolTip.Tip="The registered host this card's most recent stage ran on" IsVisible="{Binding RanOn, Converter={x:Static ObjectConverters.IsNotNull}}" />
         <TextBlock DockPanel.Dock="Top" Classes="error" Margin="0,4,0,0" Text="{Binding FlagReason}" IsVisible="{Binding FlagReason, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <TextBlock DockPanel.Dock="Top" Classes.error="{Binding MergeStatusWarns}" Margin="0,4,0,0" TextWrapping="Wrap" Text="{Binding MergeStatus}" IsVisible="{Binding MergeStatus, Converter={x:Static ObjectConverters.IsNotNull}}" />
         <WrapPanel DockPanel.Dock="Top" Margin="0,10,0,4" IsEnabled="{Binding Idle}">
             <WrapPanel.Styles>
                 <Style Selector="Button, ComboBox"><Setter Property="Margin" Value="0,0,6,6" /></Style>

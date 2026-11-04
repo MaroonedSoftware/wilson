@@ -20,6 +20,10 @@ public sealed partial class BoardTile(CardSummary card, string? flag, string? bl
 
     public string? PlanCheck { get; } = BoardRules.PlanCheck(card.PlanCheck, card.PlanCheckReason);
 
+    public string? MergeStatus { get; } = BoardRules.MergeStatusLine(card.MergeStatus);
+
+    public bool MergeStatusWarns { get; } = BoardRules.MergeStatusWarns(card.MergeStatus);
+
     public string? Flag => flag;
 
     public string? Blocked => blocked;

@@ -105,6 +105,12 @@ internal static class Steps
             return;
         }
 
+        if (only == "merge")
+        {
+            await MergeStatusAsync(walk);
+            return;
+        }
+
         if (only == "plan")
         {
             await PlanOnlyAsync(walk);
@@ -185,6 +191,33 @@ internal static class Steps
     }
 
     /// <summary>A lane's instructions and settings saved, read back from a fresh page and put back, with a box that cannot be read and a value the API refuses.</summary>
+    /// <summary>What Merge would do, on the board and on the card. Needs a card in `ready`; the API works out the rest from its code repo.</summary>
+    private static async Task MergeStatusAsync(Walker walk)
+    {
+        walk.Shell.ShowBoardCommand.Execute(null);
+        var board = walk.Page<BoardViewModel>();
+        await walk.UntilAsync("a ready card with a merge status", () => board.Columns.Any(column => column.Cards.Any(tile => tile.MergeStatus is not null)));
+        var tiles = board.Columns.SelectMany(column => column.Cards).Where(tile => tile.MergeStatus is not null).ToList();
+        foreach (var tile in tiles)
+        {
+            Console.WriteLine($"     {tile.Card.Id}: {tile.MergeStatus}");
+        }
+
+        // Everything else folded, or `ready` sits past the edge of the shot.
+        foreach (var column in board.Columns.Where(column => !column.Cards.Any(tile => tile.MergeStatus is not null)).ToList())
+        {
+            board.ToggleCollapsedCommand.Execute(column);
+        }
+
+        await Task.Delay(300);
+        walk.Shot("03-merge-status-board");
+
+        board.OpenCard(tiles.FirstOrDefault(tile => tile.MergeStatusWarns)?.Card ?? tiles[0].Card);
+        var card = walk.Page<CardViewModel>();
+        await walk.UntilAsync("the card's merge status", () => card.MergeStatus is not null);
+        walk.Shot("03-merge-status-card");
+    }
+
     private static async Task LanesAsync(Walker walk)
     {
         walk.Shell.ShowBoardCommand.Execute(null);
