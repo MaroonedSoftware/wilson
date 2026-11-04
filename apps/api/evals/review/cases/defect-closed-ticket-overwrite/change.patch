@@ -1,0 +1,668 @@
+diff --git a/apps/api/src/modules/notify/notification.ts b/apps/api/src/modules/notify/notification.ts
+index 5e13e3aa..180a02fa 100644
+--- a/apps/api/src/modules/notify/notification.ts
++++ b/apps/api/src/modules/notify/notification.ts
+@@ -1,11 +1,20 @@
+ /**
+- * Which of the three moments PROJECT.md's Notification section names produced this notification.
++ * Which of the moments PROJECT.md's Notification section (and card 0200's Note) names produced
++ * this notification.
+  *
+  * A `manual` gate reached normally, a card flagged for a human (retries exhausted or over budget),
+- * and a poisoning call for three different responses from the reader — that is why the payload
+- * names which one this is rather than leaving the reader to infer it from the stage alone.
++ * a poisoning call, and a card source's ticket closing externally — four different responses from
++ * the reader, which is why the payload names which one this is rather than leaving the reader to
++ * infer it from the stage alone.
++ *
++ * `source-closed` is its own moment, not a reuse of `needs-human`: card 0200's `InboundCardWriter`
++ * sends it for a card dropped or flagged-at-`ready` because its ticket closed externally — an FYI
++ * and a "please decide," neither of which is `needs-human`'s existing meaning (retries exhausted or
++ * over budget) or `manual`'s (a gate reached normally). The one exception is the mid-run halt
++ * (`StageDispatcher.writeTransition`), which keeps using `needs-human` with `reason: 'source-closed'`
++ * since that machinery already notifies on every fresh flag.
+  */
+-export type NotifyMoment = 'manual' | 'needs-human' | 'poisoned';
++export type NotifyMoment = 'manual' | 'needs-human' | 'poisoned' | 'source-closed';
+ 
+ /**
+  * Everything a notification says, independent of the channel that carries it.
+diff --git a/apps/api/src/modules/sources/card.source.ts b/apps/api/src/modules/sources/card.source.ts
+index 5a80b5e6..5584ae0e 100644
+--- a/apps/api/src/modules/sources/card.source.ts
++++ b/apps/api/src/modules/sources/card.source.ts
+@@ -18,6 +18,15 @@ export type CardSourceItem = {
+      * holds it fixed on a pure redelivery.
+      */
+     readonly version: string;
++    /**
++     * Whether the ticket behind this item is closed upstream. A source has no authority over board
++     * state (PROJECT.md's "Card sources" inbound-authority rule) — it only reports the fact, and
++     * `InboundCardWriter` (card 0200) decides what a closure means for a matching card, or for one it
++     * has never seen. `GitHubIssuesSource` ([[0199]]) fetches `state=all` rather than `state=open`
++     * precisely so it can report this on every item, including the pull-request-filtered ones it
++     * already drops.
++     */
++    readonly closed: boolean;
+ };
+ 
+ /**
+diff --git a/apps/api/src/modules/sources/github.issues.source.ts b/apps/api/src/modules/sources/github.issues.source.ts
+index 4e92ed76..84c4dc62 100644
+--- a/apps/api/src/modules/sources/github.issues.source.ts
++++ b/apps/api/src/modules/sources/github.issues.source.ts
+@@ -28,6 +28,9 @@ type GitHubIssuePayload = {
+     readonly title: string;
+     readonly body: string | null;
+     readonly updated_at: string;
++    /** `'open'` or `'closed'` — reported on every item as `CardSourceItem.closed` (card 0200), which
++     * is why this source fetches `state=all` rather than `state=open`. */
++    readonly state: string;
+     /** Present (with any value) on a pull request — GitHub's `/issues` endpoint returns pull
+      * requests as issues, and this is the tell this card's Constraints name as "the single most
+      * likely defect in the card". */
+@@ -100,7 +103,13 @@ export class GitHubIssuesSource implements CardSource {
+                 // The `/issues` endpoint returns pull requests as issues; `pull_request` is the only
+                 // field that tells them apart (this card's Constraints).
+                 if ('pull_request' in issue) continue;
+-                items.push({ externalId: `${repo}#${issue.number}`, title: issue.title, body: issue.body ?? '', version: issue.updated_at });
++                items.push({
++                    externalId: `${repo}#${issue.number}`,
++                    title: issue.title,
++                    body: issue.body ?? '',
++                    version: issue.updated_at,
++                    closed: issue.state === 'closed',
++                });
+                 if (!latestUpdatedAt || issue.updated_at > latestUpdatedAt) latestUpdatedAt = issue.updated_at;
+             }
+ 
+@@ -124,7 +133,11 @@ export class GitHubIssuesSource implements CardSource {
+     }
+ 
+     private buildUrl(repo: string, label: string, since: string | undefined): string {
+-        const params = new URLSearchParams({ labels: label, state: 'open', sort: 'updated', direction: 'asc', per_page: '100' });
++        // `state=all`, not `state=open` (card 0200's Constraints): reacting to a closed ticket is
++        // `InboundCardWriter`'s job, not this source's, but it can only react to what this source
++        // reports. `since` already filters by `updated_at` regardless of state, so this is the only
++        // change needed to see a closed issue at all — no second request, no second endpoint.
++        const params = new URLSearchParams({ labels: label, state: 'all', sort: 'updated', direction: 'asc', per_page: '100' });
+         if (since !== undefined) params.set('since', since);
+         // `repo` has already passed `validateRepo`: letters, digits, `.`, `_`, `-`, and exactly one
+         // `/`, so no further encoding is needed for the path segment itself.
+diff --git a/apps/api/src/modules/sources/inbound.card.writer.ts b/apps/api/src/modules/sources/inbound.card.writer.ts
+index 251d75f8..0c237dcc 100644
+--- a/apps/api/src/modules/sources/inbound.card.writer.ts
++++ b/apps/api/src/modules/sources/inbound.card.writer.ts
+@@ -6,6 +6,8 @@ import { BoardConfig } from '#modules/board/board.config.js';
+ import { BoardRepository } from '#modules/board/board.repository.js';
+ import { BoardWriteService } from '#modules/board/board.write.service.js';
+ import type { Card } from '#modules/board/card.js';
++import { Notifier } from '#modules/notify/notifier.js';
++import type { CardNotification } from '#modules/notify/notification.js';
+ import type { CardSourceItem } from './card.source.js';
+ 
+ /**
+@@ -28,10 +30,15 @@ const RETENTION_TTL = Duration.fromObject({ days: 7 });
+  * are this class's callers.
+  *
+  * Inbound authority only (PROJECT.md's "Card sources", decision 5). `CardSourceItem` — the only
+- * shape a source can hand this — carries `externalId`, `title`, `body`, and `version`, and nothing
+- * else; `apply`'s own signature adds only `source`, the key a ref is stored under in `cards.external`.
+- * `stage`, `branch`, and `retries` are not reachable from any parameter this class takes — a shape a
+- * source cannot say beats a check a source can fail (this card's Constraints).
++ * shape a source can hand this — carries `externalId`, `title`, `body`, `version`, and `closed`, and
++ * nothing else; `apply`'s own signature adds only `source`, the key a ref is stored under in
++ * `cards.external`. `stage`, `branch`, and `retries` are not reachable from any parameter this class
++ * takes — a shape a source cannot say beats a check a source can fail (this card's Constraints).
++ *
++ * Card 0200: a `closed: true` item is a different kind of report from an ordinary create-or-update —
++ * see `applyClosed`, below, for what it does with one and why the write it chooses (dropped, flagged
++ * at `ready`, or a bare flag mid-run) depends on `BoardRepository.hasLiveClaim` and the card's current
++ * stage rather than on anything the item itself carries.
+  *
+  * Both paths go through `BoardWriteService`, never `BoardRepository` directly (decision 3):
+  * `createFromSource` for the first report of a ref, `rename`/`edit` — the same methods `PATCH
+@@ -66,6 +73,15 @@ export class InboundCardWriter {
+      * walk over the rest of its own batch.
+      */
+     async apply(source: string, item: CardSourceItem): Promise<void> {
++        // Card 0200: a closed item is not a create-or-update — it never touches title/body, and its
++        // own idempotency is a plain field check on the matching card (`sourceClosed`), not
++        // [[0197]]'s delivery-repeat dedup keyed on `version`. Branched here, ahead of that dedup,
++        // so a redelivered closed item never even computes a key for it.
++        if (item.closed) {
++            await this.applyClosed(source, item);
++            return;
++        }
++
+         const key = `${this.boardConfig.project}:${source}:${item.externalId}:${item.version}`;
+ 
+         const outcome = await this.idempotencyStore.deduplicate(key, () => this.write(source, item), { retentionTtl: RETENTION_TTL });
+@@ -75,6 +91,87 @@ export class InboundCardWriter {
+         }
+     }
+ 
++    /**
++     * Card 0200. Handle one closed item: ignore it for a ref the board has never seen — importing a
++     * closed ticket for the first time serves nobody, so a source's fact about an unrecognized ref
++     * means nothing here; do nothing further for a card already carrying `sourceClosed: true` — the
++     * one-way door, so a redelivered or re-polled closure this class already acted on is a no-op, not
++     * a second drop, flag, or notification; otherwise branch on whether anything is carrying the card
++     * right now (`BoardRepository.hasLiveClaim`) and, only failing that, its current stage — never by
++     * the stage's `mode` (this card's Constraints).
++     */
++    private async applyClosed(source: string, item: CardSourceItem): Promise<void> {
++        const existing = await this.findByExternalRef(source, item.externalId);
++        if (!existing) return;
++        if (existing.frontmatter.sourceClosed) return;
++
++        const cardId = existing.frontmatter.id;
++        const stage = existing.frontmatter.stage;
++
++        if (await this.boardRepository.hasLiveClaim(this.boardConfig.project, cardId)) {
++            // A stage is executing this card right now. Killing it mid-stage forfeits spend already
++            // incurred and leaves a half-written worktree, so this only sets the flag; letting the
++            // stage finish and then halting at its own stage is `StageDispatcher.writeTransition`'s
++            // job, not this write's (this card's Constraints). A plain `write`, not `writeWithEvent`:
++            // nothing is transitioning here, only a flag a later transition reads. No notification
++            // yet — `writeTransition` sends the one that matters once the halt actually happens.
++            await this.boardRepository.write(cardId, `${cardId}: source closed externally, flagged mid-run`, current =>
++                current.frontmatter.sourceClosed ? current : { ...current, frontmatter: { ...current.frontmatter, sourceClosed: true } },
++            );
++            return;
++        }
++
++        if (stage === 'ready') {
++            // Never auto-merge a card whose ticket is closed: `ready` is exactly where a human
++            // decides to ship it anyway or drop it, so this flags and notifies but leaves the card at
++            // `ready` rather than dropping finished, reviewed work nobody has looked at yet.
++            await this.boardRepository.writeWithEvent(
++                cardId,
++                `${cardId}: flagged, source closed externally`,
++                current => ({ ...current, frontmatter: { ...current.frontmatter, sourceClosed: true } }),
++                {
++                    project: this.boardConfig.project,
++                    cardId,
++                    stage,
++                    type: 'transition.written',
++                    payload: { from: stage, to: stage, by: 'runner', sourceClosed: true },
++                },
++            );
++            await this.notify({ cardId, title: existing.frontmatter.title, stage, moment: 'source-closed' });
++            return;
++        }
++
++        // Nothing is in flight, and the card is not sitting at the one gate that must not
++        // auto-resolve: parking lot, planning, backlog, or an agent-mode stage nothing happens to be
++        // running right now. There is nothing to lose, so it moves straight to `dropped`.
++        await this.boardRepository.writeWithEvent(
++            cardId,
++            `${cardId}: dropped, source closed externally`,
++            current => ({ ...current, frontmatter: { ...current.frontmatter, sourceClosed: true, stage: 'dropped' } }),
++            {
++                project: this.boardConfig.project,
++                cardId,
++                stage,
++                type: 'transition.written',
++                payload: { from: stage, to: 'dropped', by: 'runner', sourceClosed: true },
++            },
++        );
++        await this.notify({ cardId, title: existing.frontmatter.title, stage: 'dropped', moment: 'source-closed' });
++    }
++
++    /**
++     * Tell a person a card's ticket closed externally — the `source-closed` moment. Constructed the
++     * same ad hoc way `StageDispatcher.notify` builds one and for the same reason: `BoardConfig`'s
++     * `notifyWebhookUrl`/`notifyBaseUrl` are read fresh on every call rather than cached (card 0107),
++     * so there is nothing to gain from holding a `Notifier` as a field instead.
++     */
++    private async notify(notification: Omit<CardNotification, 'project'>): Promise<void> {
++        await new Notifier(this.boardConfig.notifyWebhookUrl, this.boardConfig.notifyBaseUrl, this.logger).notify({
++            project: this.boardConfig.project,
++            ...notification,
++        });
++    }
++
+     private async write(source: string, item: CardSourceItem): Promise<void> {
+         const existing = await this.findByExternalRef(source, item.externalId);
+ 
+diff --git a/apps/api/src/modules/stages/stage.dispatcher.ts b/apps/api/src/modules/stages/stage.dispatcher.ts
+index 16cb2a0c..b3bebb1e 100644
+--- a/apps/api/src/modules/stages/stage.dispatcher.ts
++++ b/apps/api/src/modules/stages/stage.dispatcher.ts
+@@ -565,9 +565,19 @@ export class StageDispatcher {
+         // `retries` and `needsHuman` come from `head`, not `card`: both are runner state, and `card`
+         // is frozen at approval — a retry count read from it would forget every attempt made since,
+         // and a flag read from it would look unset even after the card was flagged post-approval.
+-        const decision: KickbackDecision = shouldAdvance(outcome.passed, outcome.result)
++        let decision: KickbackDecision = shouldAdvance(outcome.passed, outcome.result)
+             ? { target: stage.onPass, retries: head.frontmatter.retries }
+             : kickback(stage, head.frontmatter.retries, Boolean(outcome.unjudged), Boolean(outcome.resultDropped));
++
++        // Card 0200: a card whose ticket closed externally while this stage was running halts here
++        // instead of advancing or kicking back further, once this one stage — already bounded by its
++        // own budget — finishes. `InboundCardWriter` is what set the flag going in; this is the one
++        // place that flag turns into "stop". Only overrides when the ordinary decision did not
++        // already flag one: an exhausted kickback's own reason must not be replaced by this one.
++        if (head.frontmatter.sourceClosed && !decision.needsHuman) {
++            decision = { target: stageName, retries: decision.retries, needsHuman: { reason: 'source-closed' } };
++        }
++
+         const findings = findingsFrom(outcome.result);
+         const needsHuman = decision.needsHuman;
+ 
+diff --git a/apps/api/tests/modules/sources/card.source.test.ts b/apps/api/tests/modules/sources/card.source.test.ts
+index 9940b096..a8863ec4 100644
+--- a/apps/api/tests/modules/sources/card.source.test.ts
++++ b/apps/api/tests/modules/sources/card.source.test.ts
+@@ -16,8 +16,8 @@ const refusingSource = (reason: string): CardSource => ({
+ });
+ 
+ describe('CardSource', () => {
+-    it('round-trips the item shape: external id, title, body, and version', async () => {
+-        const item: CardSourceItem = { externalId: 'ENG-123', title: 'Fix the thing', body: 'It is broken.', version: 'v1' };
++    it('round-trips the item shape: external id, title, body, version, and closed', async () => {
++        const item: CardSourceItem = { externalId: 'ENG-123', title: 'Fix the thing', body: 'It is broken.', version: 'v1', closed: false };
+         const source = stubSource([item]);
+ 
+         const result = await source.changedSince(undefined);
+@@ -27,8 +27,8 @@ describe('CardSource', () => {
+ 
+     it('round-trips multiple items in a single fetch', async () => {
+         const items: CardSourceItem[] = [
+-            { externalId: 'ENG-1', title: 'First', body: 'One', version: 'v1' },
+-            { externalId: 'ENG-2', title: 'Second', body: 'Two', version: 'v1' },
++            { externalId: 'ENG-1', title: 'First', body: 'One', version: 'v1', closed: false },
++            { externalId: 'ENG-2', title: 'Second', body: 'Two', version: 'v1', closed: true },
+         ];
+         const source = stubSource(items);
+ 
+diff --git a/apps/api/tests/modules/sources/github.issues.source.test.ts b/apps/api/tests/modules/sources/github.issues.source.test.ts
+index a6adf22b..0dc03ae4 100644
+--- a/apps/api/tests/modules/sources/github.issues.source.test.ts
++++ b/apps/api/tests/modules/sources/github.issues.source.test.ts
+@@ -68,11 +68,14 @@ function hangingFetch(): typeof fetch {
+     }) as unknown as typeof fetch;
+ }
+ 
+-const issue = (overrides: Partial<{ number: number; title: string; body: string | null; updated_at: string; pull_request: unknown }> = {}) => ({
++const issue = (
++    overrides: Partial<{ number: number; title: string; body: string | null; updated_at: string; state: string; pull_request: unknown }> = {},
++) => ({
+     number: 1,
+     title: 'Fix the thing',
+     body: 'It is broken.',
+     updated_at: '2026-01-01T00:00:00Z',
++    state: 'open',
+     ...overrides,
+ });
+ 
+@@ -93,7 +96,13 @@ describe('GitHubIssuesSource.changedSince — mapping', () => {
+         expect(result.ok).toBe(true);
+         if (!result.ok) return;
+         expect(result.items).toEqual([
+-            { externalId: 'octocat/hello-world#123', title: 'Widget is broken', body: 'Steps to reproduce...', version: '2026-01-01T00:00:00Z' },
++            {
++                externalId: 'octocat/hello-world#123',
++                title: 'Widget is broken',
++                body: 'Steps to reproduce...',
++                version: '2026-01-01T00:00:00Z',
++                closed: false,
++            },
+         ]);
+     });
+ 
+@@ -137,7 +146,41 @@ describe('GitHubIssuesSource.changedSince — mapping', () => {
+         expect(result.items[0]!.externalId).toContain('#1');
+     });
+ 
+-    it('requests the documented query: labels, state=open, sort=updated, direction=asc, per_page=100, and since when a cursor is given', async () => {
++    /**
++     * Card 0200: `state=all` now surfaces closed pull requests too, and `pull_request` is still the
++     * only tell that separates them from issues — the filter must not accidentally start letting a
++     * closed one through just because `state` is no longer `'open'`.
++     */
++    it('does not return a closed pull request either', async () => {
++        const closedPr = issue({ number: 2, title: 'A closed pull request', state: 'closed', pull_request: { url: 'https://api.github.com/...' } });
++        const { fetchImpl } = scriptedFetch([jsonResponse([issue({ number: 1 }), closedPr])]);
++        const source = new GitHubIssuesSource(withRepo(), 'tok', fetchImpl);
++
++        const result = await source.changedSince(undefined);
++
++        expect(result.ok).toBe(true);
++        if (!result.ok) return;
++        expect(result.items).toHaveLength(1);
++        expect(result.items[0]!.externalId).toContain('#1');
++    });
++
++    /**
++     * Card 0200's whole reason to fetch `state=all`: `InboundCardWriter` decides what a closed ticket
++     * means for a card, but only if this source actually reports the closure.
++     */
++    it("reports closed: true for a closed issue and closed: false for an open one", async () => {
++        const { fetchImpl } = scriptedFetch([jsonResponse([issue({ number: 1, state: 'open' }), issue({ number: 2, state: 'closed' })])]);
++        const source = new GitHubIssuesSource(withRepo(), 'tok', fetchImpl);
++
++        const result = await source.changedSince(undefined);
++
++        expect(result.ok).toBe(true);
++        if (!result.ok) return;
++        expect(result.items.find(i => i.externalId.endsWith('#1'))!.closed).toBe(false);
++        expect(result.items.find(i => i.externalId.endsWith('#2'))!.closed).toBe(true);
++    });
++
++    it('requests the documented query: labels, state=all, sort=updated, direction=asc, per_page=100, and since when a cursor is given', async () => {
+         const { fetchImpl, calls } = scriptedFetch([jsonResponse([])]);
+         const source = new GitHubIssuesSource(withRepo('octocat/hello-world', 'wilson-import'), 'tok', fetchImpl);
+ 
+@@ -146,7 +189,10 @@ describe('GitHubIssuesSource.changedSince — mapping', () => {
+         const url = new URL(calls[0]!.url);
+         expect(url.pathname).toBe('/repos/octocat/hello-world/issues');
+         expect(url.searchParams.get('labels')).toBe('wilson-import');
+-        expect(url.searchParams.get('state')).toBe('open');
++        // Card 0200: `state=all`, not `state=open` — reacting to a closed ticket is
++        // `InboundCardWriter`'s job, not this source's, but it can only react to what this source
++        // reports.
++        expect(url.searchParams.get('state')).toBe('all');
+         expect(url.searchParams.get('sort')).toBe('updated');
+         expect(url.searchParams.get('direction')).toBe('asc');
+         expect(url.searchParams.get('per_page')).toBe('100');
+diff --git a/apps/api/tests/modules/sources/inbound.card.writer.test.ts b/apps/api/tests/modules/sources/inbound.card.writer.test.ts
+index 0fdb36cc..1ac34954 100644
+--- a/apps/api/tests/modules/sources/inbound.card.writer.test.ts
++++ b/apps/api/tests/modules/sources/inbound.card.writer.test.ts
+@@ -1,4 +1,4 @@
+-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
++import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+ import type { Kysely } from 'kysely';
+ import type { Logger } from '@maroonedsoftware/logger';
+ import type { JobBroker } from '@maroonedsoftware/jobbroker';
+@@ -50,9 +50,9 @@ const fakeLogger = (): Logger =>
+  * duplicate/retention path rather than a fake's idea of it. A caller that wants to control exactly
+  * what `deduplicate` reports back (the `dropped` test) passes its own fake instead.
+  */
+-const freshWriter = (idempotencyStore?: IdempotencyStore, logger = fakeLogger()) => {
++const freshWriter = (idempotencyStore?: IdempotencyStore, logger = fakeLogger(), notifyWebhookUrl?: string, notifyBaseUrl?: string) => {
+     const events = { append: vi.fn(async () => {}) };
+-    const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
++    const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run', notifyWebhookUrl, notifyBaseUrl);
+     const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
+     const worktrees = {
+         branchName: vi.fn((cardId: string, title: string) => `card/${cardId}-${title}`),
+@@ -83,6 +83,7 @@ const item = (overrides: Partial<CardSourceItem> = {}): CardSourceItem => ({
+     title: 'Fix the thing',
+     body: 'It is broken.',
+     version: 'v1',
++    closed: false,
+     ...overrides,
+ });
+ 
+@@ -229,3 +230,137 @@ describe('InboundCardWriter', () => {
+         expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('dropped'));
+     });
+ });
++
++/**
++ * Card 0200: a closed item is not a create-or-update. `fetch` is stubbed rather than `Notifier`
++ * itself, the same idiom `stage.dispatcher.test.ts` uses for the equivalent `needs-human`
++ * notification — what is asserted is the observable HTTP call a real webhook would receive, while
++ * the board write itself is real, against the same `PostgresBoardRepository` every other test in
++ * this file uses.
++ */
++describe('InboundCardWriter — a closed item (card 0200)', () => {
++    let fetchMock: ReturnType<typeof vi.fn>;
++
++    beforeEach(() => {
++        fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
++        vi.stubGlobal('fetch', fetchMock);
++    });
++
++    afterEach(() => {
++        vi.unstubAllGlobals();
++    });
++
++    /** A row in `runner.cardJobs` is exactly what `BoardRepository.hasLiveClaim` treats as "a stage
++     * is executing this card right now" (card 0128) — the same idiom
++     * `postgres.board.repository.test.ts`'s own `hasLiveClaim` test uses to fake one without a real
++     * job broker. */
++    const claim = async (project: string, cardId: string) => {
++        await db.insertInto('runner.cardJobs').values({ project, cardId, jobId: 'job-1' }).execute();
++    };
++
++    it('does nothing for a closed item naming a ref the board has never seen', async () => {
++        const { board, writer } = freshWriter(undefined, fakeLogger(), 'https://hooks.example/notify');
++
++        await writer.apply('github', item({ closed: true }));
++
++        expect(await board.list()).toHaveLength(0);
++        expect(fetchMock).not.toHaveBeenCalled();
++    });
++
++    it('moves a matching parking-lot card to dropped and notifies exactly once', async () => {
++        const { board, writer, config } = freshWriter(undefined, fakeLogger(), 'https://hooks.example/notify', 'https://board.example');
++        await writer.apply('github', item({ externalId: 'ENG-1' }));
++
++        await writer.apply('github', item({ externalId: 'ENG-1', closed: true }));
++
++        const [card] = await board.list();
++        expect(card!.frontmatter.stage).toBe('dropped');
++        expect(card!.frontmatter.sourceClosed).toBe(true);
++        expect(fetchMock).toHaveBeenCalledTimes(1);
++        const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
++        expect(body).toMatchObject({ moment: 'source-closed', project: config.project, stage: 'dropped', url: 'https://board.example/cards/' + card!.frontmatter.id });
++    });
++
++    it('moves a matching planning or backlog card to dropped too, the same as parking-lot', async () => {
++        const { board, writer } = freshWriter(undefined, fakeLogger(), 'https://hooks.example/notify');
++        await writer.apply('github', item({ externalId: 'ENG-1' }));
++        const [created] = await board.list();
++        await board.write(created!.frontmatter.id, 'move to backlog', c => ({ ...c, frontmatter: { ...c.frontmatter, stage: 'backlog' } }));
++
++        await writer.apply('github', item({ externalId: 'ENG-1', closed: true }));
++
++        const [card] = await board.list();
++        expect(card!.frontmatter.stage).toBe('dropped');
++        expect(card!.frontmatter.sourceClosed).toBe(true);
++    });
++
++    it('flags a matching card at ready and notifies once, but leaves it at ready rather than dropping it', async () => {
++        const { board, writer, config } = freshWriter(undefined, fakeLogger(), 'https://hooks.example/notify');
++        await writer.apply('github', item({ externalId: 'ENG-1' }));
++        const [created] = await board.list();
++        await board.write(created!.frontmatter.id, 'promote to ready', c => ({ ...c, frontmatter: { ...c.frontmatter, stage: 'ready' } }));
++
++        await writer.apply('github', item({ externalId: 'ENG-1', closed: true }));
++
++        const [card] = await board.list();
++        expect(card!.frontmatter.stage).toBe('ready');
++        expect(card!.frontmatter.sourceClosed).toBe(true);
++        expect(fetchMock).toHaveBeenCalledTimes(1);
++        const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
++        expect(body).toMatchObject({ moment: 'source-closed', project: config.project, stage: 'ready' });
++    });
++
++    it('sets sourceClosed and changes nothing else on a card something is actively running, and sends no notification yet', async () => {
++        const { board, writer, config } = freshWriter(undefined, fakeLogger(), 'https://hooks.example/notify');
++        await writer.apply('github', item({ externalId: 'ENG-1' }));
++        const [created] = await board.list();
++        await board.write(created!.frontmatter.id, 'move to implementing', c => ({ ...c, frontmatter: { ...c.frontmatter, stage: 'implementing' } }));
++        await claim(config.project, created!.frontmatter.id);
++
++        await writer.apply('github', item({ externalId: 'ENG-1', closed: true }));
++
++        const [card] = await board.list();
++        expect(card!.frontmatter.stage).toBe('implementing');
++        expect(card!.frontmatter.sourceClosed).toBe(true);
++        expect(fetchMock).not.toHaveBeenCalled();
++    });
++
++    /**
++     * The one-way door (this card's Constraints): once `sourceClosed` is recorded, a second closed
++     * report for the same card writes nothing and notifies nothing — checked here across all three
++     * branches by asserting a spy on the write methods and the notifier both see zero calls on the
++     * second `apply`.
++     */
++    it('does nothing on a second closed report against a card already carrying sourceClosed: true, in every branch', async () => {
++        const { board, writer, config } = freshWriter(undefined, fakeLogger(), 'https://hooks.example/notify');
++
++        // Branch 1: parking-lot -> dropped.
++        await writer.apply('github', item({ externalId: 'DROP-1' }));
++        await writer.apply('github', item({ externalId: 'DROP-1', closed: true }));
++
++        // Branch 2: ready, flagged in place.
++        await writer.apply('github', item({ externalId: 'READY-1' }));
++        const [readyCard] = (await board.list()).filter(c => c.frontmatter.external?.github === 'READY-1');
++        await board.write(readyCard!.frontmatter.id, 'promote to ready', c => ({ ...c, frontmatter: { ...c.frontmatter, stage: 'ready' } }));
++        await writer.apply('github', item({ externalId: 'READY-1', closed: true }));
++
++        // Branch 3: mid-run, flagged with no stage change.
++        await writer.apply('github', item({ externalId: 'RUN-1' }));
++        const [runCard] = (await board.list()).filter(c => c.frontmatter.external?.github === 'RUN-1');
++        await board.write(runCard!.frontmatter.id, 'move to implementing', c => ({ ...c, frontmatter: { ...c.frontmatter, stage: 'implementing' } }));
++        await claim(config.project, runCard!.frontmatter.id);
++        await writer.apply('github', item({ externalId: 'RUN-1', closed: true }));
++
++        fetchMock.mockClear();
++        const writeSpy = vi.spyOn(board, 'write');
++        const writeWithEventSpy = vi.spyOn(board, 'writeWithEvent');
++
++        await writer.apply('github', item({ externalId: 'DROP-1', closed: true }));
++        await writer.apply('github', item({ externalId: 'READY-1', closed: true }));
++        await writer.apply('github', item({ externalId: 'RUN-1', closed: true }));
++
++        expect(writeSpy).not.toHaveBeenCalled();
++        expect(writeWithEventSpy).not.toHaveBeenCalled();
++        expect(fetchMock).not.toHaveBeenCalled();
++    });
++});
+diff --git a/apps/api/tests/modules/sources/source.poller.test.ts b/apps/api/tests/modules/sources/source.poller.test.ts
+index dad0b708..28c7800a 100644
+--- a/apps/api/tests/modules/sources/source.poller.test.ts
++++ b/apps/api/tests/modules/sources/source.poller.test.ts
+@@ -131,8 +131,8 @@ const buildPoller = (
+ 
+ describe('SourcePoller tick — applying and advancing', () => {
+     it('applies every item a source reports, in order, before advancing that cursor', async () => {
+-        const item1 = { externalId: 'ENG-1', title: 'First', body: 'One', version: 'v1' };
+-        const item2 = { externalId: 'ENG-2', title: 'Second', body: 'Two', version: 'v1' };
++        const item1 = { externalId: 'ENG-1', title: 'First', body: 'One', version: 'v1', closed: false };
++        const item2 = { externalId: 'ENG-2', title: 'Second', body: 'Two', version: 'v1', closed: false };
+         const source: CardSource = { name: 'linear', changedSince: async () => ({ ok: true, items: [item1, item2], cursor: 'cursor-1' }) };
+         const { poller, cursors, writer } = buildPoller([source]);
+ 
+@@ -413,8 +413,8 @@ describe('SourcePoller — end to end against a real board', () => {
+ 
+     it('a source reporting two items lands two cards in parking-lot, both carrying their external ref', async () => {
+         const items = [
+-            { externalId: 'ENG-1', title: 'First', body: 'Body one', version: 'v1' },
+-            { externalId: 'ENG-2', title: 'Second', body: 'Body two', version: 'v1' },
++            { externalId: 'ENG-1', title: 'First', body: 'Body one', version: 'v1', closed: false },
++            { externalId: 'ENG-2', title: 'Second', body: 'Body two', version: 'v1', closed: false },
+         ];
+         const source: CardSource = { name: 'linear', changedSince: async () => ({ ok: true, items, cursor: 'cursor-1' }) };
+         const { board, config, cursors, registry, writer } = freshPoller(source);
+@@ -439,7 +439,7 @@ describe('SourcePoller — end to end against a real board', () => {
+                 // A real source bumps `version` when the item genuinely changes (GitHubIssuesSource
+                 // uses the issue's `updated_at`); holding it fixed here would make the second delivery a
+                 // duplicate by card 0197's key, which is the dedup working, not an update being lost.
+-                return { ok: true, items: [{ externalId: 'ENG-1', title, body: 'Body', version: `v${call}` }], cursor: `cursor-${call}` };
++                return { ok: true, items: [{ externalId: 'ENG-1', title, body: 'Body', version: `v${call}`, closed: false }], cursor: `cursor-${call}` };
+             },
+         };
+         const { board, config, cursors, registry, writer } = freshPoller(source);
+diff --git a/apps/api/tests/modules/stages/stage.dispatcher.test.ts b/apps/api/tests/modules/stages/stage.dispatcher.test.ts
+index b6599a0f..f8b60353 100644
+--- a/apps/api/tests/modules/stages/stage.dispatcher.test.ts
++++ b/apps/api/tests/modules/stages/stage.dispatcher.test.ts
+@@ -283,6 +283,60 @@ describe('StageDispatcher writeTransition (via private access — run() drags in
+         const stored = await board.read('0001');
+         expect(stored.frontmatter.retries).toEqual({ testing: 5 });
+     });
++
++    /**
++     * Card 0200: `InboundCardWriter` sets `sourceClosed` on the live card mid-run, while this stage
++     * is still executing (see this card's Note). By the time the stage finishes and this method
++     * runs, that flag must turn "advance" into "halt here instead" — one more stage, bounded by its
++     * own budget, is what the card's Constraints allow, not a second one.
++     */
++    it('halts a passing stage at its own stage, flagged, when the card carries sourceClosed going in', async () => {
++        const stage = makeStage({ onPass: 'review' });
++        const closedHead: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, sourceClosed: true } };
++
++        const { target, needsHuman } = await writeTransition(stage, baseCard, outcome({ passed: true }), closedHead);
++
++        expect(target).toBe('testing');
++        expect(needsHuman).toBe(true);
++        const stored = await board.read('0001');
++        expect(stored.frontmatter.stage).toBe('testing');
++        expect(stored.frontmatter.needsHuman).toBe(true);
++        expect(stored.frontmatter.needsHumanReason).toBe('source-closed');
++    });
++
++    it('halts a stage that would have kicked back at its own stage instead, when the card carries sourceClosed going in', async () => {
++        const stage = makeStage({ onFail: 'implementing', maxKickbacks: 3 });
++        const closedHead: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, sourceClosed: true } };
++
++        const { target, needsHuman } = await writeTransition(stage, baseCard, outcome({ passed: false }), closedHead);
++
++        expect(target).toBe('testing');
++        expect(needsHuman).toBe(true);
++        const stored = await board.read('0001');
++        expect(stored.frontmatter.stage).toBe('testing');
++        // Not routed to `implementing`, and not merely flagged with the ordinary kickback-exhaustion
++        // reason — the override replaces the target and the reason together.
++        expect(stored.frontmatter.needsHumanReason).toBe('source-closed');
++    });
++
++    /**
++     * The override must not replace a reason the ordinary decision already computed: an exhausted
++     * kickback on a card that also happens to carry `sourceClosed` still reports why the kickback
++     * itself failed, since that decision already flagged one (this card's Constraints: "when ... the
++     * ordinary decision did not already flag one").
++     */
++    it('does not override an ordinary decision that already flags the card for its own reason', async () => {
++        const stage = makeStage({ onFail: 'implementing', maxKickbacks: 1 });
++        const closedHead: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, sourceClosed: true } };
++
++        const { target, needsHuman } = await writeTransition(stage, baseCard, outcome({ passed: false }), closedHead);
++
++        expect(target).toBe('testing');
++        expect(needsHuman).toBe(true);
++        const stored = await board.read('0001');
++        expect(stored.frontmatter.needsHumanReason).toContain('testing');
++        expect(stored.frontmatter.needsHumanReason).not.toBe('source-closed');
++    });
+ });
+ 
+ /**
+@@ -450,6 +504,30 @@ describe('StageDispatcher writeTransition notifies on an exhausted kickback (car
+         const stored = await boardRepo.read('0001');
+         expect(stored.frontmatter.needsHuman).toBe(true);
+     });
++
++    /**
++     * Card 0200: the mid-run halt reuses this exact `needs-human` machinery rather than a second
++     * notification path (this card's Constraints), so it gets the notify-once guard for free — this
++     * checks it actually fires, once, with the reason the override sets.
++     */
++    it('notifies exactly once, with reason "source-closed", when a card whose source closed halts here', async () => {
++        const { dispatcher, project } = await buildDispatcher('https://hooks.example/notify', 'https://board.example');
++        const stage = makeStage({ onPass: 'review' });
++        const closedHead: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, sourceClosed: true } };
++
++        await writeTransition(dispatcher, stage, baseCard, outcome({ passed: true }), closedHead);
++
++        expect(fetchMock).toHaveBeenCalledTimes(1);
++        const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
++        expect(body).toMatchObject({
++            moment: 'needs-human',
++            project,
++            cardId: '0001',
++            stage: 'testing',
++            reason: 'source-closed',
++            url: 'https://board.example/cards/0001',
++        });
++    });
+ });
+ 
+ /**

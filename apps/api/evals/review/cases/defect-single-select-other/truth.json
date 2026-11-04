@@ -1,0 +1,8 @@
+{
+    "kind": "defect",
+    "class": "logic",
+    "file": "apps/web/src/components/ChatQuestionCard.tsx",
+    "lines": [75, 130],
+    "about": "A radio cannot be unticked, so someone who picked an option and then typed Other can only submit both, and the agent reads a contradiction.",
+    "fixedBy": "2f20440d836a5f049522e1bf16da9b13163f1a88"
+}

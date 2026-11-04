@@ -1,0 +1,105 @@
+diff --git a/apps/api/src/modules/chat/chat.prompt.ts b/apps/api/src/modules/chat/chat.prompt.ts
+index 27a22e33..19f9430e 100644
+--- a/apps/api/src/modules/chat/chat.prompt.ts
++++ b/apps/api/src/modules/chat/chat.prompt.ts
+@@ -22,7 +22,8 @@ export const chatSystemPrompt = ({ projects, currentProject }: ChatPromptContext
+         '',
+         'How you work:',
+         "- Find operations by searching Wilson's catalog, read an operation's description before using it, and pass its arguments exactly as its input schema names them.",
+-        '- Run reads yourself, as many as answering needs.',
++        '- Run reads yourself, as many as answering needs. A cut result says how to read on: read to the end of whatever your answer depends on.',
++        '- Never diagnose text you have not read. Say what you read and what you did not, and do not guess at the rest.',
+         '- Never claim to have changed anything. A change is only ever proposed, as one plain sentence, and the person confirms or declines it. Say what you proposed and that it waits on them.',
+         '- Name the project on every operation that is about one.',
+         '- If an operation fails, say why in its own words, and do not retry the same call unchanged.',
+diff --git a/apps/api/src/modules/chat/chat.tools.ts b/apps/api/src/modules/chat/chat.tools.ts
+index 617c7d47..237503af 100644
+--- a/apps/api/src/modules/chat/chat.tools.ts
++++ b/apps/api/src/modules/chat/chat.tools.ts
+@@ -48,9 +48,18 @@ export const PROPOSAL_TTL = Duration.fromObject({ minutes: 10 });
+ /** A read's result is cut here before the model sees it, so one large diff cannot fill the context. */
+ export const RESULT_CAP = 20_000;
+ 
+-const capped = (value: unknown): string => {
++/**
++ * One window of a result, `RESULT_CAP` long, from `offset`. A cut says where the next window starts,
++ * so an operation with no narrower form of itself, such as a card with a long plan, can still be
++ * read to its end.
++ */
++const capped = (value: unknown, offset = 0): string => {
+     const text = JSON.stringify(value ?? null, null, 1);
+-    return text.length <= RESULT_CAP ? text : `${text.slice(0, RESULT_CAP)}\n… cut at ${RESULT_CAP} of ${text.length} characters; ask for less.`;
++    if (offset === 0 && text.length <= RESULT_CAP) return text;
++    if (offset >= text.length) return `Nothing at offset ${offset}: the result is ${text.length} characters.`;
++    const end = offset + RESULT_CAP;
++    if (end >= text.length) return text.slice(offset);
++    return `${text.slice(offset, end)}\n… cut at ${end} of ${text.length} characters; repeat this call with offset ${end} to read on.`;
+ };
+ 
+ const PROJECT = z
+@@ -105,10 +114,21 @@ export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatT
+         },
+         {
+             name: 'dispatch_readonly',
+-            description: 'Run a read operation and answer with its result. Refuses a change: propose one instead, for the person to confirm.',
+-            input: z.object({ name: z.string().describe('The operation name.'), project: PROJECT, arguments: ARGUMENTS }),
++            description:
++                'Run a read operation and answer with its result. A long result comes back in windows, each saying the offset of the next. Refuses a change: propose one instead, for the person to confirm.',
++            input: z.object({
++                name: z.string().describe('The operation name.'),
++                project: PROJECT,
++                arguments: ARGUMENTS,
++                offset: z.number().int().min(0).optional().describe('Where in the result to start, from a cut result; the start if left out.'),
++            }),
+             execute: async input => {
+-                const { name, project, arguments: args = {} } = input as { name: string; project?: string; arguments?: Record<string, unknown> };
++                const {
++                    name,
++                    project,
++                    arguments: args = {},
++                    offset,
++                } = input as { name: string; project?: string; arguments?: Record<string, unknown>; offset?: number };
+                 const entry = catalog.get(name);
+                 if (!entry) return `There is no operation named "${name}". Search for one first.`;
+                 if (!entry.readOnly)
+@@ -116,7 +136,7 @@ export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatT
+                 try {
+                     const result = await catalog.run(context.container, context.logger, context.session, name, args, project);
+                     record({ name, arguments: args, project, ok: true });
+-                    return capped(result);
++                    return capped(result, offset);
+                 } catch (err) {
+                     record({ name, arguments: args, project, ok: false });
+                     return `"${name}" failed: ${explainError(err)}`;
+diff --git a/apps/api/tests/modules/chat/chat.tools.test.ts b/apps/api/tests/modules/chat/chat.tools.test.ts
+index b56a8db0..9a2ec33a 100644
+--- a/apps/api/tests/modules/chat/chat.tools.test.ts
++++ b/apps/api/tests/modules/chat/chat.tools.test.ts
+@@ -92,6 +92,27 @@ describe('the chat tools', () => {
+         expect(answer).toContain(`cut at ${RESULT_CAP}`);
+     });
+ 
++    it('reads a large result to its end in windows, each naming the next offset', async () => {
++        const { tool } = setup();
++        const read = (offset?: number) =>
++            tool('dispatch_readonly').execute({ name: 'get_card_diff', project: 'wilson', arguments: { id: '0007' }, offset });
++
++        expect(await read()).toContain(`repeat this call with offset ${RESULT_CAP} to read on`);
++        expect(await read(RESULT_CAP)).toContain(`repeat this call with offset ${RESULT_CAP * 2} to read on`);
++
++        const last = await read(RESULT_CAP * 2);
++        expect(last).not.toContain('read on');
++        expect(last.length).toBeLessThan(10);
++    });
++
++    it('says so when an offset is past the end of the result', async () => {
++        const { tool } = setup();
++
++        const answer = await tool('dispatch_readonly').execute({ name: 'list_cards', project: 'wilson', offset: 5000 });
++
++        expect(answer).toContain('Nothing at offset 5000');
++    });
++
+     it('proposes a change as a pending action, without running it', async () => {
+         const { tool, context, events, proposals, calls } = setup();
+         const args = { id: '0007', body: { stage: 'implementing' } };

@@ -1,0 +1,136 @@
+diff --git a/apps/api/src/modules/agent/command.allowlist.ts b/apps/api/src/modules/agent/command.allowlist.ts
+index c311b145..252ef860 100644
+--- a/apps/api/src/modules/agent/command.allowlist.ts
++++ b/apps/api/src/modules/agent/command.allowlist.ts
+@@ -100,6 +100,21 @@ const MIGRATION_TOKEN = /^(?:migrate:[a-z:]+|dbmate|build:datatypes)$/;
+ /** Is this command reaching for the migration tooling, which no stage has? */
+ const isMigrationAttempt = (argv: string[]): boolean => argv.some(token => MIGRATION_TOKEN.test(token));
+ 
++/**
++ * Is `token` a binary this list knows by name — one it has a tool equivalent for, or one of the
++ * migration commands no stage carries?
++ *
++ * Exported for `PlanLintService`, which has to tell a command a plan is prescribing from prose that
++ * merely happens to be lowercase and multi-word. `id BIGSERIAL PRIMARY KEY`, quoted from a
++ * migration task in card [[0185]]'s plan, satisfies every shape test a command does and is a column
++ * definition. Keeping the vocabulary here is the rule that lint follows everywhere else: ask the
++ * object that owns the knowledge rather than carry a second copy of it.
++ *
++ * `Object.hasOwn` rather than `in`: `TOOL_EQUIVALENTS` is a plain object literal, and `'constructor'
++ * in` it is true.
++ */
++export const isKnownBinary = (token: string): boolean => Object.hasOwn(TOOL_EQUIVALENTS, token) || MIGRATION_TOKEN.test(token);
++
+ /**
+  * Does this stage's own allowlist actually permit `pnpm exec vitest run`?
+  *
+diff --git a/apps/api/src/modules/board/plan.lint.service.ts b/apps/api/src/modules/board/plan.lint.service.ts
+index 90416110..a0eac323 100644
+--- a/apps/api/src/modules/board/plan.lint.service.ts
++++ b/apps/api/src/modules/board/plan.lint.service.ts
+@@ -1,7 +1,7 @@
+ import picomatch from 'picomatch';
+ import { Injectable } from 'injectkit';
+ import { httpError } from '@maroonedsoftware/errors';
+-import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
++import { CommandAllowlist, isKnownBinary } from '#modules/agent/command.allowlist.js';
+ import { findStage, StageConfigError, type ProjectStages } from '#modules/stages/stage.config.js';
+ import { StageConfigStore } from '#modules/stages/stage.config.store.js';
+ import { BoardRepository } from './board.repository.js';
+@@ -38,11 +38,25 @@ const COMMAND_HEAD = /^[a-z][a-z0-9_-]*$/;
+  * is never a command in this codebase's stage configs (`pnpm build`, `pnpm exec vitest run`); every
+  * allowlist entry is at least two, so a lone word is left alone rather than run through the
+  * allowlist and reported as refused for no reason a reader could act on.
++ *
++ * Shape alone is not enough, and card [[0185]]'s plan proved it: `id BIGSERIAL PRIMARY KEY`, quoted
++ * from a migration task, is multi-token with a lowercase head and was duly reported as a refused
++ * command. So the head must also be a binary something actually knows about — one heading an entry
++ * on this stage's own allowlist, or one `CommandAllowlist` names itself (`isKnownBinary`).
++ *
++ * The deliberate gap: a plan prescribing a binary no allowlist mentions and the allowlist has no
++ * opinion on — `psql`, say — is not recognised, so it is not reported. That is the safe direction
++ * for this lint. A missed finding costs what it cost before this check existed; a confident wrong
++ * one teaches an operator to stop reading.
+  */
+-const looksLikeCommand = (span: string): boolean => {
++const looksLikeCommand = (span: string, allowlistHeads: ReadonlySet<string>): boolean => {
+     if (CODE_SYNTAX.test(span)) return false;
+     const tokens = span.split(/\s+/).filter(Boolean);
+-    return tokens.length >= 2 && COMMAND_HEAD.test(tokens[0]!);
++    if (tokens.length < 2) return false;
++
++    const head = tokens[0]!;
++    if (!COMMAND_HEAD.test(head)) return false;
++    return allowlistHeads.has(head) || isKnownBinary(head);
+ };
+ 
+ /**
+@@ -62,11 +76,14 @@ const commandFindings = (card: Card, stages: ProjectStages): LintFinding[] => {
+     }
+ 
+     const allowlist = new CommandAllowlist(allowedCommands);
++    // The binaries this stage's own config mentions — `pnpm`, `git` — derived rather than listed, so
++    // a project whose allowlist names something else gets the same recognition with no code change.
++    const allowlistHeads = new Set(allowedCommands.map(entry => entry.trim().split(/\s+/)[0]).filter((head): head is string => Boolean(head)));
+     const spans = new Set([...backtickedSpans(card.sections['Tasks']), ...backtickedSpans(card.sections['Constraints'])]);
+ 
+     const findings: LintFinding[] = [];
+     for (const span of spans) {
+-        if (!looksLikeCommand(span)) continue;
++        if (!looksLikeCommand(span, allowlistHeads)) continue;
+         const decision = allowlist.check(span);
+         if (!decision.allowed) {
+             findings.push({ kind: 'command', message: `\`${span}\` — ${decision.reason}` });
+diff --git a/apps/api/tests/modules/board/plan.lint.service.test.ts b/apps/api/tests/modules/board/plan.lint.service.test.ts
+index c52066e5..9d035c29 100644
+--- a/apps/api/tests/modules/board/plan.lint.service.test.ts
++++ b/apps/api/tests/modules/board/plan.lint.service.test.ts
+@@ -185,3 +185,48 @@ describe('PlanLintService alwaysAllowed subsumption', () => {
+         expect((await service.lint('c1')).filter(f => f.kind === 'alwaysAllowed')).toHaveLength(0);
+     });
+ });
++
++/**
++ * Regression, found by running this service against card 0185's real plan rather than a fixture.
++ * The extractor accepted any backticked span that was multi-token with a lowercase first word, and
++ * `id BIGSERIAL PRIMARY KEY` — a column definition quoted in a migration task — satisfies both. It
++ * was reported as a command the stage would refuse, which is true and useless.
++ *
++ * The head must now also be a binary something knows about: one heading an entry on the stage's own
++ * allowlist, or one `CommandAllowlist` names itself.
++ */
++describe('PlanLintService command extraction', () => {
++    const prose = (tasks: string) => card({ tasks, filesInScope: 'apps/api/src/modules/board/**' });
++
++    it('does not treat quoted SQL as a command, however command-shaped it looks', async () => {
++        const c = prose('Columns: `id BIGSERIAL PRIMARY KEY`, `project TEXT NOT NULL`.');
++        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig(['pnpm build']));
++
++        expect(await service.lint('c1')).toHaveLength(0);
++    });
++
++    it('still reports a real command the stage would refuse', async () => {
++        const c = prose('Run `pnpm migrate:create card_context`, then `pnpm build`.');
++        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig(['pnpm build']));
++
++        const findings = await service.lint('c1');
++
++        expect(findings).toHaveLength(1);
++        expect(findings[0]!.message).toContain('pnpm migrate:create card_context');
++    });
++
++    it('recognises a binary CommandAllowlist names even when no allowlist entry heads with it', async () => {
++        // `dbmate` heads nothing on the allowlist; the list knows it by name as migration tooling.
++        const c = prose('Apply it with `dbmate -d ./data/migrations up`.');
++        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig(['pnpm build']));
++
++        expect(await service.lint('c1')).toHaveLength(1);
++    });
++
++    it('recognises a head from the stage’s own allowlist, so a project naming other binaries needs no code change', async () => {
++        const c = prose('Then `cargo build --release`.');
++        const service = new PlanLintService(new OneCardBoardRepository(c), stageConfig(['cargo test']));
++
++        expect(await service.lint('c1')).toHaveLength(1);
++    });
++});

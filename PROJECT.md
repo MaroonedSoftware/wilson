@@ -652,6 +652,23 @@ gets one look however many kickbacks it takes, and most looks should find nothin
 `wilson.rule_proposals`, and is nothing until a person names and accepts it (`wilson rules accept`, or the
 rules page), behind step-up. It stops being offered after 45 days. Rule failures are never proposed from.
 
+### Measuring the reviewer
+
+Lanes can be re-routed and prompts edited, and neither says whether the change helped.
+`pnpm --filter @wilson/api eval:review` scores the real review stage on diffs with a known
+answer, so two models or two prompts can be compared on the same cases.
+
+The corpus in `apps/api/evals/review` holds 20 real defects from Wilson's history and 10
+controls. Each case runs in a scratch repository of one commit, through the same plan file,
+scope guard, adapter and `ReviewVerifier` a stage uses, with no board or database. Recall
+and specificity are reported with their `n`, both as the model reported them and as the
+verifier would have them.
+
+These scores stop at review, so they overstate what survives `challenge`. Setup, type-check
+evidence, rule judges and learnings do not run. The live prompt is only in the database, so a
+run takes a labelled copy of it. Real runs spend model usage, so they are started by hand and
+never by CI. `apps/api/evals/review/README.md` has the method and how to read a result.
+
 ### Before the work: parking lot, planning, backlog
 
 Three lanes sit ahead of `implementing`, and none of them is dispatched. Together they
@@ -1644,4 +1661,5 @@ looking at the result:
   produce one good enough that `scope_violation: kickback` is reachable, or does
   `widen` stay on indefinitely?
 - Does `plan-review` earn its cost, or does human approval catch everything it
-  catches? Worth measuring once a few cards have run rather than assuming.
+  catches? Worth measuring once a few cards have run rather than assuming. Measuring the
+  reviewer (above) is the method to start from, though it scores only the review stage.

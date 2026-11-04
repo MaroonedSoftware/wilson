@@ -1,0 +1,8 @@
+{
+    "kind": "defect",
+    "class": "state",
+    "file": "apps/api/src/modules/board/board.write.service.ts",
+    "lines": [89, 101],
+    "about": "Moving a flagged card clears the flag but leaves the flagged stage's retry count, so its next single failure lands straight back on the kickback limit.",
+    "fixedBy": "4fc7993e998b1996d834b057427bd029236eec28"
+}

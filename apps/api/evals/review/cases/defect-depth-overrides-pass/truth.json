@@ -1,0 +1,8 @@
+{
+    "kind": "defect",
+    "class": "logic",
+    "file": "apps/api/src/modules/stages/scope.check.verifier.ts",
+    "lines": [106, 118],
+    "about": "The group count cannot see cohesion, yet it overrides a model pass, so a single feature through every layer has no route forward except a split nobody judged necessary.",
+    "fixedBy": "726311c24337907b60c185b9e9e824a9cfcda363"
+}

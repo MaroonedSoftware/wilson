@@ -1,0 +1,806 @@
+diff --git a/apps/web/src/components/ChatQuestionCard.tsx b/apps/web/src/components/ChatQuestionCard.tsx
+new file mode 100644
+index 00000000..3127ae70
+--- /dev/null
++++ b/apps/web/src/components/ChatQuestionCard.tsx
+@@ -0,0 +1,159 @@
++import { useState } from 'react';
++import { Badge, Button, Card, Checkbox, Group, Radio, Stack, Text, TextInput } from '@mantine/core';
++import { IconQuestionMark } from '@tabler/icons-react';
++import type { ChatPendingQuestion, ChatQuestion, ChatQuestionAnswer } from '@wilson/sdk';
++import { useAnswerChatQuestions } from '#src/lib/chat.js';
++import { reasonFor } from '#src/lib/mutations.js';
++
++const STATUS_COLOR: Record<ChatPendingQuestion['status'], string> = { pending: 'yellow', answered: 'green', dismissed: 'gray' };
++
++/** Whether a question still waits on the person: past its expiry the server would refuse an answer. */
++export const isUnanswered = (question: ChatPendingQuestion): boolean => question.status === 'pending' && question.expiresAt.toMillis() > Date.now();
++
++// The source of truth is `MAX_OTHER_LENGTH` in `apps/api/src/modules/chat/chat.questions.ts`; `apps/web`
++// cannot import from `apps/api`, so this is kept as its own constant rather than a shared package.
++const MAX_OTHER_LENGTH = 500;
++
++/** The given answer as it reads in the conversation: the chosen labels, then any "Other" text, joined. */
++const answerText = (q: ChatQuestion, given: ChatQuestionAnswer | undefined): string | undefined => {
++    if (!given) return undefined;
++    const labels = given.chosen.map(index => q.options[index]?.label).filter((label): label is string => Boolean(label));
++    const parts = [...labels, ...(given.other ? [given.other] : [])];
++    return parts.length > 0 ? parts.join(', ') : undefined;
++};
++
++/**
++ * A question the chat asked, answered here with a click: its 1-4 prompts rendered as radio or
++ * checkbox groups plus an "Other" box, one Submit for all of it. Past its expiry, or once dismissed
++ * by an ordinary message on the thread, it says so rather than offering a button the server would
++ * refuse. Once answered it keeps the choices — and any "Other" text — in the conversation, with no
++ * controls.
++ */
++export function ChatQuestionCard({ question }: { question: ChatPendingQuestion }) {
++    const answer = useAnswerChatQuestions(question.threadId);
++    const unanswered = isUnanswered(question);
++    const expired = question.status === 'pending' && !unanswered;
++
++    const [chosen, setChosen] = useState<string[][]>(() => question.questions.map(() => []));
++    const [other, setOther] = useState<string[]>(() => question.questions.map(() => ''));
++
++    const complete = question.questions.every((_, i) => chosen[i]!.length > 0 || other[i]!.trim() !== '');
++
++    const submit = () => {
++        const answers: ChatQuestionAnswer[] = question.questions.map((_, i) => {
++            const said = other[i]!.trim();
++            return {
++                chosen: chosen[i]!.map(Number).sort((a, b) => a - b),
++                ...(said ? { other: said } : {}),
++            };
++        });
++        answer.mutate({ questionId: question.id, answers });
++    };
++
++    return (
++        <Card withBorder padding="md" radius="md" role="group" aria-label="Question">
++            <Stack gap="sm">
++                <Group gap="xs" wrap="nowrap" align="flex-start" justify="space-between">
++                    <Group gap="xs" wrap="nowrap" align="flex-start">
++                        {unanswered && (
++                            <IconQuestionMark size={18} color="var(--mantine-color-yellow-6)" aria-hidden style={{ flexShrink: 0, marginTop: 2 }} />
++                        )}
++                        {unanswered && (
++                            <Text size="xs" c="dimmed">
++                                Expires {question.expiresAt.toRelative()}.
++                            </Text>
++                        )}
++                    </Group>
++                    {!unanswered && (
++                        <Badge size="xs" color={expired ? 'gray' : STATUS_COLOR[question.status]} variant="light" style={{ flexShrink: 0 }}>
++                            {expired ? 'expired' : question.status}
++                        </Badge>
++                    )}
++                </Group>
++                {unanswered
++                    ? question.questions.map((q, i) => (
++                          <Stack key={i} gap="xs">
++                              {q.multiSelect ? (
++                                  <Checkbox.Group
++                                      label={q.header}
++                                      description={q.text}
++                                      value={chosen[i]}
++                                      onChange={value => setChosen(previous => previous.map((entry, index) => (index === i ? value : entry)))}
++                                  >
++                                      <Stack gap="xs" mt="xs">
++                                          {q.options.map((option, index) => (
++                                              <Checkbox
++                                                  key={index}
++                                                  value={String(index)}
++                                                  label={option.label}
++                                                  description={option.description}
++                                                  disabled={answer.isPending}
++                                              />
++                                          ))}
++                                      </Stack>
++                                  </Checkbox.Group>
++                              ) : (
++                                  <Radio.Group
++                                      label={q.header}
++                                      description={q.text}
++                                      value={chosen[i]![0] ?? null}
++                                      onChange={value =>
++                                          setChosen(previous => previous.map((entry, index) => (index === i ? [value] : entry)))
++                                      }
++                                  >
++                                      <Stack gap="xs" mt="xs">
++                                          {q.options.map((option, index) => (
++                                              <Radio
++                                                  key={index}
++                                                  value={String(index)}
++                                                  label={option.label}
++                                                  description={option.description}
++                                                  disabled={answer.isPending}
++                                              />
++                                          ))}
++                                      </Stack>
++                                  </Radio.Group>
++                              )}
++                              <TextInput
++                                  label="Other"
++                                  placeholder="Something else…"
++                                  maxLength={MAX_OTHER_LENGTH}
++                                  value={other[i]}
++                                  onChange={event => {
++                                      const value = event.currentTarget.value;
++                                      setOther(previous => previous.map((entry, index) => (index === i ? value : entry)));
++                                  }}
++                                  disabled={answer.isPending}
++                              />
++                          </Stack>
++                      ))
++                    : question.questions.map((q, i) => {
++                          const given = answerText(q, question.answers?.[i]);
++                          return (
++                              <Stack key={i} gap={2}>
++                                  <Text size="sm" fw={500}>
++                                      {q.header}
++                                  </Text>
++                                  <Text size="xs" c="dimmed">
++                                      {q.text}
++                                  </Text>
++                                  {given && <Text size="sm">{given}</Text>}
++                              </Stack>
++                          );
++                      })}
++                {unanswered && (
++                    <Group gap="xs" justify="flex-end">
++                        <Button size="xs" loading={answer.isPending} disabled={!complete} onClick={submit}>
++                            Submit
++                        </Button>
++                    </Group>
++                )}
++                {answer.isError && (
++                    <Text size="xs" c="red">
++                        {reasonFor(answer.error)}
++                    </Text>
++                )}
++            </Stack>
++        </Card>
++    );
++}
+diff --git a/apps/web/src/components/ChatView.tsx b/apps/web/src/components/ChatView.tsx
+index 08e38822..83b28ca9 100644
+--- a/apps/web/src/components/ChatView.tsx
++++ b/apps/web/src/components/ChatView.tsx
+@@ -2,9 +2,10 @@ import { useEffect, useState, type ReactNode } from 'react';
+ import { useScrollIntoView } from '@mantine/hooks';
+ import { ActionIcon, Alert, Box, Center, Chip, Group, ScrollArea, Skeleton, Stack, Text, Title, Tooltip } from '@mantine/core';
+ import { IconPlus } from '@tabler/icons-react';
+-import type { ChatMessage, ChatPendingAction } from '@wilson/sdk';
++import type { ChatMessage, ChatPendingAction, ChatPendingQuestion } from '@wilson/sdk';
+ import { ChatComposer } from '#src/components/ChatComposer.js';
+ import { ChatActionCard, isAwaiting } from '#src/components/ChatActionCard.js';
++import { ChatQuestionCard, isUnanswered } from '#src/components/ChatQuestionCard.js';
+ import { AnswerInProgress, Message, UserMessage } from '#src/components/ChatMessages.js';
+ import { ThreadList, ThreadMenu } from '#src/components/ChatThreads.js';
+ import {
+@@ -30,13 +31,17 @@ export const SUGGESTIONS = [
+     'What did the board spend today?',
+ ];
+ 
+-type Entry = { kind: 'message'; at: number; message: ChatMessage } | { kind: 'action'; at: number; action: ChatPendingAction };
++type Entry =
++    | { kind: 'message'; at: number; message: ChatMessage }
++    | { kind: 'action'; at: number; action: ChatPendingAction }
++    | { kind: 'question'; at: number; question: ChatPendingQuestion };
+ 
+-/** Messages and proposed changes in the order they happened, so a change sits beside the answer that proposed it. */
+-const timeline = (messages: ChatMessage[], actions: ChatPendingAction[]): Entry[] =>
++/** Messages, proposed changes and asked questions in the order they happened, so each sits beside the answer that raised it. */
++const timeline = (messages: ChatMessage[], actions: ChatPendingAction[], questions: ChatPendingQuestion[]): Entry[] =>
+     [
+         ...messages.map((message): Entry => ({ kind: 'message', at: message.createdAt.toMillis(), message })),
+         ...actions.map((action): Entry => ({ kind: 'action', at: action.createdAt.toMillis(), action })),
++        ...questions.map((question): Entry => ({ kind: 'question', at: question.createdAt.toMillis(), question })),
+     ].sort((a, b) => a.at - b.at);
+ 
+ export interface ChatViewProps {
+@@ -66,14 +71,15 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
+     const [typed, setTyped] = useState('');
+     const { scrollIntoView, targetRef, scrollableRef } = useScrollIntoView<HTMLDivElement, HTMLDivElement>({ duration: 0 });
+ 
+-    const entries = thread.data ? timeline(thread.data.messages, thread.data.actions) : [];
++    const entries = thread.data ? timeline(thread.data.messages, thread.data.actions, thread.data.questions) : [];
+     const draft = draftWithoutSuggestions(live.text);
+     const awaiting = thread.data?.actions.some(isAwaiting) ?? false;
++    const unanswered = thread.data?.questions.some(isUnanswered) ?? false;
+     const busy = start.isPending || send.isPending;
+-    // What to ask next follows from the latest answer, until the chat is working again or a change waits on the person.
++    // What to ask next follows from the latest answer, until the chat is working again, a change waits on the person, or a question does.
+     const last = thread.data?.messages.at(-1);
+     const answering = busy || live.text !== '' || live.operations.length > 0;
+-    const followUps = last?.role === 'assistant' && !answering && !awaiting ? (last.suggestions ?? []) : [];
++    const followUps = last?.role === 'assistant' && !answering && !awaiting && !unanswered ? (last.suggestions ?? []) : [];
+     useEffect(() => scrollIntoView({ alignment: 'end' }), [entries.length, draft, send.isPending, followUps.length]);
+ 
+     // A thread that no longer exists (archived elsewhere, or a stale id from another database) is let
+@@ -149,13 +155,16 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
+             <ScrollArea style={{ flex: 1 }} viewportRef={scrollableRef} type="auto">
+                 <Stack gap="md" px="md" py="lg" mx="auto" maw={COLUMN_WIDTH} aria-live="polite">
+                     {thread.isLoading && <Skeleton height={48} />}
+-                    {entries.map(entry =>
+-                        entry.kind === 'message' ? (
+-                            <Message key={`m${entry.message.seq}`} message={entry.message} />
+-                        ) : (
+-                            <ChatActionCard key={`a${entry.action.id}`} action={entry.action} />
+-                        ),
+-                    )}
++                    {entries.map(entry => {
++                        switch (entry.kind) {
++                            case 'message':
++                                return <Message key={`m${entry.message.seq}`} message={entry.message} />;
++                            case 'action':
++                                return <ChatActionCard key={`a${entry.action.id}`} action={entry.action} />;
++                            case 'question':
++                                return <ChatQuestionCard key={`q${entry.question.id}`} question={entry.question} />;
++                        }
++                    })}
+                     {send.isPending && <UserMessage text={send.variables.text} />}
+                     {/* The answer in progress: to a message just sent, or the follow-up to a confirmed change. */}
+                     {answering && <AnswerInProgress text={draft} operations={live.operations} />}
+@@ -190,7 +199,11 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
+                     onSend={sendDraft}
+                     disabled={busy}
+                     autoFocus={variant === 'page'}
+-                    {...(awaiting ? { placeholder: 'Confirm or decline above, or ask for something else…' } : {})}
++                    {...(unanswered
++                        ? { placeholder: 'Answer above, or ask for something else…' }
++                        : awaiting
++                          ? { placeholder: 'Confirm or decline above, or ask for something else…' }
++                          : {})}
+                     {...(followUps[0] ? { suggestion: followUps[0] } : {})}
+                 />
+             </Stack>
+diff --git a/apps/web/src/lib/chat.ts b/apps/web/src/lib/chat.ts
+index dadac887..04120411 100644
+--- a/apps/web/src/lib/chat.ts
++++ b/apps/web/src/lib/chat.ts
+@@ -1,6 +1,6 @@
+ import { useEffect, useState, useSyncExternalStore } from 'react';
+ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+-import type { ChatOperation, ChatPendingAction, ChatThread, ChatTurnResult } from '@wilson/sdk';
++import type { ChatOperation, ChatPendingAction, ChatPendingQuestion, ChatQuestionAnswer, ChatThread, ChatTurnResult } from '@wilson/sdk';
+ import { API_BASE } from './sdk.js';
+ import { useWilsonSdk } from './sdk-context.js';
+ 
+@@ -13,7 +13,7 @@ export function useChatThreads(enabled: boolean) {
+     return useQuery({ queryKey: CHAT_THREADS_KEY, queryFn: () => wilson.chat.listChatThreads(), enabled });
+ }
+ 
+-/** One thread with its messages and the changes it proposed. Undefined `id` reads nothing. */
++/** One thread with its messages, the changes it proposed, and the questions it asked. Undefined `id` reads nothing. */
+ export function useChatThread(id: string | undefined) {
+     const wilson = useWilsonSdk();
+     return useQuery({ queryKey: chatThreadKey(id ?? ''), queryFn: () => wilson.chat.getAChatThread(id!), enabled: id !== undefined });
+@@ -65,6 +65,24 @@ export function useDecideChatAction(threadId: string | undefined) {
+     });
+ }
+ 
++/**
++ * Answers a question `ask_user` asked. Unlike `useDecideChatAction`'s confirm branch, answering a
++ * question changes nothing the app shows — only the conversation — so this invalidates
++ * `chatThreadKey(threadId)` alone rather than every query; the follow-up turn the server starts off
++ * the submission arrives through the stream like any other answer, and the stored thread (refetched
++ * off that same key) is the record. `threadId` is required, not optional as `useDecideChatAction`'s
++ * is, because the request path needs it; the caller has it off `question.threadId`.
++ */
++export function useAnswerChatQuestions(threadId: string) {
++    const wilson = useWilsonSdk();
++    const queryClient = useQueryClient();
++    return useMutation({
++        mutationFn: ({ questionId, answers }: { questionId: string; answers: ChatQuestionAnswer[] }): Promise<ChatPendingQuestion> =>
++            wilson.chat.answerChatQuestions(threadId, questionId, { answers }),
++        onSettled: () => void queryClient.invalidateQueries({ queryKey: chatThreadKey(threadId) }),
++    });
++}
++
+ export function useArchiveChatThread() {
+     const wilson = useWilsonSdk();
+     const queryClient = useQueryClient();
+@@ -93,8 +111,9 @@ export interface ChatTurnInProgress {
+ /**
+  * Listens to a thread's turn in progress (`GET /api/chat/threads/{id}/stream`, `routes.setup.ts`'s
+  * `ChatStreamRouter`). The stream is ephemeral and the stored thread is the record: on `done` or
+- * `failed` this clears what it gathered and refetches the thread, which by then holds the answer.
+- * Undefined `threadId` opens nothing.
++ * `failed` this clears what it gathered and refetches the thread, which by then holds the answer. A
++ * question the turn asked arrives the same way a proposal does — an event naming that it happened,
++ * with the stored thread still the record of it. Undefined `threadId` opens nothing.
+  */
+ export function useChatStream(threadId: string | undefined): ChatTurnInProgress {
+     const queryClient = useQueryClient();
+@@ -119,6 +138,7 @@ export function useChatStream(threadId: string | undefined): ChatTurnInProgress
+             setOperations(previous => [...previous, operation]);
+         });
+         source.addEventListener('proposed', () => void queryClient.invalidateQueries({ queryKey: chatThreadKey(threadId) }));
++        source.addEventListener('asked', () => void queryClient.invalidateQueries({ queryKey: chatThreadKey(threadId) }));
+         source.addEventListener('done', finish);
+         source.addEventListener('failed', finish);
+ 
+diff --git a/apps/web/tests/chat-dock.test.ts b/apps/web/tests/chat-dock.test.ts
+index a1cfaff7..0757099e 100644
+--- a/apps/web/tests/chat-dock.test.ts
++++ b/apps/web/tests/chat-dock.test.ts
+@@ -7,7 +7,7 @@ import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/rea
+ import { MantineProvider } from '@mantine/core';
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { ChatClient, HealthClient, ProjectsClient, SdkError } from '@wilson/sdk';
+-import type { ChatMessage, ChatPendingAction, ChatThread, ChatThreadDetail, ChatTurnResult, Health } from '@wilson/sdk';
++import type { ChatMessage, ChatPendingAction, ChatPendingQuestion, ChatThread, ChatThreadDetail, ChatTurnResult, Health } from '@wilson/sdk';
+ import { setActiveThread } from '#src/lib/chat.js';
+ import { setChatDockOpen, setChatDockPosition } from '#src/lib/chat.dock.js';
+ import { routeTree } from '#src/routeTree.gen.js';
+@@ -117,11 +117,16 @@ const send = (box: HTMLElement, text: string) => {
+     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+ };
+ 
+-const detail = (messages: ChatMessage[], actions: ChatPendingAction[] = [], title = 'What is in review?'): ChatThreadDetail => ({
++const detail = (
++    messages: ChatMessage[],
++    actions: ChatPendingAction[] = [],
++    questions: ChatPendingQuestion[] = [],
++    title = 'What is in review?',
++): ChatThreadDetail => ({
+     thread: { ...thread, title },
+     messages,
+     actions,
+-    questions: [],
++    questions,
+ });
+ 
+ beforeEach(() => {
+@@ -302,7 +307,7 @@ describe('the chat dock', () => {
+     it('runs a proposed change only when the person confirms it', async () => {
+         vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
+         vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
+-            detail([message(1, 'user', 'Move 0007'), message(2, 'assistant', 'Proposed.')], [action()], 'Move it'),
++            detail([message(1, 'user', 'Move 0007'), message(2, 'assistant', 'Proposed.')], [action()], [], 'Move it'),
+         );
+         const decide = vi.spyOn(ChatClient.prototype, 'decideAChatAction').mockResolvedValue(action({ status: 'done' }));
+         renderApp();
+@@ -323,7 +328,7 @@ describe('the chat dock', () => {
+     it('shows the follow-up to a confirmed change as it streams in', async () => {
+         vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
+         vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
+-            detail([message(1, 'user', 'Move 0007, then release it')], [action()], 'Move it'),
++            detail([message(1, 'user', 'Move 0007, then release it')], [action()], [], 'Move it'),
+         );
+         vi.spyOn(ChatClient.prototype, 'decideAChatAction').mockResolvedValue(action({ status: 'done' }));
+         renderApp();
+@@ -339,7 +344,7 @@ describe('the chat dock', () => {
+ 
+     it('archives the open chat from the thread menu, and goes back to a new chat', async () => {
+         vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
+-        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'Move 0007')], [], 'Move it'));
++        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'Move 0007')], [], [], 'Move it'));
+         const archive = vi.spyOn(ChatClient.prototype, 'archiveAChatThread').mockResolvedValue(thread);
+         setActiveThread('7');
+         renderApp();
+@@ -354,7 +359,7 @@ describe('the chat dock', () => {
+ 
+     it('declines a proposed change', async () => {
+         vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
+-        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'Move 0007')], [action()], 'Move it'));
++        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'Move 0007')], [action()], [], 'Move it'));
+         const decide = vi.spyOn(ChatClient.prototype, 'decideAChatAction').mockResolvedValue(action({ status: 'declined' }));
+         renderApp();
+         await openChat();
+@@ -374,6 +379,7 @@ describe('the chat dock', () => {
+                     action({ id: '1', summary: 'Move 0007.', expiresAt: DateTime.now().minus({ minutes: 1 }) }),
+                     action({ id: '2', summary: 'Release 0008.', status: 'failed', error: 'card 0008 holds no lease' }),
+                 ],
++                [],
+                 'Old',
+             ),
+         );
+@@ -463,7 +469,7 @@ describe('the dock itself', () => {
+ 
+     it('opens as the home page, which keeps the same conversation', async () => {
+         vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
+-        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'Move 0007')], [], 'Move it'));
++        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'Move 0007')], [], [], 'Move it'));
+         setActiveThread('7');
+         renderApp();
+         await openChat();
+diff --git a/apps/web/tests/chat-questions.test.ts b/apps/web/tests/chat-questions.test.ts
+new file mode 100644
+index 00000000..84339705
+--- /dev/null
++++ b/apps/web/tests/chat-questions.test.ts
+@@ -0,0 +1,391 @@
++// @vitest-environment jsdom
++import { DateTime } from 'luxon';
++import { createElement } from 'react';
++import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
++import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
++import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
++import { MantineProvider } from '@mantine/core';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import { ChatClient, HealthClient, ProjectsClient, SdkError } from '@wilson/sdk';
++import type { ChatMessage, ChatPendingAction, ChatPendingQuestion, ChatQuestion, ChatThread, ChatThreadDetail, Health } from '@wilson/sdk';
++import { setActiveThread } from '#src/lib/chat.js';
++import { setChatDockOpen, setChatDockPosition } from '#src/lib/chat.dock.js';
++import { routeTree } from '#src/routeTree.gen.js';
++
++/**
++ * `ChatQuestionCard` (`ChatView.tsx`), driven through the real app the same way `chat-dock.test.ts`
++ * drives `ChatActionCard`. What these pin: a question only ever gets answered by a Submit the person
++ * clicked, by index into its own options, once, whatever else is on the thread; and the card never
++ * offers a control the server would refuse — past its expiry, once dismissed, or once answered.
++ */
++
++const at = (iso: string) => DateTime.fromISO(iso);
++
++const baseHealth: Health = {
++    ok: true,
++    project: 'demo',
++    head: 'abc1234',
++    startedAt: at('2026-01-01T00:00:00.000Z'),
++    codeRoot: '/deploy/code',
++    worktreeRoot: '/deploy/worktrees',
++};
++
++const thread: ChatThread = {
++    id: '7',
++    title: 'Questions',
++    engine: 'cli',
++    createdAt: at('2026-10-29T10:00:00Z'),
++    updatedAt: at('2026-10-29T10:00:00Z'),
++};
++
++const message = (seq: number, role: ChatMessage['role'], content: string, extra: Partial<ChatMessage> = {}): ChatMessage => ({
++    seq,
++    role,
++    content,
++    operations: [],
++    createdAt: at(`2026-10-29T10:00:0${seq}Z`),
++    ...extra,
++});
++
++const SINGLE_QUESTION: ChatQuestion = {
++    header: 'Repo',
++    text: 'Which repository did you mean?',
++    options: [
++        { label: 'wilson', description: 'The board app itself.' },
++        { label: 'ats', description: 'The other repo.' },
++    ],
++    multiSelect: false,
++};
++
++const MULTI_QUESTION: ChatQuestion = {
++    header: 'Checks',
++    text: 'Which checks should run?',
++    options: [
++        { label: 'lint', description: 'Static checks.' },
++        { label: 'test', description: 'The test suite.' },
++        { label: 'build', description: 'The production build.' },
++    ],
++    multiSelect: true,
++};
++
++const question = (overrides: Partial<ChatPendingQuestion> = {}): ChatPendingQuestion => ({
++    id: '50',
++    threadId: '7',
++    questions: [SINGLE_QUESTION, MULTI_QUESTION],
++    status: 'pending',
++    expiresAt: DateTime.now().plus({ minutes: 10 }),
++    createdAt: at('2026-10-29T10:00:05Z'),
++    ...overrides,
++});
++
++class FakeEventSource {
++    static instances: FakeEventSource[] = [];
++    readonly url: string;
++    onopen: (() => void) | null = null;
++    onerror: (() => void) | null = null;
++    private readonly listeners = new Map<string, Set<(event: MessageEvent) => void>>();
++
++    constructor(url: string) {
++        this.url = url;
++        FakeEventSource.instances.push(this);
++    }
++
++    addEventListener(type: string, listener: (event: MessageEvent) => void) {
++        const set = this.listeners.get(type) ?? new Set();
++        set.add(listener);
++        this.listeners.set(type, set);
++    }
++
++    close() {}
++
++    emit(type: string, data = '') {
++        for (const listener of this.listeners.get(type) ?? []) listener(new MessageEvent(type, { data }));
++    }
++}
++
++const chatStreams = () => FakeEventSource.instances.filter(source => source.url.includes('/api/chat/threads/'));
++
++class FakeResizeObserver {
++    observe() {}
++    unobserve() {}
++    disconnect() {}
++}
++
++function renderApp(path = '/projects') {
++    const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
++    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
++    render(
++        createElement(MantineProvider, null, createElement(QueryClientProvider, { client: queryClient }, createElement(RouterProvider, { router }))),
++    );
++}
++
++const openChat = async () => {
++    fireEvent.click(await screen.findByRole('button', { name: 'Show the chat' }));
++    return screen.findByRole('textbox', { name: 'Message' });
++};
++
++const detail = (
++    messages: ChatMessage[] = [],
++    actions: ChatPendingAction[] = [],
++    questions: ChatPendingQuestion[] = [],
++    title = 'Questions',
++): ChatThreadDetail => ({
++    thread: { ...thread, title },
++    messages,
++    actions,
++    questions,
++});
++
++beforeEach(() => {
++    setActiveThread(undefined);
++    setChatDockOpen(false);
++    setChatDockPosition('right');
++    FakeEventSource.instances = [];
++    vi.spyOn(HealthClient.prototype, 'getHealth').mockResolvedValue(baseHealth);
++    vi.spyOn(ProjectsClient.prototype, 'listProjects').mockResolvedValue([{ name: 'demo' }]);
++    vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([]);
++    vi.stubGlobal('EventSource', FakeEventSource);
++    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
++    vi.stubGlobal(
++        'matchMedia',
++        vi.fn().mockImplementation((query: string) => ({
++            matches: false,
++            media: query,
++            onchange: null,
++            addListener: vi.fn(),
++            removeListener: vi.fn(),
++            addEventListener: vi.fn(),
++            removeEventListener: vi.fn(),
++            dispatchEvent: vi.fn(),
++        })),
++    );
++    vi.stubGlobal('scrollTo', vi.fn());
++    Element.prototype.scrollTo = vi.fn();
++    Object.defineProperty(document, 'fonts', {
++        configurable: true,
++        value: { addEventListener: vi.fn(), removeEventListener: vi.fn() },
++    });
++});
++
++afterEach(() => {
++    cleanup();
++    vi.restoreAllMocks();
++    vi.unstubAllGlobals();
++});
++
++describe('a question the chat asked', () => {
++    it('renders among the messages by its createdAt, with every header, option and an Other box', async () => {
++        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
++            detail([message(1, 'user', 'Before the question'), message(9, 'assistant', 'After the question')], [], [question()]),
++        );
++        setActiveThread('7');
++        renderApp();
++        await openChat();
++
++        const before = await screen.findByText('Before the question');
++        const card = screen.getByRole('group', { name: 'Question' });
++        const after = screen.getByText('After the question');
++        expect(before.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
++        expect(card.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
++
++        expect(within(card).getByText('Repo')).toBeTruthy();
++        expect(within(card).getByText('Checks')).toBeTruthy();
++        expect(within(card).getByText('wilson')).toBeTruthy();
++        expect(within(card).getByText('ats')).toBeTruthy();
++        expect(within(card).getByText('lint')).toBeTruthy();
++        expect(within(card).getByText('test')).toBeTruthy();
++        expect(within(card).getByText('build')).toBeTruthy();
++        expect(within(card).getAllByRole('textbox', { name: 'Other' })).toHaveLength(2);
++    });
++
++    it('disables Submit until every question has an answer', async () => {
++        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([], [], [question()]));
++        setActiveThread('7');
++        renderApp();
++        await openChat();
++
++        const submit = (await screen.findByRole('button', { name: 'Submit' })) as HTMLButtonElement;
++        expect(submit.disabled).toBe(true);
++
++        fireEvent.click(screen.getByRole('radio', { name: 'wilson' }));
++        expect(submit.disabled).toBe(true);
++
++        fireEvent.click(screen.getByRole('checkbox', { name: 'lint' }));
++        expect(submit.disabled).toBe(false);
++    });
++
++    it('is satisfied by Other text alone, with no option selected', async () => {
++        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([], [], [question({ questions: [SINGLE_QUESTION] })]));
++        setActiveThread('7');
++        renderApp();
++        await openChat();
++
++        const submit = (await screen.findByRole('button', { name: 'Submit' })) as HTMLButtonElement;
++        expect(submit.disabled).toBe(true);
++
++        fireEvent.change(screen.getByRole('textbox', { name: 'Other' }), { target: { value: 'Neither of those' } });
++
++        expect(submit.disabled).toBe(false);
++        expect(screen.queryByRole('radio', { checked: true })).toBeNull();
++    });
++
++    it('submits chosen options by 0-based index, ascending for a multi-select, with no "other" key when the box was left blank', async () => {
++        const answerChatQuestions = vi.spyOn(ChatClient.prototype, 'answerChatQuestions').mockResolvedValue(question({ status: 'answered' }));
++        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([], [], [question({ id: '50' })]));
++        setActiveThread('7');
++        renderApp();
++        await openChat();
++
++        fireEvent.click(await screen.findByRole('radio', { name: 'ats' }));
++        fireEvent.click(screen.getByRole('checkbox', { name: 'build' }));
++        fireEvent.click(screen.getByRole('checkbox', { name: 'lint' }));
++        fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
++
++        await waitFor(() =>
++            expect(answerChatQuestions).toHaveBeenCalledWith('7', '50', { answers: [{ chosen: [1] }, { chosen: [0, 2] }] }),
++        );
++        expect(answerChatQuestions).toHaveBeenCalledTimes(1);
++    });
++
++    it('sends Other text trimmed, under "other", with chosen: [] where nothing was picked', async () => {
++        const answerChatQuestions = vi.spyOn(ChatClient.prototype, 'answerChatQuestions').mockResolvedValue(question({ status: 'answered' }));
++        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
++            detail([], [], [question({ id: '51', questions: [SINGLE_QUESTION] })]),
++        );
++        setActiveThread('7');
++        renderApp();
++        await openChat();
++
++        fireEvent.change(await screen.findByRole('textbox', { name: 'Other' }), { target: { value: '  Neither of those  ' } });
++        fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
++
++        await waitFor(() =>
++            expect(answerChatQuestions).toHaveBeenCalledWith('7', '51', { answers: [{ chosen: [], other: 'Neither of those' }] }),
++        );
++    });
++
++    it('shows the chosen option labels and Other text once answered, and offers no controls', async () => {
++        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
++            detail(
++                [],
++                [],
++                [
++                    question({
++                        status: 'answered',
++                        answers: [{ chosen: [1] }, { chosen: [0, 2], other: 'extra note' }],
++                    }),
++                ],
++            ),
++        );
++        setActiveThread('7');
++        renderApp();
++        await openChat();
++
++        expect(await screen.findByText('answered')).toBeTruthy();
++        expect(screen.getByText('ats')).toBeTruthy();
++        expect(screen.getByText('lint, build, extra note')).toBeTruthy();
++        expect(screen.queryByRole('button', { name: 'Submit' })).toBeNull();
++        expect(screen.queryAllByRole('radio')).toHaveLength(0);
++        expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
++    });
++
++    it('shows "expired" for a pending question past its expiry, and "dismissed" for a dismissed one, neither with controls', async () => {
++        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
++            detail(
++                [],
++                [],
++                [
++                    question({ id: '60', expiresAt: DateTime.now().minus({ minutes: 1 }) }),
++                    question({ id: '61', status: 'dismissed' }),
++                ],
++            ),
++        );
++        setActiveThread('7');
++        renderApp();
++        await openChat();
++
++        expect(await screen.findByText('expired')).toBeTruthy();
++        expect(screen.getByText('dismissed')).toBeTruthy();
++        expect(screen.queryAllByRole('button', { name: 'Submit' })).toHaveLength(0);
++        expect(screen.queryAllByRole('radio')).toHaveLength(0);
++        expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
++    });
++
++    it('is still answerable after the dock closes and the home page opens on the same thread', async () => {
++        vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Questions' }]);
++        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([], [], [question({ id: '70' })]));
++        const answerChatQuestions = vi.spyOn(ChatClient.prototype, 'answerChatQuestions').mockResolvedValue(question({ id: '70', status: 'answered' }));
++        setActiveThread('7');
++        renderApp();
++        await openChat();
++        await screen.findByRole('group', { name: 'Question' });
++
++        fireEvent.click(screen.getByRole('button', { name: 'Open as the home page' }));
++
++        const card = await screen.findByRole('group', { name: 'Question' });
++        fireEvent.click(within(card).getByRole('radio', { name: 'wilson' }));
++        fireEvent.click(within(card).getByRole('checkbox', { name: 'lint' }));
++        fireEvent.click(within(card).getByRole('button', { name: 'Submit' }));
++
++        await waitFor(() =>
++            expect(answerChatQuestions).toHaveBeenCalledWith('7', '70', { answers: [{ chosen: [0] }, { chosen: [0] }] }),
++        );
++    });
++
++    it('leaves the composer enabled with its own placeholder while pending, and still sends a message typed past it', async () => {
++        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([message(1, 'user', 'hi')], [], [question()]));
++        const sendMessage = vi.spyOn(ChatClient.prototype, 'sendAChatMessage').mockReturnValue(new Promise(() => {}));
++        setActiveThread('7');
++        renderApp();
++        const box = (await openChat()) as HTMLTextAreaElement;
++        await screen.findByRole('group', { name: 'Question' });
++
++        expect(box.getAttribute('placeholder')).toBe('Answer above, or ask for something else…');
++        expect(box.disabled).toBe(false);
++
++        fireEvent.change(box, { target: { value: 'something else' } });
++        fireEvent.click(screen.getByRole('button', { name: 'Send' }));
++
++        await waitFor(() => expect(sendMessage).toHaveBeenCalledWith('7', { text: 'something else' }));
++    });
++
++    it('offers no follow-up chips while pending, even when the latest answer carries suggestions', async () => {
++        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
++            detail([message(1, 'user', 'hi'), message(2, 'assistant', 'Answer.', { suggestions: ['Try this?'] })], [], [question()]),
++        );
++        setActiveThread('7');
++        renderApp();
++        await openChat();
++
++        await screen.findByRole('group', { name: 'Question' });
++        expect(screen.queryByText('Try this?')).toBeNull();
++    });
++
++    it("shows the endpoint's own refusal sentence on the card", async () => {
++        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([], [], [question({ questions: [SINGLE_QUESTION] })]));
++        vi.spyOn(ChatClient.prototype, 'answerChatQuestions').mockRejectedValue(
++            new SdkError(409, 'Conflict', { message: 'Conflict', details: { reason: 'that question was already answered' } }, new Headers()),
++        );
++        setActiveThread('7');
++        renderApp();
++        await openChat();
++
++        fireEvent.click(await screen.findByRole('radio', { name: 'wilson' }));
++        fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
++
++        expect(await screen.findByText('that question was already answered')).toBeTruthy();
++    });
++
++    it('refetches the thread on an "asked" stream event, the same way a "proposed" one does', async () => {
++        const getAChatThread = vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail());
++        setActiveThread('7');
++        renderApp();
++        await openChat();
++        await waitFor(() => expect(chatStreams()).toHaveLength(1));
++        getAChatThread.mockClear();
++
++        act(() => chatStreams()[0]!.emit('asked'));
++
++        await waitFor(() => expect(getAChatThread).toHaveBeenCalled());
++    });
++});

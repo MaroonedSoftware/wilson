@@ -1,0 +1,8 @@
+{
+    "kind": "defect",
+    "class": "logic",
+    "file": "packages/cli/src/commands/card/release.command.ts",
+    "lines": [43, 55],
+    "about": "The running-daemon check comes before asking whether the card holds a claim, so any card is refused while any daemon is alive, including one with nothing to release.",
+    "fixedBy": "385e8480f3cb707c3a6834f5c6698eeef63ea098"
+}

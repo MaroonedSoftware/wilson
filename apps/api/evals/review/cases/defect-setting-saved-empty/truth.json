@@ -1,0 +1,8 @@
+{
+    "kind": "defect",
+    "class": "null-handling",
+    "file": "apps/api/src/modules/settings/claude.config.dir.setting.service.ts",
+    "lines": [34, 44],
+    "about": "Saving empty passes undefined to a store that serializes with JSON.stringify, which has no form for it, and the response echoes the request instead of what now applies.",
+    "fixedBy": "4649f987a6764b77904b5100d3ce721c40ad32f2"
+}

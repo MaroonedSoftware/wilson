@@ -101,12 +101,13 @@ describe('loadCorpus', () => {
 });
 
 describe('the corpus', () => {
-    it('holds defects and controls, every case well formed', async () => {
+    it('holds 20 defects and 10 controls across several classes, every case well formed', async () => {
         const corpus = await loadCorpus(CASES_DIR);
         expect(corpus.flatMap(evalCase => caseProblems(evalCase).map(problem => `${evalCase.id}: ${problem}`))).toEqual([]);
-        const defects = corpus.filter(evalCase => evalCase.truth.kind === 'defect');
-        expect(defects.length).toBeGreaterThan(0);
-        expect(corpus.length).toBeGreaterThan(defects.length);
+        const defects = corpus.flatMap(evalCase => (evalCase.truth.kind === 'defect' ? [evalCase.truth] : []));
+        expect(defects).toHaveLength(20);
+        expect(corpus.length - defects.length).toBe(10);
+        expect(new Set(defects.map(truth => truth.class)).size).toBeGreaterThanOrEqual(5);
     });
 
     // CI's checkout is shallow, so the bases exist only in a full clone. Checked in a throwaway index,
