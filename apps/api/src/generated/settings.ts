@@ -220,6 +220,19 @@ export const SetAutoSplitSettingRequest = z.strictObject({
 export type SetAutoSplitSettingRequest = z.infer<typeof SetAutoSplitSettingRequest>;
 
 /**
+ * Which engine and model judge a project's checked rules. Separate from every lane's routing so a review
+ * lane on any engine still has judges, since a judge needs only a one-shot model call. Behind step-up
+ * for the reason `rules.ck`'s writes are: who judges a rule is as much the gate as what it says.
+ * generated from [RuleJudgeSetting](../../data/contracts/settings.ck)
+ */
+export const RuleJudgeSetting = z.strictObject({
+    engine: z.enum(['api', 'cli']),
+    provider: z.enum(['anthropic', 'openai', 'xai']),
+    model: z.string(),
+});
+export type RuleJudgeSetting = z.infer<typeof RuleJudgeSetting>;
+
+/**
  * Which engine new chat threads start on ('cli', the Claude Agent SDK on the operator's subscription,
  * or 'api', the AI SDK against `provider`'s API key), and the model turns run on — see
  * `chat.engine.setting.ts` for the default and why a thread keeps the engine it started on.

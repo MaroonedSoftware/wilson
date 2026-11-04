@@ -182,6 +182,18 @@ data class SetAutoSplitSettingRequest(
 )
 
 /**
+ * Which engine and model judge a project's checked rules. Separate from every lane's routing so a review
+ * lane on any engine still has judges, since a judge needs only a one-shot model call. Behind step-up
+ * for the reason `rules.ck`'s writes are: who judges a rule is as much the gate as what it says.
+ */
+@Serializable
+data class RuleJudgeSetting(
+    val engine: RuleJudgeSettingEngine,
+    val provider: RuleJudgeSettingProvider,
+    val model: String,
+)
+
+/**
  * Which engine new chat threads start on ('cli', the Claude Agent SDK on the operator's subscription,
  * or 'api', the AI SDK against `provider`'s API key), and the model turns run on — see
  * `chat.engine.setting.ts` for the default and why a thread keeps the engine it started on.
@@ -244,6 +256,48 @@ object EngineTokenSettingSourceSerializer : SdkEnumSerializer<EngineTokenSetting
     EngineTokenSettingSource.DATABASE to "database",
     EngineTokenSettingSource.ENVIRONMENT to "environment",
     EngineTokenSettingSource.NONE to "none",
+)
+
+@Serializable(with = RuleJudgeSettingEngineSerializer::class)
+enum class RuleJudgeSettingEngine {
+    API,
+    CLI,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [RuleJudgeSettingEngine] by its wire spelling. A spelling it does not know reads as [RuleJudgeSettingEngine.UNKNOWN]. */
+object RuleJudgeSettingEngineSerializer : SdkEnumSerializer<RuleJudgeSettingEngine>(
+    "RuleJudgeSettingEngine",
+    RuleJudgeSettingEngine.UNKNOWN,
+    RuleJudgeSettingEngine.API to "api",
+    RuleJudgeSettingEngine.CLI to "cli",
+)
+
+@Serializable(with = RuleJudgeSettingProviderSerializer::class)
+enum class RuleJudgeSettingProvider {
+    ANTHROPIC,
+    OPENAI,
+    XAI,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [RuleJudgeSettingProvider] by its wire spelling. A spelling it does not know reads as [RuleJudgeSettingProvider.UNKNOWN]. */
+object RuleJudgeSettingProviderSerializer : SdkEnumSerializer<RuleJudgeSettingProvider>(
+    "RuleJudgeSettingProvider",
+    RuleJudgeSettingProvider.UNKNOWN,
+    RuleJudgeSettingProvider.ANTHROPIC to "anthropic",
+    RuleJudgeSettingProvider.OPENAI to "openai",
+    RuleJudgeSettingProvider.XAI to "xai",
 )
 
 @Serializable(with = ChatEngineSettingEngineSerializer::class)

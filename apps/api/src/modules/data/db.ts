@@ -427,6 +427,24 @@ export interface WilsonLanes {
   worktree: string;
 }
 
+export interface WilsonRuleVerdicts {
+  cardId: string | null;
+  createdAt: Generated<DateTime>;
+  diffHash: string;
+  engine: string | null;
+  evidence: string;
+  file: string | null;
+  id: Generated<bigint>;
+  line: number | null;
+  model: string | null;
+  project: string;
+  rule: string;
+  ruleRevisionId: bigint;
+  updatedAt: Generated<DateTime>;
+  usage: Json | null;
+  verdict: string;
+}
+
 export interface WilsonRuleRevisions {
   createdAt: Generated<DateTime>;
   id: Generated<bigint>;
@@ -524,6 +542,7 @@ export interface DB {
   "wilson.lanes": WilsonLanes;
   "wilson.projectLaneSettings": WilsonProjectLaneSettings;
   "wilson.ruleRevisions": WilsonRuleRevisions;
+  "wilson.ruleVerdicts": WilsonRuleVerdicts;
   "wilson.rules": WilsonRules;
   "wilson.stageConfigs": WilsonStageConfigs;
   "wilson.stageRouting": WilsonStageRouting;

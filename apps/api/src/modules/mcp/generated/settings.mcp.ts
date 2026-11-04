@@ -17,6 +17,7 @@ import { LocalStageSlotsSettingService } from '#modules/settings/local.stage.slo
 import { NotifyWebhookSettingService } from '#modules/settings/notify.webhook.setting.service.js';
 import { PollerIntervalSettingService } from '#modules/settings/poller.interval.setting.service.js';
 import { PollerSettingService } from '#modules/settings/poller.setting.service.js';
+import { RuleJudgeSettingService } from '#modules/rules/rule.judge.setting.service.js';
 import {
     AutoSplitSetting,
     CardStageConcurrency,
@@ -29,6 +30,7 @@ import {
     NotifyWebhookSetting,
     PollerInterval,
     PollerSetting,
+    RuleJudgeSetting,
     SetAutoSplitSettingRequest,
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
@@ -65,6 +67,7 @@ const GetDryRunSettingArgs = z.object({});
 const SetDryRunSettingArgs = z.object({ body: SetDryRunSettingRequest });
 const GetAutoSplitSettingArgs = z.object({});
 const SetAutoSplitSettingArgs = z.object({ body: SetAutoSplitSettingRequest });
+const GetRuleJudgeSettingArgs = z.object({});
 const GetChatEngineSettingArgs = z.object({});
 const SetChatEngineSettingArgs = z.object({ body: ChatEngineSetting });
 const GetLocalStageSlotsArgs = z.object({});
@@ -417,6 +420,27 @@ export class SetAutoSplitSettingMcpTool implements McpToolHandler {
 }
 
 /**
+ * from [settings.ck](../../../../data/contracts/settings.ck) `GET /api/settings/rule-judge`
+ */
+@Injectable()
+export class GetRuleJudgeSettingMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'get_rule_judge_setting',
+        inputSchema: z.toJSONSchema(GetRuleJudgeSettingArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(RuleJudgeSetting, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
+    };
+
+    async handle(_args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
+        const result = await container.get(RuleJudgeSettingService).get();
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
  * from [settings.ck](../../../../data/contracts/settings.ck) `GET /api/settings/chat-engine`
  */
 @Injectable()
@@ -565,6 +589,7 @@ export function registerSettingsMcpCatalog(map: McpToolHandlerMap, container: Co
     map.set('set_dry_run_setting', container.get(SetDryRunSettingMcpTool));
     map.set('get_auto_split_setting', container.get(GetAutoSplitSettingMcpTool));
     map.set('set_auto_split_setting', container.get(SetAutoSplitSettingMcpTool));
+    map.set('get_rule_judge_setting', container.get(GetRuleJudgeSettingMcpTool));
     map.set('get_chat_engine_setting', container.get(GetChatEngineSettingMcpTool));
     map.set('set_chat_engine_setting', container.get(SetChatEngineSettingMcpTool));
     map.set('get_local_stage_slots', container.get(GetLocalStageSlotsMcpTool));
@@ -591,6 +616,7 @@ export function registerSettingsMcpToolClasses(registry: Registry): void {
     registry.register(SetDryRunSettingMcpTool).useClass(SetDryRunSettingMcpTool).asSingleton();
     registry.register(GetAutoSplitSettingMcpTool).useClass(GetAutoSplitSettingMcpTool).asSingleton();
     registry.register(SetAutoSplitSettingMcpTool).useClass(SetAutoSplitSettingMcpTool).asSingleton();
+    registry.register(GetRuleJudgeSettingMcpTool).useClass(GetRuleJudgeSettingMcpTool).asSingleton();
     registry.register(GetChatEngineSettingMcpTool).useClass(GetChatEngineSettingMcpTool).asSingleton();
     registry.register(SetChatEngineSettingMcpTool).useClass(SetChatEngineSettingMcpTool).asSingleton();
     registry.register(GetLocalStageSlotsMcpTool).useClass(GetLocalStageSlotsMcpTool).asSingleton();
