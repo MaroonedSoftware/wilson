@@ -2,7 +2,9 @@
     "kind": "defect",
     "class": "validation",
     "file": "apps/api/src/modules/stages/scope.check.verifier.ts",
+    "alsoIn": ["apps/api/src/modules/stages/stage.result.ts"],
     "lines": [81, 93],
-    "about": "Each piece of a proposed division has its tasks checked against the report, but its dependsOn is never checked, so a piece can depend on itself or on a piece that does not exist.",
+    "mentions": ["depend"],
+    "about": "A division's pieces cannot name what they depend on, though the goal asks for it, so nothing says or checks what must land first. The fix added dependsOn and its checks.",
     "fixedBy": "e0f4c83c2c399ed2393e47c271e9afddcb2592b7"
 }

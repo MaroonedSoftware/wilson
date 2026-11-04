@@ -106,7 +106,8 @@ export const caseProblems = (evalCase: ReviewEvalCase): string[] => {
     }
 
     if (evalCase.truth.kind === 'defect') {
-        const { file, lines } = evalCase.truth;
+        const { file, lines, alsoIn } = evalCase.truth;
+        for (const other of alsoIn) if (!added.has(other)) problems.push(`the truth also names ${other}, which the patch does not add to`);
         const fileAdded = added.get(file);
         if (!fileAdded) {
             problems.push(`the truth names ${file}, which the patch does not add to`);

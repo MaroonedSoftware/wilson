@@ -3,6 +3,7 @@
     "class": "logic",
     "file": "apps/web/src/lib/mutations.ts",
     "lines": [27, 39],
+    "mentions": ["events|versions"],
     "about": "Looking for the id anywhere in the key also matches the events and versions queries for that card, so writing a card into the cache overwrites their arrays with an object and crashes the lists that read them.",
     "fixedBy": "53cd4b135c7ebf1aa623796d0e936fa0f25fc042"
 }

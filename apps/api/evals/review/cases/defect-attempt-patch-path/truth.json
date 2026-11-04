@@ -2,7 +2,9 @@
     "kind": "defect",
     "class": "logic",
     "file": "apps/api/src/modules/stages/stage.dispatcher.ts",
+    "alsoIn": ["apps/api/src/modules/board/append.attempts.ts"],
     "lines": [600, 612],
+    "mentions": ["patch", "no file|not exist|clean tree|nothing uncommitted|never written|only when"],
     "about": "Every judged failure names a preserved patch, but a patch is written only when the worktree was dirty, so a failure with nothing uncommitted points the next attempt at a file that does not exist.",
     "fixedBy": "f43abb3539206834106fb0813ed7a2e22d7862ac"
 }

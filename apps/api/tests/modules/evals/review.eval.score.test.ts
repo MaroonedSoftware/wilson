@@ -18,7 +18,9 @@ const defect: ReviewEvalTruth = {
     kind: 'defect',
     class: 'concurrency',
     file: 'src/a.ts',
+    alsoIn: ['src/caller.ts'],
     lines: [10, 12],
+    mentions: ['race', 'lock|seq'],
     about: 'a race',
     fixedBy: 'f'.repeat(40),
 };
@@ -29,7 +31,7 @@ const finding = (over: Partial<ReviewFinding> = {}): ReviewFinding => ({
     kind: 'defect',
     file: 'src/a.ts',
     line: 11,
-    problem: 'p',
+    problem: 'Two writers race for the same seq',
     suggestion: 's',
     ...over,
 });
@@ -57,27 +59,33 @@ describe('rawView and verifiedView', () => {
     it('rejects a result the verifier never saw', () => {
         expect(verifiedView(result([finding()]), undefined).rejected).toBe(true);
     });
-
-    it('relabels a defect outside the diff as an omission, as the verifier treats it', () => {
-        const outside = finding({ file: 'src/b.ts' });
-        expect(verifiedView(result([outside]), passed).findings[0]?.kind).toBe('omission');
-        expect(rawView(result([outside])).findings[0]?.kind).toBe('defect');
-    });
 });
 
 describe('scoreCase on a defect', () => {
     const score = (findings: ReviewFinding[]) => scoreCase('c', defect, rawView(result(findings)));
 
-    it('counts a blocker inside the range as caught and blocked, at both ends', () => {
-        for (const line of [10, 12]) {
+    it('counts a blocker in the file with every word, wherever it points', () => {
+        for (const line of [1, 11, 500]) {
             expect(score([finding({ line })])).toMatchObject({ caught: true, blocked: true, otherBlockers: 0 });
         }
     });
 
-    it('misses a finding just outside the range', () => {
-        for (const line of [9, 13]) {
-            expect(score([finding({ line })])).toMatchObject({ caught: false, blocked: false, otherBlockers: 1 });
-        }
+    it('misses a finding on the seeded lines that is about something else', () => {
+        expect(score([finding({ problem: 'The tests have no stub for this' })])).toMatchObject({ caught: false, blocked: false, otherBlockers: 1 });
+    });
+
+    it('needs every word, in any case', () => {
+        expect(score([finding({ problem: 'a race' })])).toMatchObject({ caught: false });
+        expect(score([finding({ problem: 'A RACE on the LOCK' })])).toMatchObject({ caught: true });
+    });
+
+    it('looks only at the problem, since a suggestion can mention anything', () => {
+        expect(score([finding({ problem: 'elsewhere', suggestion: 'a race for the seq' })])).toMatchObject({ caught: false });
+    });
+
+    it('accepts the other files the truth names, and no others', () => {
+        expect(score([finding({ file: 'src/caller.ts' })])).toMatchObject({ caught: true });
+        expect(score([finding({ file: 'src/b.ts' })])).toMatchObject({ caught: false, otherBlockers: 1 });
     });
 
     it('counts a concern at the defect as caught but not blocked', () => {
@@ -85,14 +93,13 @@ describe('scoreCase on a defect', () => {
     });
 
     it('prefers the blocker as the match when a concern is also there', () => {
-        const concern = finding({ severity: 'concern', problem: 'concern' });
-        const blocker = finding({ problem: 'blocker' });
-        expect(score([concern, blocker])).toMatchObject({ blocked: true, match: { problem: 'blocker' } });
+        const concern = finding({ severity: 'concern', problem: 'concern: a race for the seq' });
+        const blocker = finding({ problem: 'blocker: a race for the seq' });
+        expect(score([concern, blocker])).toMatchObject({ blocked: true, match: { problem: 'blocker: a race for the seq' } });
     });
 
-    it('matches an omission on its file alone, since it cites no line', () => {
+    it('matches an omission the same way, since it cites no line', () => {
         expect(score([finding({ kind: 'omission', line: undefined })])).toMatchObject({ caught: true });
-        expect(score([finding({ kind: 'omission', line: undefined, file: 'src/b.ts' })])).toMatchObject({ caught: false });
     });
 
     it('accepts a leading ./ on the cited path', () => {
@@ -104,13 +111,6 @@ describe('scoreCase on a defect', () => {
             rejected: true,
             caught: false,
         });
-    });
-
-    it('raw and verified can disagree over a relabelled finding', () => {
-        const truth: ReviewEvalTruth = { ...defect, file: 'src/b.ts' };
-        const reported = result([finding({ file: 'src/b.ts', line: 500 })]);
-        expect(scoreCase('c', truth, rawView(reported))).toMatchObject({ caught: false });
-        expect(scoreCase('c', truth, verifiedView(reported, passed))).toMatchObject({ caught: true });
     });
 });
 

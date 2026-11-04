@@ -3,6 +3,7 @@
     "class": "integration",
     "file": "apps/api/src/modules/stages/review.verifier.ts",
     "lines": [19, 31],
+    "mentions": ["changedPaths|fork point", "reviewer|every|never empty|non-empty"],
     "about": "The review stage resumes the card branch, where changedPaths measures from the fork point and is never empty, so this fails every review ever run.",
     "fixedBy": "2a4de659ca1a5a1081307c26999a6666e42ea5ff"
 }

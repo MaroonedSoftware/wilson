@@ -30,7 +30,7 @@ The report goes to the terminal. The results file holds every finding, and it st
 - `case.json`: `base`, the commit to start from, `source`, the merged commit the patch came from, and the card's `title`.
 - `plan.md`: the card body the reviewer reads, which says what the work is and not what is wrong with it.
 - `change.patch`: the diff under review.
-- `truth.json`: the hidden answer. For a defect, its `class`, `file`, `lines`, what it is, and the commit that fixed it. For a control, why it is believed clean.
+- `truth.json`: the hidden answer. For a defect, its `class`, `file`, any other files a finding could fairly name (`alsoIn`), `lines`, the words a finding must use (`mentions`), what it is, and the commit that fixed it. For a control, why it is believed clean.
 
 Each run gets a scratch repository holding the base's tree as one commit, with the patch committed on a card branch. There is no history to read, nothing from this directory inside it, and a card id that is only a position.
 
@@ -42,21 +42,23 @@ The bases are named by commit rather than copied here, so the corpus stays small
 
 **Controls** are merged commits with no sign of a later correction: at least three quarters of their lines survive, and none of the next six commits to their files reads as a fix. That is evidence, not proof. A blocker on a control may be a real find, so read it before counting it against the reviewer.
 
-The `lines` run six lines either side of what the fix changed.
+The `lines` run six lines either side of what the fix changed. They are for a person, and matching ignores them: a finding can name a defect from where it is called, and one on those lines can be about something else. The first real run got 7 of 20 cases wrong by location, in both directions.
+
+The `mentions` were written after that run, while reading its findings, and every case was then checked against a person's reading of them. So they fit that run better than they will fit the next: expect some misses in a new run to be a reviewer's different wording, and read them.
 
 The plans were written for this corpus from the commit messages and diffs, because most of the original cards are gone. A real plan may say more or less than these do.
 
 ## Reading the scores
 
-- **Recall** is defect cases with a finding at the defect, over defect cases. It is reported twice: a blocker there, which is what sends work back, and any finding there.
+- **Recall** is defect cases with a finding about the defect, in one of its files and using all of its `mentions`, over defect cases. It is reported twice: a blocker there, which is what sends work back, and any finding there.
 - **Specificity** is controls that passed with no blocker, over controls.
-- **Raw** is what the model reported. **Verified** is what the runner would act on: a result `ReviewVerifier` refuses counts as a miss, and a `defect` citing a real file outside the diff counts as the `omission` the verifier treats it as, so its line no longer matters.
+- **Raw** is what the model reported. **Verified** is what the runner would act on: a result `ReviewVerifier` refuses counts as a miss.
 - A run that stopped short (engine failure, budget, usage limit, a question, out of steps, no report) says nothing about the review. It is listed and left out of every `n`.
 
 What these numbers cannot say:
 
 - **They stop at review.** A blocker still has to survive challenge, so review-only scores overstate what would reach a kickback.
-- **A match is by location only.** A finding on the seeded lines counts even if it describes something else, so read the matched findings before quoting recall.
+- **A match is a file and some words.** A finding can use the words and mean something else, or say it differently and be missed, so read the matched findings and the misses before quoting recall.
 - **The reviewer had less to go on than a live one.** Type-check evidence is left out, and rule judges and learnings need a board. Unwired-symbol evidence does run. The lane's setup command does not, but `pnpm` installs dependencies the first time a reviewer runs it, so it can still build and test.
 - **A snapshot's lanes are not all there.** With stubs for the other lanes, the plan loses the note saying which paths those lanes may add.
 - **Findings cap at 20.** A review at the cap could not report more, and the report counts how many reached it.

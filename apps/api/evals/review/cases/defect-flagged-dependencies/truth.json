@@ -3,6 +3,7 @@
     "class": "integration",
     "file": "apps/web/src/routes/flagged.tsx",
     "lines": [45, 57],
+    "mentions": ["depend", "blocked|unfinished"],
     "about": "The board resolves dependency stages from the cards it is given, so on this filtered view every dependency outside the filtered set reads as unfinished.",
     "fixedBy": "70fa860cf98dff4335213275e8f2514a2f92cc25"
 }

@@ -3,6 +3,7 @@
     "class": "integration",
     "file": "apps/api/src/modules/events/event.log.ts",
     "lines": [60, 72],
+    "mentions": ["pg_notify|notify", "8000|too large|size|limit"],
     "about": "The whole event goes into pg_notify, which Postgres refuses past 8000 bytes, so a stage with a verbose result fails the append and the transition it was recording.",
     "fixedBy": "fbb900a914e08fd715fba475dea2779355f100e2"
 }

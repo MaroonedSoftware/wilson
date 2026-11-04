@@ -3,6 +3,7 @@
     "class": "resource-leak",
     "file": "apps/api/src/modules/board/board.write.service.ts",
     "lines": [595, 626],
+    "mentions": ["branch", "never delete|not delete|left behind|leaves? .*behind|leak"],
     "about": "The merge check creates a throwaway branch with its scratch worktree and reclaims only the worktree, so a branch is left behind on every merge.",
     "fixedBy": "9a7468fb527218ef3c02eca2b1c432c064d780d6"
 }

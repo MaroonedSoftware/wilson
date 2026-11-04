@@ -5,10 +5,20 @@ import { ReviewResultSchema, type ReviewFinding } from '#modules/stages/stage.re
  * Scoring for the review measurement (`scripts/review.eval.ts`). Pure, so a number in a report can be
  * traced to a rule with a test behind it rather than to whatever the runner happened to do.
  *
- * Only the location is checked: a finding on the seeded lines counts whether or not it describes the
- * seeded defect, because judging that would take another model and another thing to measure. Each
- * match keeps its text in the results file, so a person can read what was counted.
+ * A finding counts when it names a file the defect lives in and uses the words the defect turns on.
+ * Words are a rough stand-in for reading it, chosen because judging it properly would take another
+ * model and another thing to measure. Each match keeps its text in the results file, so a person can
+ * read what was counted.
  */
+
+const isPattern = (source: string): boolean => {
+    try {
+        new RegExp(source);
+        return true;
+    } catch {
+        return false;
+    }
+};
 
 /** What a case's `truth.json` holds. The reviewer never sees it. */
 export const ReviewEvalTruthSchema = z.discriminatedUnion('kind', [
@@ -18,8 +28,12 @@ export const ReviewEvalTruthSchema = z.discriminatedUnion('kind', [
         class: z.string().min(1),
         /** Repository-relative, as `git diff` names it. */
         file: z.string().min(1),
-        /** First and last line of the defect in the file after the patch, inclusive. */
+        /** Other files a finding about this defect could fairly name, such as where a mistake is called from. */
+        alsoIn: z.array(z.string().min(1)).default([]),
+        /** First and last line of the defect in the file after the patch, inclusive. For a person: matching ignores it. */
         lines: z.tuple([z.number().int().min(1), z.number().int().min(1)]).refine(([first, last]) => first <= last, 'lines run first to last'),
+        /** Patterns, without case, that a finding's problem must all match to be about this defect. */
+        mentions: z.array(z.string().min(1).refine(isPattern, 'not a regular expression')).min(1),
         /** What is wrong, for a person reading the corpus. */
         about: z.string().min(1),
         /** The commit that later fixed it, which is the evidence it was a defect. */
@@ -75,31 +89,17 @@ export const rawView = (reported: unknown): ReviewView => {
     return { rejected: false, verdict: parsed.data.verdict, findings: parsed.data.findings };
 };
 
-/**
- * The result as the runner would act on it. A result the verifier refuses counts for nothing. A
- * `defect` citing a real file outside the diff passes the verifier as an `omission`, which it says in
- * a log line and not on the finding, so that relabelling is applied here: as an omission its line
- * stops mattering.
- */
-export const verifiedView = (reported: unknown, verification: ReviewEvalVerification | undefined): ReviewView => {
-    if (!verification?.passed) return rejectedView;
-    const raw = rawView(reported);
-    return {
-        ...raw,
-        findings: raw.findings.map(finding =>
-            finding.kind === 'defect' && !verification.changedPaths.includes(finding.file) ? { ...finding, kind: 'omission' as const } : finding,
-        ),
-    };
-};
+/** The result as the runner would act on it: what the verifier refused counts for nothing. */
+export const verifiedView = (reported: unknown, verification: ReviewEvalVerification | undefined): ReviewView =>
+    verification?.passed ? rawView(reported) : rejectedView;
 
 const normalized = (path: string): string => path.replace(/^\.\//, '');
 
-/** Whether a finding points at the seeded defect: its lines, or its file for an omission, which cites no line. */
+/** Whether a finding is about the seeded defect: in one of its files, and using all of its words. */
 export const findingHitsTruth = (finding: ReviewFinding, truth: Extract<ReviewEvalTruth, { kind: 'defect' }>): boolean => {
-    if (normalized(finding.file) !== truth.file) return false;
-    if (finding.kind === 'omission') return true;
-    const [first, last] = truth.lines;
-    return finding.line !== undefined && finding.line >= first && finding.line <= last;
+    const file = normalized(finding.file);
+    if (file !== truth.file && !truth.alsoIn.includes(file)) return false;
+    return truth.mentions.every(pattern => new RegExp(pattern, 'i').test(finding.problem));
 };
 
 export type ReviewCaseScore =
@@ -297,7 +297,7 @@ export const formatReport = (report: ReviewEvalReport): string =>
         ...(report.label.rescoredAt ? [`Rescored at ${report.label.rescoredAt.slice(0, 12)}, with no new reviews.`] : []),
         '',
         '- These scores stop at review. A blocker still has to survive challenge, so they overstate what would reach a kickback.',
-        '- A match is by location only. Read the matched findings in the results file before quoting recall.',
+        '- A match is a file and some chosen words, not a judgement. Read the matched findings in the results file before quoting recall.',
         '- Type-check evidence, rule judges and learnings did not run, so a live review had more to go on.',
         '- Reviewers ran their allowed commands on this machine, which can reach its local test database.',
         '- A small n moves a lot on one case. Compare runs by the cases that changed, not by the percentages alone.',
