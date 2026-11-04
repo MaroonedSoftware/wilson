@@ -100,9 +100,14 @@ export const caseProblems = (evalCase: ReviewEvalCase): string[] => {
     if (added.size === 0) problems.push('the patch changes nothing');
     if (GIVEAWAY.test(evalCase.plan) || GIVEAWAY.test(evalCase.title)) problems.push('the plan gives away what kind of case this is');
     if (!/^## Files in scope$/m.test(evalCase.plan)) problems.push('the plan has no "Files in scope"');
+    // Without it the first install rewrites the lockfile, and the verifier blames the reviewer.
+    if ([...added.keys()].some(path => path.endsWith('package.json')) && !added.has('pnpm-lock.yaml')) {
+        problems.push('the patch edits a package.json and leaves out pnpm-lock.yaml');
+    }
 
     if (evalCase.truth.kind === 'defect') {
-        const { file, lines } = evalCase.truth;
+        const { file, lines, alsoIn } = evalCase.truth;
+        for (const other of alsoIn) if (!added.has(other)) problems.push(`the truth also names ${other}, which the patch does not add to`);
         const fileAdded = added.get(file);
         if (!fileAdded) {
             problems.push(`the truth names ${file}, which the patch does not add to`);

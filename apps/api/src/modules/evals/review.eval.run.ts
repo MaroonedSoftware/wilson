@@ -77,6 +77,9 @@ export const seedCase = async (evalCase: ReviewEvalCase, options: { sourceRepo: 
         // `-f` because the tree is what was committed, whatever its ignore files say.
         await inCode(['add', '-A', '-f']);
         await inCode(['commit', '-q', '--no-verify', '-m', 'Initial commit']);
+        // A first install marks a package's `bin` executable. An old base may have that file as 644, and
+        // a reviewer that ran `pnpm` has not edited it. Set after the commit, which keeps the base's modes.
+        await inCode(['config', 'core.fileMode', 'false']);
 
         const runRoot = join(root, 'run');
         const worktrees = new WorktreeManager(new StaticBoardConfig(EVAL_PROJECT, code, join(root, 'worktrees'), runRoot), options.logger);

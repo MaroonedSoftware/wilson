@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -77,7 +77,16 @@ describe('seedCase and runCase', () => {
             plan: '## Goal\n\nAdd c.\n\n## Files in scope\n\n- a.ts\n',
             patchPath,
             patch,
-            truth: { kind: 'defect', class: 'logic', file: 'a.ts', lines: [2, 2], about: 'c is wrong', fixedBy: 'f'.repeat(40) },
+            truth: {
+                kind: 'defect',
+                class: 'logic',
+                file: 'a.ts',
+                alsoIn: [],
+                lines: [2, 2],
+                mentions: ['wrong'],
+                about: 'c is wrong',
+                fixedBy: 'f'.repeat(40),
+            },
         };
     });
 
@@ -108,6 +117,21 @@ describe('seedCase and runCase', () => {
         expect(seeded.cardId).toBe('0007');
         expect(existsSync(join(path, 'truth.json'))).toBe(false);
         expect(path).not.toContain(evalCase.id);
+    });
+
+    it("keeps the base's file modes and does not count a later mode change as an edit", async () => {
+        await chmod(join(source, 'kept.ts'), 0o755);
+        await git(source, 'add', '-A');
+        await git(source, 'commit', '-q', '-m', 'an executable file');
+        seeded = await seedCase({ ...evalCase, base: await git(source, 'rev-parse', 'HEAD') }, { sourceRepo: source, ordinal: 1, logger });
+        const { path, baseSha } = seeded.worktree;
+        expect(await git(path, 'ls-tree', baseSha, 'kept.ts')).toMatch(/^100755/);
+        expect(await git(path, 'ls-tree', baseSha, 'a.ts')).toMatch(/^100644/);
+
+        // What a first `pnpm install` does to a package's `bin`.
+        await chmod(join(path, 'a.ts'), 0o755);
+
+        expect(await seeded.worktrees.uncommittedPaths(seeded.worktree)).toEqual([]);
     });
 
     it('removes the scratch directory', async () => {
@@ -149,8 +173,7 @@ describe('seedCase and runCase', () => {
         expect(verifiedView(run.reported, run.verification).rejected).toBe(true);
     });
 
-    // The verifier says this only in a log line, so `verifiedView` repeats its rule. This pins the two together.
-    it('agrees with the real verifier that a defect on an unchanged file passes, relabelled', async () => {
+    it('lets a defect on an unchanged file through the real verifier, which treats it as an omission', async () => {
         seeded = await seedCase(evalCase, { sourceRepo: source, ordinal: 1, logger });
         const outside = {
             summary: 's',
@@ -161,7 +184,7 @@ describe('seedCase and runCase', () => {
         const run = await runCase({ evalCase, seeded, stage, stages, agent: agentReturning({ result: outside }), logger });
 
         expect(run.verification?.passed).toBe(true);
-        expect(verifiedView(run.reported, run.verification).findings[0]?.kind).toBe('omission');
+        expect(verifiedView(run.reported, run.verification).findings).toHaveLength(1);
     });
 
     it('turns an engine that throws into an unscored run, so earlier results survive', async () => {

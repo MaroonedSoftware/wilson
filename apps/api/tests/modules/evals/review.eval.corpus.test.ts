@@ -37,7 +37,16 @@ const aCase = (over: Partial<ReviewEvalCase> = {}): ReviewEvalCase => ({
     plan: '## Goal\n\nDo it.\n\n## Files in scope\n\n- src/a.ts\n',
     patchPath: '/nowhere',
     patch: PATCH,
-    truth: { kind: 'defect', class: 'logic', file: 'src/a.ts', lines: [6, 7], about: 'wrong', fixedBy: 'c'.repeat(40) },
+    truth: {
+        kind: 'defect',
+        class: 'logic',
+        file: 'src/a.ts',
+        alsoIn: [],
+        lines: [6, 7],
+        mentions: ['wrong'],
+        about: 'wrong',
+        fixedBy: 'c'.repeat(40),
+    },
     ...over,
 });
 
@@ -69,11 +78,26 @@ describe('caseProblems', () => {
             kind: 'defect',
             class: 'logic',
             file: 'src/a.ts',
+            alsoIn: [],
             lines: [8, 9],
+            mentions: ['x'],
             about: 'x',
             fixedBy: 'c'.repeat(40),
         };
         expect(caseProblems(aCase({ truth: outOfRange }))[0]).toContain('include none the patch adds');
+    });
+
+    it('refuses a package.json edit with no lockfile, which the first install would rewrite', () => {
+        const edit = (path: string) =>
+            [`diff --git a/${path} b/${path}`, `--- a/${path}`, `+++ b/${path}`, '@@ -1 +1,2 @@', ' {', '+"x": 1', ''].join('\n');
+        const problem = 'the patch edits a package.json and leaves out pnpm-lock.yaml';
+        expect(caseProblems(aCase({ patch: PATCH + edit('apps/api/package.json') }))).toContain(problem);
+        expect(caseProblems(aCase({ patch: PATCH + edit('apps/api/package.json') + edit('pnpm-lock.yaml') }))).not.toContain(problem);
+    });
+
+    it('refuses another file the patch does not add to', () => {
+        const truth = { ...aCase().truth, alsoIn: ['src/elsewhere.ts'] } as ReviewEvalCase['truth'];
+        expect(caseProblems(aCase({ truth }))).toEqual(['the truth also names src/elsewhere.ts, which the patch does not add to']);
     });
 
     it('refuses a plan that gives the game away or has no scope', () => {
