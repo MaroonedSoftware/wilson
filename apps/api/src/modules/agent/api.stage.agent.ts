@@ -1,7 +1,7 @@
 import { Injectable } from 'injectkit';
 import { ToolLoopAgent, hasToolCall, stepCountIs } from 'ai';
 import type { z } from 'zod';
-import { overBudget, stageUsageOf, tokenBudgetExceeded, wallClockExceeded } from './budget.js';
+import { budgetedInputTokens, overBudget, stageUsageOf, tokenBudgetExceeded, wallClockExceeded } from './budget.js';
 import { buildRunTrace } from './run.trace.js';
 import { compactMessages } from './compact.messages.js';
 import { ModelRegistry } from './model.registry.js';
@@ -88,12 +88,12 @@ export class ApiStageAgent extends StageAgent {
                 abortSignal: AbortSignal.timeout(stage.maxWallClockMs),
             });
 
-            const inputTokens = run.usage?.inputTokens;
+            const usage = stageUsageOf(run.usage);
             const output: AgentRunOutput = {
                 result: reportedResult(run.steps),
-                usage: stageUsageOf(run.usage),
+                usage,
                 truncated: run.steps.length >= stage.maxSteps,
-                budgetFailure: overBudget(inputTokens, stage.maxInputTokens),
+                budgetFailure: overBudget(budgetedInputTokens(usage), stage.maxInputTokens),
                 trace: buildRunTrace(readCalls(run.steps), run.text),
             };
             return output;

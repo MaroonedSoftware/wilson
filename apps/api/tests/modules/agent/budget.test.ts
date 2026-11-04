@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
     budgetedInputTokens,
+    budgetedStepTokens,
     contextBudgetExceeded,
     overBudget,
     stageUsageOf,
-    sumInputTokens,
     tokenBudgetExceeded,
     wallClockExceeded,
 } from '#modules/agent/budget.js';
@@ -14,24 +14,29 @@ import {
  * its output cap held it to 50k, because `maxOutputTokens` and `maxSteps` never looked at input at
  * all. This is the one place that arithmetic and its failure message live, shared by both adapters.
  */
-describe('sumInputTokens', () => {
+describe('budgetedStepTokens', () => {
     it('is zero for no steps', () => {
-        expect(sumInputTokens([])).toBe(0);
+        expect(budgetedStepTokens([])).toBe(0);
     });
 
     it('adds up input tokens across steps', () => {
         const steps = [{ usage: { inputTokens: 100 } }, { usage: { inputTokens: 250 } }, { usage: { inputTokens: 4 } }];
-        expect(sumInputTokens(steps)).toBe(354);
+        expect(budgetedStepTokens(steps)).toBe(354);
     });
 
     it('treats a step with no usage as contributing nothing, rather than throwing', () => {
         const steps = [{ usage: { inputTokens: 100 } }, {}, { usage: { inputTokens: 50 } }];
-        expect(sumInputTokens(steps)).toBe(150);
+        expect(budgetedStepTokens(steps)).toBe(150);
     });
 
     it('treats usage with no inputTokens as contributing nothing', () => {
         const steps = [{ usage: { inputTokens: 100 } }, { usage: {} }];
-        expect(sumInputTokens(steps)).toBe(100);
+        expect(budgetedStepTokens(steps)).toBe(100);
+    });
+
+    it('weights what the provider split out of its input total', () => {
+        const steps = [{ usage: { inputTokens: 1150, inputTokenDetails: { cacheReadTokens: 1000, cacheWriteTokens: 100 } } }];
+        expect(budgetedStepTokens(steps)).toBe(50 + 100 + 125);
     });
 });
 
@@ -51,6 +56,11 @@ describe('tokenBudgetExceeded', () => {
     it('is true once cumulative input tokens pass the cap', () => {
         const check = tokenBudgetExceeded(1000);
         expect(check({ steps: [{ usage: { inputTokens: 700 } }, { usage: { inputTokens: 400 } }] })).toBe(true);
+    });
+
+    it('counts cache reads at their cost, so a long cached conversation stays under the cap', () => {
+        const check = tokenBudgetExceeded(1000);
+        expect(check({ steps: [{ usage: { inputTokens: 5000, inputTokenDetails: { cacheReadTokens: 5000 } } }] })).toBe(false);
     });
 
     it('sums across every step passed in, not just the last one', () => {
@@ -81,7 +91,7 @@ describe('overBudget', () => {
     });
 
     it('names both figures, so an operator does not have to go dig for them', () => {
-        expect(overBudget(2_500_000, 2_000_000)).toBe('input token budget exceeded: used 2500000, cap 2000000');
+        expect(overBudget(2_500_000, 2_000_000)).toBe('input token budget exceeded: used 2500000 cost-weighted, cap 2000000');
     });
 });
 
@@ -148,8 +158,21 @@ describe('wallClockExceeded', () => {
 });
 
 describe('budgetedInputTokens', () => {
-    it('counts cached tokens alongside uncached ones', () => {
-        expect(budgetedInputTokens({ inputTokens: 6, cachedInputTokens: 195_286 })).toBe(195_292);
+    it('counts fresh input in full, cache reads at 0.1 and cache writes at 1.25', () => {
+        expect(budgetedInputTokens({ inputTokens: 100, cachedInputTokens: 1100, cacheWriteInputTokens: 100 })).toBe(100 + 100 + 125);
+    });
+
+    it('counts everything cached as reads when no writes were recorded, as in an older event', () => {
+        expect(budgetedInputTokens({ inputTokens: 6, cachedInputTokens: 195_286 })).toBe(19_535);
+    });
+
+    it('never counts reads as negative when the writes figure overruns the cached one', () => {
+        expect(budgetedInputTokens({ inputTokens: 0, cachedInputTokens: 10, cacheWriteInputTokens: 20 })).toBe(25);
+    });
+
+    it('measures a long cached run at a fraction of its raw length', () => {
+        const raw = { inputTokens: 400, cachedInputTokens: 12_000_000, cacheWriteInputTokens: 200_000 };
+        expect(budgetedInputTokens(raw)).toBe(400 + 1_180_000 + 250_000);
     });
 
     it('counts what a usage holds when it has no cached figure', () => {

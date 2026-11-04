@@ -95,7 +95,7 @@ stages:
 /**
  * Sets up a real board in the test database (as `stage.dispatcher.test.ts` already does for
  * `writeTransition`) with the given stage config YAML, and a `StageDispatcher` wired to an
- * `EventLog.totalInputTokens` stubbed to `spend` and a worktree layer that throws on first touch.
+ * `EventLog.budgetedInputTokens` stubbed to `spend` and a worktree layer that throws on first touch.
  */
 const setUp = async (stagesYaml: string, spend: number, notifyWebhookUrl?: string, notifyBaseUrl?: string) => {
     const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-budget-'));
@@ -107,7 +107,7 @@ const setUp = async (stagesYaml: string, spend: number, notifyWebhookUrl?: strin
         notifyWebhookUrl,
         notifyBaseUrl,
     );
-    const events = { append: vi.fn(async () => {}), totalInputTokens: vi.fn(async () => spend) };
+    const events = { append: vi.fn(async () => {}), budgetedInputTokens: vi.fn(async () => spend) };
     const board: BoardRepository = new PostgresBoardRepository(config, db, events as unknown as EventLog);
     await board.create(baseCard, 'initial');
     const worktrees = untouchableWorktrees();
@@ -147,7 +147,7 @@ describe('StageDispatcher.run refuses an over-budget card before touching the wo
         expect(worktrees.create).not.toHaveBeenCalled();
         expect(worktrees.resume).not.toHaveBeenCalled();
 
-        expect(events.totalInputTokens).toHaveBeenCalledWith(project, '0001');
+        expect(events.budgetedInputTokens).toHaveBeenCalledWith(project, '0001');
         expect(events.append).toHaveBeenCalledWith(
             expect.objectContaining({
                 cardId: '0001',
@@ -217,14 +217,14 @@ describe('StageDispatcher.run refuses an over-budget card before touching the wo
         // reaches the worktree layer, which throws its marker error — proving the budget gate did not
         // short-circuit the run, since a refusal would have returned normally instead of throwing.
         await expect(dispatcher.run('0001', 'testing')).rejects.toThrow('MARKER: worktree touched');
-        expect(events.totalInputTokens).not.toHaveBeenCalled();
+        expect(events.budgetedInputTokens).not.toHaveBeenCalled();
     });
 
     it('does not refuse the card, and proceeds toward the worktree, when spend sits below the cap', async () => {
         const { dispatcher, events, project } = await setUp(stagesYamlWithCap, 500);
 
         await expect(dispatcher.run('0001', 'testing')).rejects.toThrow('MARKER: worktree touched');
-        expect(events.totalInputTokens).toHaveBeenCalledWith(project, '0001');
+        expect(events.budgetedInputTokens).toHaveBeenCalledWith(project, '0001');
         expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'card.over-budget' }));
     });
 });

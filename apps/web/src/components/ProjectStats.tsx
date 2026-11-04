@@ -256,7 +256,8 @@ function TopCardsTable({ project, cards }: { project: string; cards: Stats['topC
 /**
  * What one project spent and how its stages went over a window. Tokens only, for the reason
  * `CardUsage` gives. Planning and review turns have their own table and are in no other figure here,
- * so the stage figures keep meaning what a budget or the daily ceiling counts.
+ * so the stage figures keep meaning what stages spent. They are raw tokens, where an input budget
+ * weights them by cost, so a stage's figure here is not what its cap was compared against.
  */
 export function ProjectStats({ project, stats }: { project: string; stats: Stats }) {
     const [showDays, setShowDays] = useState(false);

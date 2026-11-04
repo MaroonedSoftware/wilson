@@ -285,7 +285,7 @@ describe('EventLog.usageByStage', () => {
         await db.destroy();
     });
 
-    it('counts cached tokens in a card’s total, and takes older events as they are', async () => {
+    it('weights a card’s total by cost, counting an older event’s cached figure as reads', async () => {
         const project = uniqueProject();
         const eventLog = new EventLog(db, silentLogger);
         const append = (usage: Record<string, number>) =>
@@ -293,8 +293,9 @@ describe('EventLog.usageByStage', () => {
 
         await append({ inputTokens: 100 });
         await append({ inputTokens: 6, cachedInputTokens: 1000 });
+        await append({ inputTokens: 4, cachedInputTokens: 300, cacheWriteInputTokens: 200 });
 
-        expect(await eventLog.totalInputTokens(project, '0001')).toBe(1106);
+        expect(await eventLog.budgetedInputTokens(project, '0001')).toBe(100 + 6 + 100 + 4 + 10 + 250);
     });
 
     it('counts cached tokens in a card’s usage, and takes older events as they are', async () => {
@@ -416,7 +417,8 @@ describe('EventLog.usageByStage', () => {
 
         expect(usage.stages).toEqual([{ stage: 'implementing', attempts: 1, inputTokens: 130, cachedInputTokens: 100, outputTokens: 12 }]);
         expect(usage.total).toEqual({ attempts: 1, inputTokens: 130, cachedInputTokens: 100, outputTokens: 12 });
-        expect(usage.total.inputTokens).toBe(await eventLog.totalInputTokens(project, cardId));
+        // Raw here, weighted against the budget: 30 fresh plus 100 cached read at 0.1.
+        expect(await eventLog.budgetedInputTokens(project, cardId)).toBe(40);
     });
 
     it('reports a stage that has only been interrupted, with its tokens and no attempts', async () => {
@@ -668,7 +670,7 @@ describe('EventLog.projectStats', () => {
             { kind: 'review', turns: 2, cards: 1, inputTokens: 33, cachedInputTokens: 30, outputTokens: 11 },
         ]);
         expect(stats.total.outputTokens).toBe(0);
-        expect(await eventLog.totalInputTokens(project, '0001')).toBe(0);
+        expect(await eventLog.budgetedInputTokens(project, '0001')).toBe(0);
         expect(await eventLog.outputTokensSince(project, since)).toBe(0);
     });
 

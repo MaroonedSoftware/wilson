@@ -2,6 +2,7 @@ import { Injectable } from 'injectkit';
 import { Kysely, sql, type Transaction } from 'kysely';
 import type { DateTime } from 'luxon';
 import { Logger } from '@maroonedsoftware/logger';
+import { budgetedInputTokens } from '#modules/agent/budget.js';
 import type { DB } from '#modules/data/db.js';
 import { CARD_FEED_CHANNEL } from '#modules/feed/card.feed.js';
 import type { ProjectConversationStats, ProjectStageStats, ProjectStats, ProjectStatsCounts } from '../../generated/board.js';
@@ -216,27 +217,34 @@ export class EventLog {
     }
 
     /**
-     * What a card has spent in total, across every stage and every attempt, cached tokens included
-     * as `budgetedInputTokens` counts them. Events from before `cachedInputTokens` was recorded count
-     * only what they hold.
+     * What a card has spent against its budget, across every stage and every attempt, weighted as
+     * `budgetedInputTokens` weights one run. The raw figures are summed first, so the weights live in
+     * that one function. Events from before `cacheWriteInputTokens` was recorded count their whole
+     * cached figure as reads, and events from before `cachedInputTokens` count only what they hold.
      *
      * Every stage already records `usage` in its `stage.passed` / `stage.failed`
      * payload, so this reads that history rather than tracking a separate running counter. Nulls —
      * a card with no usage recorded — coalesce to zero rather than surfacing as null.
      */
-    async totalInputTokens(project: string, cardId: string): Promise<number> {
+    async budgetedInputTokens(project: string, cardId: string): Promise<number> {
         const row = await this.db
             .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
-            .select(
-                sql<string>`coalesce(sum(coalesce((payload->'usage'->>'inputTokens')::bigint, 0) + coalesce((payload->'usage'->>'cachedInputTokens')::bigint, 0)), 0)`.as(
-                    'total',
-                ),
-            )
+            .select([
+                sql<string>`coalesce(sum((payload->'usage'->>'inputTokens')::bigint), 0)`.as('inputTokens'),
+                sql<string>`coalesce(sum((payload->'usage'->>'cachedInputTokens')::bigint), 0)`.as('cachedInputTokens'),
+                sql<string>`coalesce(sum((payload->'usage'->>'cacheWriteInputTokens')::bigint), 0)`.as('cacheWriteInputTokens'),
+            ])
             .executeTakeFirstOrThrow();
 
-        return Number(row.total);
+        return (
+            budgetedInputTokens({
+                inputTokens: Number(row.inputTokens),
+                cachedInputTokens: Number(row.cachedInputTokens),
+                cacheWriteInputTokens: Number(row.cacheWriteInputTokens),
+            }) ?? 0
+        );
     }
 
     /**
@@ -252,8 +260,8 @@ export class EventLog {
      * `attempts`; a stage interrupted every time so far has a row with no attempts. A passed or failed
      * event whose payload has no `usage` still counts as an attempt, at zero tokens, so `attempts` can
      * never disagree with what `tail` shows for the same card: nothing here is silently skipped.
-     * `inputTokens` includes cached tokens, the same total `totalInputTokens` holds a card to, and
-     * `cachedInputTokens` says how many of them those are.
+     * `inputTokens` includes cached tokens and `cachedInputTokens` says how many of them those are.
+     * These are raw tokens: a card's budget weights them (`budgetedInputTokens`), so the two differ.
      */
     async usageByStage(project: string, cardId: string): Promise<CardUsage> {
         const rows = await this.db

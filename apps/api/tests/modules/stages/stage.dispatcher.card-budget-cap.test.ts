@@ -67,7 +67,7 @@ describe('StageDispatcher.run caps a run at what remains of its card’s budget'
         await writeFile(join(worktreeDir, 'src', 'x.ts'), 'export const x = 1;\n', 'utf8');
 
         const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
-        const events = { append: vi.fn(async () => {}), totalInputTokens: vi.fn(async () => 600) };
+        const events = { append: vi.fn(async () => {}), budgetedInputTokens: vi.fn(async () => 600) };
         const board: BoardRepository = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await board.create(card, 'initial');
 

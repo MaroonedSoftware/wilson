@@ -210,17 +210,17 @@ export const StageConfigSchema = z
         maxSteps: z.number().int().min(1).default(60),
         maxOutputTokens: z.number().int().min(1024).default(16000),
         /**
-         * Cumulative input tokens a single run may consume before it is cut off as a budget failure,
-         * cached tokens included (`budgetedInputTokens`). Every turn resends the conversation, so this
-         * grows with steps times context size: the default allows `maxSteps` turns at 250k each, which
-         * is meant to catch a runaway, not to shape an ordinary run.
+         * Cost-weighted input tokens a single run may consume before it is cut off as a budget failure
+         * (`budgetedInputTokens`: fresh input at 1, cache reads at 0.1, cache writes at 1.25). Every turn
+         * resends the conversation, mostly as cache reads, so this grows far more slowly than the raw
+         * tokens stats show. The default is meant to catch a runaway, not to shape an ordinary run.
          */
         maxInputTokens: z.number().int().min(1000).default(15_000_000),
         /**
          * Fraction of the model's context window a run's usage may reach before it is stopped as a
          * budget failure.
          *
-         * Distinct from `maxInputTokens`, worth stating plainly: that one bounds the cumulative input
+         * Distinct from `maxInputTokens`, worth stating plainly: that one bounds the cost-weighted input
          * tokens a run has already spent across every turn so far. This bounds the request the *next*
          * turn is about to build on top of what the context window already holds — a run can be well
          * under its token budget and still overflow on a single turn, because a turn's prompt carries
@@ -267,7 +267,7 @@ export const StageConfigSchema = z
          * Ceiling on everything a card has ever spent, across every stage and every attempt.
          *
          * Unlike `maxInputTokens`, which bounds one run, this bounds the card, and counts the same
-         * way, cached tokens included. It sits on the stage
+         * way, cost-weighted. It sits on the stage
          * rather than the card because that is where every other budget lives, and a project sets it
          * once across its stages. Optional: absent means unbounded, exactly as today.
          */

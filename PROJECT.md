@@ -1324,7 +1324,9 @@ what is done, what is not, and what each remaining one is actually waiting on.
 **Done:**
 
 - **Budget caps.** `maxCardInputTokens`, checked before a worktree is cut so an
-  over-budget card never reaches a model.
+  over-budget card never reaches a model. Input caps are cost-weighted: fresh input
+  at 1, cache reads at 0.1, cache writes at 1.25 (`budgetedInputTokens`), mirroring API
+  pricing. Stats show raw tokens, so a stage's figure there is not what its cap saw.
 - **Worktree GC.** `reclaimIfTerminal` on a terminal transition; `preserveUncommitted`
   keeps a failed attempt's work as a patch first.
 - **Planning, and the interactive planning surface.** The `planning` stage, the

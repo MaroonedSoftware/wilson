@@ -304,7 +304,7 @@ export class StageDispatcher {
         // install dependencies or reach a model. Absent `maxCardInputTokens` means unbounded, so
         // this reads the card's total spend only when a cap is actually configured.
         if (stage.maxCardInputTokens !== undefined) {
-            const spent = await this.events.totalInputTokens(this.config.project, cardId);
+            const spent = await this.events.budgetedInputTokens(this.config.project, cardId);
             const message = cardOverBudget(spent, stage.maxCardInputTokens);
             if (message) {
                 return this.refuseOverBudget(cardId, stageName, head, card, spent, stage.maxCardInputTokens, message);
@@ -1303,7 +1303,7 @@ export class StageDispatcher {
 
         // Read again rather than passed down from `run`'s own check: nothing here has spent anything
         // since, and `run` reaches this through three separate call sites.
-        const spent = stage.maxCardInputTokens === undefined ? 0 : await this.events.totalInputTokens(this.config.project, card.frontmatter.id);
+        const spent = stage.maxCardInputTokens === undefined ? 0 : await this.events.budgetedInputTokens(this.config.project, card.frontmatter.id);
 
         const budgeted = withinCardBudget(stage, spent);
         const run = await adapter.run({
