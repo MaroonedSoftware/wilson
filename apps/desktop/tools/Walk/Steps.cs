@@ -1170,6 +1170,12 @@ internal static class Steps
         await walk.UntilAsync("a click opening the card", () => walk.Shell.Page is CardViewModel);
         await BackToBoardAsync();
 
+        // That press must not outlive the page, or the board stops drawing with no sign of it.
+        board.Filter = "matches no card";
+        await walk.UntilAsync("the board drawing after a click opened a card", () => board.Columns.All(column => column.Cards.Count == 0));
+        board.Filter = null;
+        await walk.UntilAsync("the card back in its column", () => board.Columns.Any(column => column.Cards.Count > 0));
+
         var start = walk.Center(Tile());
         walk.Drag(start, start + new Point(3, 2));
         await walk.UntilAsync("a small slip still opening the card", () => walk.Shell.Page is CardViewModel);
@@ -1185,13 +1191,13 @@ internal static class Steps
 
         var stage = Tile().Card.Stage;
         var picked = walk.Center(Tile());
-        var over = walk.Center(Column("done"));
+        var over = walk.Center(Column("implementing"));
         walk.Down(picked);
         walk.MoveTo(picked + new Point(20, 0));
         walk.MoveTo(over);
-        await walk.UntilAsync("a card held over a column", () => Tile().Dragged && Column("done").Target);
+        await walk.UntilAsync("a card held over a column", () => Tile().Dragged && Column("implementing").Target);
         walk.Press(Key.Escape, PhysicalKey.Escape);
-        await walk.UntilAsync("Escape putting it back", () => !Tile().Dragged && !Column("done").Target);
+        await walk.UntilAsync("Escape putting it back", () => !Tile().Dragged && !Column("implementing").Target);
         walk.Up(over);
         await board.RefreshCommand.ExecuteAsync(null);
         await walk.UntilAsync("the cancelled drag asking for nothing", () => Tile().Card.Stage == stage && walk.Shell.Page == board);
