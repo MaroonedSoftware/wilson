@@ -36,6 +36,7 @@ import {
     MoveCardRequest,
     PlanComment,
     PlanDraft,
+    ProjectGateStats,
     ProjectStats,
     ProjectStatsQuery,
     ReleaseResult,
@@ -81,6 +82,7 @@ const ReopenAPlanCommentArgs = z.object({ id: z.string(), commentId: z.string() 
 const ListCardEventsArgs = z.object({ id: z.string(), query: ListQuery.optional() });
 const ListProjectActivityArgs = z.object({ query: ActivityQuery.optional() });
 const GetProjectStatsArgs = z.object({ query: ProjectStatsQuery.optional() });
+const GetProjectGateStatsArgs = z.object({ query: ProjectStatsQuery.optional() });
 const GetCardUsageArgs = z.object({ id: z.string() });
 const GetCardDiffArgs = z.object({ id: z.string() });
 const ListCardVersionsArgs = z.object({ id: z.string(), query: ListQuery.optional() });
@@ -727,6 +729,33 @@ export class GetProjectStatsMcpTool implements McpToolHandler {
 }
 
 /**
+ * from [board.ck](../../../../data/contracts/board.ck) `GET /api/stats/gates`
+ */
+@Injectable()
+export class GetProjectGateStatsMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'get_project_gate_stats',
+        description:
+            'What the gates caught and how often a person was pulled in. Separate from `/api/stats` because it reads\ndifferent events, from the same window in the same time zone.',
+        inputSchema: z.toJSONSchema(GetProjectGateStatsArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(ProjectGateStats, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
+        const { query = await parseAndValidate({}, GetProjectGateStatsArgs.shape.query.unwrap()) } = await parseAndValidate(
+            args,
+            GetProjectGateStatsArgs,
+        );
+        const result = await container.get(BoardService).gateStats(query);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
  * from [board.ck](../../../../data/contracts/board.ck) `GET /api/cards/{id}/usage`
  */
 @Injectable()
@@ -873,6 +902,7 @@ export function registerBoardMcpCatalog(map: McpToolHandlerMap, container: Conta
     map.set('list_card_events', container.get(ListCardEventsMcpTool));
     map.set('list_project_activity', container.get(ListProjectActivityMcpTool));
     map.set('get_project_stats', container.get(GetProjectStatsMcpTool));
+    map.set('get_project_gate_stats', container.get(GetProjectGateStatsMcpTool));
     map.set('get_card_usage', container.get(GetCardUsageMcpTool));
     map.set('get_card_diff', container.get(GetCardDiffMcpTool));
     map.set('list_card_versions', container.get(ListCardVersionsMcpTool));
@@ -909,6 +939,7 @@ export function registerBoardMcpToolClasses(registry: Registry): void {
     registry.register(ListCardEventsMcpTool).useClass(ListCardEventsMcpTool).asSingleton();
     registry.register(ListProjectActivityMcpTool).useClass(ListProjectActivityMcpTool).asSingleton();
     registry.register(GetProjectStatsMcpTool).useClass(GetProjectStatsMcpTool).asSingleton();
+    registry.register(GetProjectGateStatsMcpTool).useClass(GetProjectGateStatsMcpTool).asSingleton();
     registry.register(GetCardUsageMcpTool).useClass(GetCardUsageMcpTool).asSingleton();
     registry.register(GetCardDiffMcpTool).useClass(GetCardDiffMcpTool).asSingleton();
     registry.register(ListCardVersionsMcpTool).useClass(ListCardVersionsMcpTool).asSingleton();

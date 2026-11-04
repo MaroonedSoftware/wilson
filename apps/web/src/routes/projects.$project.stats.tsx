@@ -20,7 +20,12 @@ function ProjectStatsRoute() {
 
     const stats = useQuery({
         queryKey: [...statsQueryKey(project), days],
-        queryFn: () => client.board.getProjectStats({ days: Number(days) }),
+        // Together, since the page's figures are compared: the pass rate subtracts the gates' revises.
+        queryFn: async () => {
+            const query = { days: Number(days) };
+            const [figures, gates] = await Promise.all([client.board.getProjectStats(query), client.board.getProjectGateStats(query)]);
+            return { figures, gates };
+        },
         placeholderData: keepPreviousData,
     });
 
@@ -49,7 +54,7 @@ function ProjectStatsRoute() {
                     data={WINDOWS.map(value => ({ value, label: `${value} days` }))}
                 />
             </Group>
-            {stats.data ? <ProjectStats project={project} stats={stats.data} /> : <Loader size="sm" />}
+            {stats.data ? <ProjectStats project={project} stats={stats.data.figures} gates={stats.data.gates} /> : <Loader size="sm" />}
         </Stack>
     );
 }
