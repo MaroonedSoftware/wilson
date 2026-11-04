@@ -580,7 +580,8 @@ be a kickback. A card's retry budget is for work that came back wrong, and spend
 on an exhausted balance both wastes the budget and misreports the cause — this project
 watched a card burn three retry cycles against "credit balance is too low", each one
 cutting a worktree and installing dependencies before failing at the first model call.
-The job returns normally after poisoning so the queue does not retry it either.
+The job returns normally after poisoning so the queue does not retry it either. A card
+that has already ended keeps its ending: a late job records `stage.stale` and sends nothing.
 
 Classification is by message text, because neither the SDK nor the provider surfaces a
 stable machine-readable class. It is deliberately conservative: a miss costs a few
