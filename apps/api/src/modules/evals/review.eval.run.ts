@@ -30,6 +30,15 @@ const EVAL_PROJECT = 'review-eval';
  */
 const discardedEvents = { append: async () => {} } as unknown as ToolContext['events'];
 
+const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/** A case that an error stopped, which says nothing about the review and must not cost the other cases. */
+export const failedRun = (evalCase: ReviewEvalCase, what: string, err: unknown): ReviewEvalRun => ({
+    caseId: evalCase.id,
+    truth: evalCase.truth,
+    unscored: `${what}: ${messageOf(err)}`,
+});
+
 export interface SeededCase {
     /** Scratch directory holding the repository, its worktree and the run root. */
     root: string;
@@ -106,14 +115,18 @@ export const runCase = async ({ evalCase, seeded, stage, stages, agent, logger }
     const { worktree, worktrees, card, cardId, runRoot } = seeded;
     const startedAt = Date.now();
 
-    const evidence = await computeReviewEvidence(
-        { worktrees, logger, runRoot },
-        { cardId, worktree, stage: { ...stage, typecheckCommand: undefined } },
-    );
     const planDir = join(runRoot, 'cards', cardId);
     const planPath = join(planDir, 'plan.md');
-    await mkdir(planDir, { recursive: true });
-    await writeFile(planPath, planMaterial(card, stages, stage, evidence.markdown), 'utf8');
+    try {
+        const evidence = await computeReviewEvidence(
+            { worktrees, logger, runRoot },
+            { cardId, worktree, stage: { ...stage, typecheckCommand: undefined } },
+        );
+        await mkdir(planDir, { recursive: true });
+        await writeFile(planPath, planMaterial(card, stages, stage, evidence.markdown), 'utf8');
+    } catch (err) {
+        return { ...failedRun(evalCase, 'the case could not be set up', err), durationMs: Date.now() - startedAt };
+    }
 
     const scope = new ScopeGuard({
         worktreeRoot: worktree.path,
@@ -147,13 +160,7 @@ export const runCase = async ({ evalCase, seeded, stage, stages, agent, logger }
             baseSha: worktree.baseSha,
         });
     } catch (err) {
-        // One engine crash says nothing about the review, and must not cost the cases already run.
-        return {
-            caseId: evalCase.id,
-            truth: evalCase.truth,
-            durationMs: Date.now() - startedAt,
-            unscored: `the engine threw: ${(err as Error).message}`,
-        };
+        return { ...failedRun(evalCase, 'the engine threw', err), durationMs: Date.now() - startedAt };
     }
     const base = { caseId: evalCase.id, truth: evalCase.truth, durationMs: Date.now() - startedAt, ...(run.usage && { usage: run.usage }) };
 
@@ -168,10 +175,15 @@ export const runCase = async ({ evalCase, seeded, stage, stages, agent, logger }
         (run.result === undefined ? 'the stage never reported a result' : undefined);
     if (stopped) return { ...base, reported: run.result, unscored: stopped, ...(run.usageLimit && { outOfUsage: true }) };
 
-    const verification = await new ReviewVerifier(worktrees, logger).verify({ worktree, scope, stage, cardId, card, result: run.result });
-    return {
-        ...base,
-        reported: run.result,
-        verification: { passed: verification.passed, failures: verification.failures, changedPaths: verification.changedPaths },
-    };
+    try {
+        const verification = await new ReviewVerifier(worktrees, logger).verify({ worktree, scope, stage, cardId, card, result: run.result });
+        return {
+            ...base,
+            reported: run.result,
+            verification: { passed: verification.passed, failures: verification.failures, changedPaths: verification.changedPaths },
+        };
+    } catch (err) {
+        // The review is already paid for, so its result and usage stay in the record.
+        return { ...base, ...failedRun(evalCase, 'the verifier threw', err), reported: run.result };
+    }
 };

@@ -182,6 +182,30 @@ describe('buildReport', () => {
         expect(spent).toBe(12);
     });
 
+    it('names the planned cases with no result, and says why the run stopped', () => {
+        const runs = [{ caseId: 'a', truth: control, unscored: 'the engine failed' }];
+        const partial = buildReport(label, 't', runs, { plannedCaseIds: ['a', 'b', 'c'], stoppedEarly: 'hit the ceiling' });
+
+        expect(partial.notRun).toEqual(['b', 'c']);
+        expect(partial.stoppedEarly).toBe('hit the ceiling');
+        expect(formatReport(partial)).toContain('**Partial: planned cases that did not run: 2.** hit the ceiling');
+        expect(formatReport(partial)).toContain('## Not run\n\n- b\n- c');
+    });
+
+    it('still reads as partial with no reason, as a killed run saves it', () => {
+        const partial = buildReport(label, 't', [], { plannedCaseIds: ['a'] });
+
+        expect(partial.stoppedEarly).toBeUndefined();
+        expect(formatReport(partial)).toContain('**Partial: planned cases that did not run: 1.** The run ended before them.');
+    });
+
+    it('does not call a run partial when every planned case has a result', () => {
+        const whole = buildReport(label, 't', [{ caseId: 'a', truth: control, unscored: 'x' }], { plannedCaseIds: ['a'] });
+
+        expect(whole.notRun).toEqual([]);
+        expect(formatReport(whole)).not.toContain('Partial');
+    });
+
     it('does not divide by zero on an empty run', () => {
         expect(formatReport(buildReport(label, 't', []))).toContain('no cases');
     });

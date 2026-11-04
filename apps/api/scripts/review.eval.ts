@@ -9,7 +9,7 @@ import type { Logger } from '@maroonedsoftware/logger';
 import { CLAUDE_BINARY_VERSION } from '#modules/agent/cli.engine.version.js';
 import { CliStageAgent } from '#modules/agent/cli.stage.agent.js';
 import { caseProblems, loadCorpus } from '#modules/evals/review.eval.corpus.js';
-import { runCase, seedCase } from '#modules/evals/review.eval.run.js';
+import { failedRun, runCase, seedCase, type SeededCase } from '#modules/evals/review.eval.run.js';
 import { buildReport, formatReport, outputTokensSpent, type ReviewEvalRun } from '#modules/evals/review.eval.score.js';
 import { findStage, parseStages } from '#modules/stages/stage.config.js';
 
@@ -83,8 +83,10 @@ const maxOutputTokens = opts['max-output-tokens'] === undefined ? undefined : Nu
 if (maxOutputTokens !== undefined && !(maxOutputTokens > 0)) fail('--max-output-tokens takes a positive number');
 
 // Written after every case, so a run stopped by anything at all keeps what it paid for.
-const save = async (runs: ReviewEvalRun[]): Promise<void> => {
-    await writeFile(out, `${JSON.stringify(buildReport(label, startedAt, runs), null, 2)}\n`, 'utf8');
+const plannedCaseIds = chosen.map(evalCase => evalCase.id);
+const reportOf = (runs: ReviewEvalRun[], stoppedEarly?: string) => buildReport(label, startedAt, runs, { plannedCaseIds, stoppedEarly });
+const save = async (runs: ReviewEvalRun[], stoppedEarly?: string): Promise<void> => {
+    await writeFile(out, `${JSON.stringify(reportOf(runs, stoppedEarly), null, 2)}\n`, 'utf8');
 };
 
 const runs: ReviewEvalRun[] = [];
@@ -94,7 +96,18 @@ for (const [index, evalCase] of chosen.entries()) {
         stoppedEarly = `stopped before ${evalCase.id}: ${outputTokensSpent(runs)} output tokens reached the ceiling of ${maxOutputTokens}`;
         break;
     }
-    const seeded = await seedCase(evalCase, { sourceRepo, ordinal: index + 1, logger: quiet });
+    let seeded: SeededCase;
+    try {
+        seeded = await seedCase(evalCase, { sourceRepo, ordinal: index + 1, logger: quiet });
+    } catch (err) {
+        // A dry run exists to show this, so it stops there. A paid run has nothing spent on this case yet.
+        if (!spend) throw err;
+        const run = failedRun(evalCase, 'the case could not be seeded', err);
+        runs.push(run);
+        await save(runs);
+        console.log(`  ${evalCase.id}: ${run.unscored}`);
+        continue;
+    }
     try {
         if (!spend) {
             console.log(`  ${evalCase.id}: seeded`);
@@ -116,6 +129,6 @@ for (const [index, evalCase] of chosen.entries()) {
 }
 
 if (spend) {
-    console.log(`\n${formatReport(buildReport(label, startedAt, runs))}\nResults, with every finding: ${out}`);
-    if (stoppedEarly) console.log(`\nNot every case ran, so this is partial: ${stoppedEarly}`);
+    await save(runs, stoppedEarly);
+    console.log(`\n${formatReport(reportOf(runs, stoppedEarly))}\nResults, with every finding: ${out}`);
 }

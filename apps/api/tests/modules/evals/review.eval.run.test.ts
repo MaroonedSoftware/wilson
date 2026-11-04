@@ -4,12 +4,13 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Logger } from '@maroonedsoftware/logger';
 import type { AgentRunInput, AgentRunOutput } from '#modules/agent/stage.agent.js';
 import type { ReviewEvalCase } from '#modules/evals/review.eval.corpus.js';
 import { runCase, seedCase, type SeededCase } from '#modules/evals/review.eval.run.js';
 import { rawView, verifiedView } from '#modules/evals/review.eval.score.js';
+import { ReviewVerifier } from '#modules/stages/review.verifier.js';
 import { findStage, parseStages } from '#modules/stages/stage.config.js';
 
 const exec = promisify(execFile);
@@ -174,6 +175,35 @@ describe('seedCase and runCase', () => {
         const run = await runCase({ evalCase, seeded, stage, stages, agent, logger });
 
         expect(run.unscored).toBe('the engine threw: engine went away');
+    });
+
+    it('keeps the paid-for result and usage when the verifier throws', async () => {
+        seeded = await seedCase(evalCase, { sourceRepo: source, ordinal: 1, logger });
+        const verify = vi.spyOn(ReviewVerifier.prototype, 'verify').mockRejectedValue(new Error('verifier went away'));
+        const result = { summary: 's', verdict: 'pass', findings: [] };
+
+        try {
+            const run = await runCase({ evalCase, seeded, stage, stages, agent: agentReturning({ result, usage: { outputTokens: 9 } }), logger });
+
+            expect(run.unscored).toBe('the verifier threw: verifier went away');
+            expect(run.reported).toEqual(result);
+            expect(run.usage?.outputTokens).toBe(9);
+        } finally {
+            verify.mockRestore();
+        }
+    });
+
+    it('turns a case that cannot be set up into an unscored run, without starting the model', async () => {
+        seeded = await seedCase(evalCase, { sourceRepo: source, ordinal: 1, logger });
+        // A file where the run root should be, so nothing can be written beneath it.
+        const runRoot = join(seeded.root, 'not-a-directory');
+        await writeFile(runRoot, '');
+        const agent = { run: vi.fn<() => Promise<AgentRunOutput>>() };
+
+        const run = await runCase({ evalCase, seeded: { ...seeded, runRoot }, stage, stages, agent, logger });
+
+        expect(run.unscored).toContain('the case could not be set up');
+        expect(agent.run).not.toHaveBeenCalled();
     });
 
     it('marks a run that hit the usage limit, so the runner can stop', async () => {
