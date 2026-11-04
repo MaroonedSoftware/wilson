@@ -585,6 +585,28 @@ Human gates are a first-class stage type, not a special case in the runner.
 Review failure moves the card backward with findings appended to the plan and a
 retry counter incremented.
 
+### What the reviewer is told before it starts
+
+A lane that reviews gets a `## Machine evidence` section on its plan, worked out after setup and
+before the agent starts. It is an input and never a gate: nothing reads it but the reviewer, and
+failing to work it out writes "could not compute" and leaves the stage to run.
+
+- **Net-new type errors.** A lane with a `typecheckCommand` has it run on the branch and, only if the
+  branch has errors, on a second tree at `baseSha`, cached by `baseSha` and command. Errors compare by
+  package, file, code and message, never by line, and are counted, so a second identical error is new.
+  Under turbo the command needs `--continue`, or the first failing package cancels the rest and an
+  existing error can hide a new one, so without it the section reads "could not compute". A command
+  that writes outside ignored files has its writes reverted and reports "could not compute", because
+  the review verifier rejects uncommitted paths.
+- **Exports nothing references.** Exports the branch adds, by the AST, whose name `git grep` finds
+  nowhere outside the file's own declaration, tests and docs. It fails toward silence: a name its own
+  file uses, a move between changed files, and files found without an import (entry points, routes,
+  migrations, configs) are never listed, and a match is written up as evidence, not a verdict.
+
+All of it fits in `REVIEW_EVIDENCE_DEADLINE_MS` (4 minutes). That time is outside the stage's own wall
+clock and comes out of the ten minutes `CARD_STAGE_EXPIRES_IN` leaves around it. Steps of a review lane
+inherit its settings but get no evidence. `review.evidence` records the counts on the event log.
+
 ### Before the work: parking lot, planning, backlog
 
 Three lanes sit ahead of `implementing`, and none of them is dispatched. Together they

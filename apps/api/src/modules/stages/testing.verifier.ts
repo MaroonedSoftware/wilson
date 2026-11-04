@@ -6,7 +6,8 @@ import { BoardConfig } from '#modules/board/board.config.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { assertionDelta, isAssertionTestFile, type AssertionDelta, type LocatedAssertion } from './assertion.delta.js';
-import { pnpmStoreLock, runConfiguredCommand, type CommandFailure } from './run.command.js';
+import { withBaselineWorktree } from './baseline.worktree.js';
+import { runConfiguredCommand, type CommandFailure } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
 import { checkFormat, type StageVerifier, type VerificationInput, type VerificationOutcome } from './stage.verifier.js';
 import { archiveTestReport } from './test.report.archive.js';
@@ -479,78 +480,58 @@ export class TestingVerifier implements StageVerifier {
         if (testPaths.length === 0) return [];
 
         const failures: string[] = [];
-        const baselineId = `${cardId}-baseline`;
-        // On the card's own host when it has one: the test files are copied across from the card's
-        // worktree, and both trees have to be on the same disk for that.
-        const baseline = await this.worktrees.create(baselineId, `card/${cardId}-baseline`, worktree.baseSha, worktree.placement);
-
-        try {
-            if (stage.setupCommand) {
-                // The third install path, and the one card 0081 missed while fixing itself: this is
-                // a second `pnpm install`, into the same shared store, running while another card's
-                // setup may be installing too. 0081 wrapped the dispatcher's setup and the agent's
-                // bash `pnpm install` but not this, and was then poisoned when a redelivered attempt's
-                // setup raced the baseline install of the attempt still running. Same lock, so all
-                // three paths serialize against each other rather than two of three.
-                const setupCommand = stage.setupCommand;
-                const setup = await pnpmStoreLock.run(
-                    `${cardId} testing baseline setup`,
-                    message => this.logger.info(message),
-                    () => runConfiguredCommand(baseline.path, setupCommand, undefined, undefined, worktreeHost(baseline)),
-                );
-                if (setup) {
-                    failures.push(`the baseline worktree could not be set up: ${setup.reason}`);
+        return withBaselineWorktree<string[]>(
+            this.worktrees,
+            this.logger,
+            { id: `${cardId}-baseline`, source: worktree, setupCommand: stage.setupCommand, setupLabel: `${cardId} testing baseline setup` },
+            reason => [`the baseline worktree could not be set up: ${reason}`],
+            async baseline => {
+                if (!stage.testCommand) {
+                    failures.push('no testCommand configured: the baseline check could not run');
                     return failures;
                 }
-            }
 
-            if (!stage.testCommand) {
-                failures.push('no testCommand configured: the baseline check could not run');
+                // A failing baseline suite is not this check's business — the pre-change tree's own
+                // health is unrelated to whether this card's tests exercise its change. parseTestReport
+                // does not care whether tests failed, only whether the report is readable, so a failing
+                // suite reaches here as ordinary counts rather than a pushed failure.
+                const baselineStartedAt = Date.now();
+                await runConfiguredCommand(baseline.path, stage.testCommand, undefined, undefined, worktreeHost(baseline));
+                const baselineCounts = await this.readReport(baseline, stage.testReportPath, failures, baselineStartedAt);
+                if (counts && baselineCounts) {
+                    failures.push(...checkCounts(counts, baselineCounts, allowedSkipRise));
+                }
+
+                for (const path of testPaths) {
+                    const dest = join(baseline.path, path);
+                    await worktreeHost(baseline).mkdir(dirname(dest));
+                    await worktreeHost(baseline).copyFile(join(worktree.path, path), dest);
+                }
+
+                // Delete the first run's report before the second. Otherwise a run that dies before
+                // writing one leaves the full-suite report in place, and the check reads its counts as
+                // though they described the copied tests. It would err towards failing rather than
+                // passing, but on evidence about a different set of tests entirely.
+                if (stage.testReportPath) await worktreeHost(baseline).removeTree(join(baseline.path, stage.testReportPath));
+
+                const run = await runConfiguredCommand(
+                    baseline.path,
+                    `${stage.testCommand} ${testPaths.join(' ')}`,
+                    undefined,
+                    undefined,
+                    worktreeHost(baseline),
+                );
+                // Unlike the first run, an unreadable report here is expected in the common case — a new
+                // test that cannot even import produces no report at all — so it is not pushed as a
+                // failure; the exit status carries the proof instead.
+                const newCounts = await this.readReport(baseline, stage.testReportPath, []);
+
+                if (!baselineProvesChange(newCounts, !!run)) {
+                    failures.push(baselineRefusal(testPaths));
+                }
+
                 return failures;
-            }
-
-            // A failing baseline suite is not this check's business — the pre-change tree's own
-            // health is unrelated to whether this card's tests exercise its change. parseTestReport
-            // does not care whether tests failed, only whether the report is readable, so a failing
-            // suite reaches here as ordinary counts rather than a pushed failure.
-            const baselineStartedAt = Date.now();
-            await runConfiguredCommand(baseline.path, stage.testCommand, undefined, undefined, worktreeHost(baseline));
-            const baselineCounts = await this.readReport(baseline, stage.testReportPath, failures, baselineStartedAt);
-            if (counts && baselineCounts) {
-                failures.push(...checkCounts(counts, baselineCounts, allowedSkipRise));
-            }
-
-            for (const path of testPaths) {
-                const dest = join(baseline.path, path);
-                await worktreeHost(baseline).mkdir(dirname(dest));
-                await worktreeHost(baseline).copyFile(join(worktree.path, path), dest);
-            }
-
-            // Delete the first run's report before the second. Otherwise a run that dies before
-            // writing one leaves the full-suite report in place, and the check reads its counts as
-            // though they described the copied tests. It would err towards failing rather than
-            // passing, but on evidence about a different set of tests entirely.
-            if (stage.testReportPath) await worktreeHost(baseline).removeTree(join(baseline.path, stage.testReportPath));
-
-            const run = await runConfiguredCommand(
-                baseline.path,
-                `${stage.testCommand} ${testPaths.join(' ')}`,
-                undefined,
-                undefined,
-                worktreeHost(baseline),
-            );
-            // Unlike the first run, an unreadable report here is expected in the common case — a new
-            // test that cannot even import produces no report at all — so it is not pushed as a
-            // failure; the exit status carries the proof instead.
-            const newCounts = await this.readReport(baseline, stage.testReportPath, []);
-
-            if (!baselineProvesChange(newCounts, !!run)) {
-                failures.push(baselineRefusal(testPaths));
-            }
-
-            return failures;
-        } finally {
-            await this.worktrees.reclaim(baselineId, worktree.placement);
-        }
+            },
+        );
     }
 }

@@ -31,6 +31,7 @@ import { SettingsStore } from '#modules/settings/settings.store.js';
 import { snapshotDrift, WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { cardOverBudget, withinCardBudget, withinInterruptedBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
+import { computeReviewEvidence, reviewEvidenceApplies } from './review.evidence.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
 import { findStage, isPlanCheck, type ProjectStages, type StageConfig } from './stage.config.js';
 import { StageConfigStore } from './stage.config.store.js';
@@ -573,7 +574,19 @@ export class StageDispatcher {
             this.logger.info(`worktree prepared with \`${setupCommand}\``);
         }
 
-        const localPlanPath = await this.materializePlan(card, pinnedSha, stages, stage);
+        // Here because it needs what setup installed and the rebased `baseSha`, and the plan is how it
+        // reaches the agent. It adds to the time before the stage's clock starts, up to its own deadline.
+        const evidence = reviewEvidenceApplies(stage)
+            ? await computeReviewEvidence(
+                  { worktrees: this.worktrees, logger: this.logger, runRoot: this.config.runRoot },
+                  { cardId, worktree, stage },
+              )
+            : undefined;
+        if (evidence) {
+            await this.events.append({ project: this.config.project, cardId, stage: stageName, type: 'review.evidence', payload: evidence.summary });
+        }
+
+        const localPlanPath = await this.materializePlan(card, pinnedSha, stages, stage, evidence?.markdown);
         // The agent reads the plan where its worktree is. A placed stage gets a copy on the host,
         // under the host's run root, outside its worktree for the same reason the local one is.
         const planPath = placement ? await this.mirrorToHost(placement, cardId, localPlanPath, true) : localPlanPath;
@@ -1284,13 +1297,20 @@ export class StageDispatcher {
      *
      * Appends `ownScopeNote` and `otherStagesScopeNote` after the card's own body — the one place
      * every stage's agent, review included, actually reads (card 0139). `stages` is the same config
-     * `run` already loaded for this dispatch, not a second load.
+     * `run` already loaded for this dispatch, not a second load. `evidence` goes after them, for a
+     * stage that was given some.
      */
-    private async materializePlan(card: Card, sha: string | undefined, stages: ProjectStages, stage: StageConfig): Promise<string> {
+    private async materializePlan(
+        card: Card,
+        sha: string | undefined,
+        stages: ProjectStages,
+        stage: StageConfig,
+        evidence?: string,
+    ): Promise<string> {
         const dir = join(this.config.runRoot, 'cards', card.frontmatter.id);
         await mkdir(dir, { recursive: true });
         const path = join(dir, 'plan.md');
-        const notes = [ownScopeNote(stage), otherStagesScopeNote(stages, stage.name)].filter(note => note.length > 0);
+        const notes = [ownScopeNote(stage), otherStagesScopeNote(stages, stage.name), evidence ?? ''].filter(note => note.length > 0);
         const material = notes.length > 0 ? `${serializeCard(card).trimEnd()}\n\n${notes.join('\n\n')}\n` : serializeCard(card);
         await writeFile(path, material, 'utf8');
         this.logger.info(`plan for ${card.frontmatter.id} materialized at ${path}${sha ? ` (${sha.slice(0, 8)})` : ''}`);

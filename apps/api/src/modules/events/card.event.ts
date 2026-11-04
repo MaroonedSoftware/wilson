@@ -174,6 +174,8 @@ export type CardEventType =
     | 'scope.collateral'
     | 'worktree.created'
     | 'worktree.prepared'
+    // What `computeReviewEvidence` found before a review started: counts and any failure, not the text.
+    | 'review.evidence'
     | 'work.committed'
     | 'worktree.reclaimed'
     | 'transition.written'
