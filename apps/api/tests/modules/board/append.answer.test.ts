@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { withAnswer, withoutAnswers, type OperatorAnswer } from '#modules/board/append.answer.js';
-import { authoredText, PLAN_SECTIONS, sectionsOf, withSection } from '#modules/board/card.js';
+import { PLAN_SECTIONS, sectionsOf, withSection } from '#modules/board/card.js';
 
 const plan = ['## Goal', '', 'Do it.', '', '## Out of scope', '', 'Everything else.', ''].join('\n');
 
@@ -59,7 +59,7 @@ describe('withAnswer', () => {
         const body = withAnswer(plan, answer);
 
         expect(PLAN_SECTIONS).not.toContain('Operator answer');
-        expect(authoredText(sectionsOf(body)['Out of scope']!)).toBe('Everything else.');
+        expect(sectionsOf(body)['Out of scope']).toBe('Everything else.');
         expect(withSection(body, 'Out of scope', 'New text.')).toContain('> Keep it for one release.');
         expect(withSection(body, 'Out of scope', '## Operator answer')).toBeUndefined();
     });
