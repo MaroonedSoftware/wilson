@@ -1,5 +1,15 @@
 # @wilson/desktop
 
+## 0.15.0
+
+### Minor Changes
+
+- 08b0e56: A change the chat proposes now reads as labelled fields instead of raw JSON, with long text drawn as Markdown in its own scrolling box. Raw JSON on the card shows exactly what Confirm will send.
+
+### Patch Changes
+
+- fcfc69a: Fix the board going blank or stale after a card was opened: clicking a card left the board unable to redraw, so it stopped following changes, and switching project showed no lanes or cards.
+
 ## 0.14.0
 
 ### Minor Changes
