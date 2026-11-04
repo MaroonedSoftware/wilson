@@ -1,4 +1,5 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
+import type { PatchLaneRequest } from '@wilson/sdk';
 import { withApi } from '../../api-client.js';
 import { withStepUp } from '../../sign.in.js';
 import { editBody } from '../card/editor.js';
@@ -34,7 +35,7 @@ const command: CommandModule<InstructionsOpts> = {
             return 1;
         }
 
-        const steps = ((lane.settings as { steps?: Step[] }).steps ?? []) as Step[];
+        const steps = (lane.settings as { steps?: Step[] }).steps ?? [];
         const step = steps.find(candidate => candidate.name === opts.step);
         if (opts.step !== undefined && !step) {
             ctx.logger.error(`${name} has no step named "${opts.step}" (have: ${steps.map(candidate => candidate.name).join(', ')})`);
@@ -52,10 +53,16 @@ const command: CommandModule<InstructionsOpts> = {
             return 0;
         }
 
-        await withStepUp(ctx, api, client =>
-            client.stages.updateLane(name, { instructions, message: opts.message ?? `Edited ${name} instructions` }),
-        );
-        ctx.logger.info(`${name}: instructions updated`);
+        // A step's text lives in the lane's `steps` setting, and a setting is replaced whole, so the
+        // other steps and this step's other fields go back as they were read.
+        const patch = (
+            step
+                ? { settings: { steps: steps.map(candidate => (candidate === step ? { ...candidate, instructions } : candidate)) } }
+                : { instructions }
+        ) as PatchLaneRequest;
+        const edited = step ? `${name} step ${step.name}` : name;
+        await withStepUp(ctx, api, client => client.stages.updateLane(name, { ...patch, message: opts.message ?? `Edited ${edited} instructions` }));
+        ctx.logger.info(`${edited}: instructions updated`);
         return 0;
     }),
 };

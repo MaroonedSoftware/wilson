@@ -441,6 +441,15 @@ leaves only unreferenced objects behind. It answers against `dry-run-integration
 land there. The status is advice and refreshes when a client next reads the card: Merge still decides
 for itself.
 
+A stage that cannot go on without a person's decision can stop and ask one question. It is no verdict
+on the work, so no kickback is spent and no `stage.failed` is written: the card is flagged where it
+stands with the question as its reason, and `blocked` holds the detail. An answer goes into the plan
+under `## Operator answer`, clears the flag and keeps the card's retries, and the stage runs again in
+a fresh session, with the stopped run's uncommitted work as its preserved patch. The section is shed
+when the stage passes. A stage may ask three times (`retries['<stage>:blocked']`); the next question
+is a plain flag, as is any question on a card whose ticket closed during the run. A step cannot ask,
+because an answer resumes the lane's own run and the step would be lost.
+
 The table above shows only where a stage goes when it passes; a kickback target — a stage's
 `onFail` — is a separate decision and is not automatically the stage before the one that failed. It
 is the stage that can fix the failure. `review.onFail: implementing` is correct: a review blocker
@@ -940,21 +949,23 @@ throughout.
 
 ## Notification
 
-ServerKit `comms` with a `ChannelRouter`; the Slack and Discord packages each ship a
-`./comms` adapter, so the channel is configuration. Per project:
-`notify: { channel: slack, target: "#wilson" }`.
+`Notifier` posts JSON to one webhook, `notifyWebhookUrl`, off when it is unset. No delivery guarantee
+beyond at-most-once.
 
-Notifications are dispatched as jobbroker jobs, never inline, so a Slack outage
-cannot fail a transition.
+A notification is sent inline, once the write it reports has committed, and a failure is logged and
+swallowed, so a webhook outage cannot fail a transition.
 
-Four triggers only — anything more and the operator learns to ignore them:
+Six moments only (`NotifyMoment`), each naming what the reader is being asked to do, because anything
+more and the operator learns to ignore them:
 
-- a card enters a `manual` stage and is waiting on a human
-- a card reaches `needs-human`
-- a card dead-letters to `poisoned`
-- a dry-run pass completes end to end
+- `manual`: a card enters a `manual` stage and is waiting on a human
+- `needs-human`: a card is flagged, by exhausted retries or a spent budget
+- `needs-answer`: a stage stopped to ask one question, which is the message's `reason`
+- `poisoned`: a card dead-letters
+- `source-closed`: a card's ticket closed upstream
+- `auto-split`: a refusal retired a card in favour of pieces waiting in `planning`
 
-Each message deep-links to the card in the web app.
+A webhook message deep-links to the card in the web app when `notifyBaseUrl` is set.
 
 Push to the Android app is a second channel beside the webhook, registered with `Notifier` at boot
 and off unless `FCM_SERVICE_ACCOUNT_FILE` names a Firebase service-account file. Delivery is
@@ -1058,9 +1069,8 @@ reason for snapshotting: the plan's input pinned beside the plan. Two limits on 
 
 ### Notification channels
 
-Already covered by ServerKit `comms`. A `ChannelRouter` with the Slack or Discord
-`./comms` adapter makes the channel a config value, so this seam needs no new
-mechanism — see Notification.
+A `NotificationChannel` beside the webhook, registered with `Notifier` at boot, as push is — see
+Notification.
 
 ### Imported content is untrusted
 
@@ -1521,7 +1531,7 @@ Sequenced by human toil removed per unit of work:
   `request_scope` as an auditable escape valve. See Scope enforcement.
 - **Out-of-band edits:** there is no out-of-band path; the operator edits through the CLI
   or the web app. See The operator's escape hatch.
-- **Reaching a human:** ServerKit `comms`, four triggers, dispatched as jobs. See
+- **Reaching a human:** a webhook and Android push, six moments, sent inline. See
   Notification.
 - **Adversarial plan review:** its own stage, no worktree, not a gate inside
   planning. See Stage model.

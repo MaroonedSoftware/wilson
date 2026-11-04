@@ -21,6 +21,29 @@ export type PlanSectionKey = (typeof PLAN_SECTION_KEYS)[number];
 
 export const sectionKey = (section: PlanSection): PlanSectionKey => section.toLowerCase().replace(/\s+/g, '-') as PlanSectionKey;
 
+/**
+ * The question a stage stopped to ask (`report_blocked`), kept on the card while it waits. The card
+ * also carries `needsHuman` with the question as its reason, so everything that holds a flagged card
+ * back holds this one back too.
+ */
+export interface CardBlocked {
+    category: 'decision' | 'access' | 'requirements' | 'environment' | 'other';
+    /** What the stage already tried or checked before asking. */
+    tried: string;
+    question: string;
+    /** Answers the stage thinks are likely. A person may answer something else. */
+    options?: string[];
+    /** The stage that asked. */
+    stage: string;
+    /** When it asked, as an ISO timestamp. */
+    askedAt: string;
+    /** Where the stopped run's uncommitted work is preserved, when it left any. */
+    patchPath?: string;
+}
+
+/** The `retries` key counting a stage's questions: apart from `maxKickbacks`, like `:resultDropped`. */
+export const blockedRetryKey = (stage: string): string => `${stage}:blocked`;
+
 export interface CardFrontmatter {
     id: string;
     title: string;
@@ -50,6 +73,8 @@ export interface CardFrontmatter {
     needsHuman?: boolean;
     /** What the runner or the operator said when they set `needsHuman`. */
     needsHumanReason?: string;
+    /** The question behind `needsHuman`, when a stage stopped to ask one. */
+    blocked?: CardBlocked;
     /**
      * The card this one was split out of, set once by `BoardWriteService.split`. Like `position`,
      * not part of what `write`/`writeWithEvent` persist: a piece's origin never changes.
@@ -89,10 +114,11 @@ const planHeading = (line: string): PlanSection | undefined => {
 };
 
 /**
- * The headings the runner appends to a body (`append.findings.ts`, `append.attempts.ts`). `sectionsOf`
- * reads them as part of the plan section they follow; anything that rewrites a section must not.
+ * The headings the runner appends to a body (`append.findings.ts`, `append.attempts.ts`,
+ * `append.answer.ts`). `sectionsOf` reads them as part of the plan section they follow; anything that
+ * rewrites a section must not.
  */
-const RUNNER_HEADINGS = ['## Review findings', '## Previous attempts'];
+const RUNNER_HEADINGS = ['## Review findings', '## Previous attempts', '## Operator answer'];
 
 const endsSection = (line: string): boolean => planHeading(line) !== undefined || RUNNER_HEADINGS.includes(line.trim());
 

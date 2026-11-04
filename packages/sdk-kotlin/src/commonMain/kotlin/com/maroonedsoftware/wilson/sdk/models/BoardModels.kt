@@ -48,6 +48,30 @@ data class MergeStatus(
 )
 
 /**
+ * Card 0091. Orders the parking lot; `list`'s `position, id` ordering (PostgresBoardRepository)
+ * sorts a card with one ahead of every card without. Absent for a card nothing has ever dragged —
+ * including every card that predates this, since there is no migration to back-fill it — and such a
+ * card sorts by `id` among the others like it, not at either end of the column. Meaningless outside
+ * `parking-lot`: no other stage's order is an operator's to set (POST .../reposition refuses it).
+ * The question a stage stopped to ask. Set alongside `needsHuman`, with the question as
+ * `needsHumanReason`, and cleared by an answer, an ack or a move.
+ */
+@Serializable
+data class CardBlocked(
+    val category: CardBlockedCategory,
+    /** What the stage already tried or checked before asking. */
+    val tried: String,
+    val question: String,
+    /** Answers the stage thinks are likely. An operator may answer something else. */
+    val options: List<String>? = null,
+    /** The stage that asked, so the answer goes back to the run it was meant for. */
+    val stage: String,
+    val askedAt: Instant,
+    /** Where the stopped run's uncommitted work is preserved. Absent when it left none. */
+    val patchPath: String? = null,
+)
+
+/**
  * One card cut from a split origin, as `CardDetail.pieces` lists it: enough to show how far the split
  * has got without a read per piece.
  */
@@ -190,9 +214,10 @@ data class CardVersion(
 )
 
 /**
- * Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed`/`stage.interrupted`
- * event for it, summed. `attempts` counts the passed and failed events themselves, including one whose
- * payload carried no `usage` at all (it still ran), and not an interrupted run, which spends no retry;
+ * Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed`/`stage.interrupted`/
+ * `stage.blocked` event for it, summed. `attempts` counts the passed and failed events themselves,
+ * including one whose payload carried no `usage` at all (it still ran), and not an interrupted or
+ * blocked run, neither of which spends a retry;
  * `inputTokens`/`outputTokens` sum whatever `usage` all of those events did carry, so the two can never
  * disagree with the event log. A stage interrupted every time so far has tokens and no attempts.
  * `inputTokens` includes cached tokens; `cachedInputTokens` is how many of them were cached, not an
@@ -462,12 +487,16 @@ data class HumanFinding(
 )
 
 /**
- * Card 0091. Orders the parking lot; `list`'s `position, id` ordering (PostgresBoardRepository)
- * sorts a card with one ahead of every card without. Absent for a card nothing has ever dragged —
- * including every card that predates this, since there is no migration to back-fill it — and such a
- * card sorts by `id` among the others like it, not at either end of the column. Meaningless outside
- * `parking-lot`: no other stage's order is an operator's to set (POST .../reposition refuses it).
+ * A person's answer to the question a stage stopped to ask. Writes it into the plan, moving the pin
+ * past it so the next run reads it, and clears the flag. Unlike an ack it keeps the card's retries: the
+ * stage asking a question was not a failure, and an answer is not a person saying the failures so far
+ * no longer count.
  */
+@Serializable
+data class AnswerCardRequest(
+    val answer: String,
+)
+
 @Serializable
 data class CardSummary(
     val id: String,
@@ -500,6 +529,8 @@ data class CardSummary(
      */
     val needsHuman: Boolean,
     val needsHumanReason: String? = null,
+    /** A question waiting for an answer: absent on a card flagged for any other reason. */
+    val blocked: CardBlocked? = null,
     val position: Long? = null,
     /**
      * The card this one was split out of. Absent on every other card, including pieces split before
@@ -746,6 +777,8 @@ data class CardDetail(
      */
     val needsHuman: Boolean,
     val needsHumanReason: String? = null,
+    /** A question waiting for an answer: absent on a card flagged for any other reason. */
+    val blocked: CardBlocked? = null,
     val position: Long? = null,
     /**
      * The card this one was split out of. Absent on every other card, including pieces split before
@@ -839,6 +872,8 @@ data class ReleaseResult(
      */
     val needsHuman: Boolean,
     val needsHumanReason: String? = null,
+    /** A question waiting for an answer: absent on a card flagged for any other reason. */
+    val blocked: CardBlocked? = null,
     val position: Long? = null,
     /**
      * The card this one was split out of. Absent on every other card, including pieces split before
@@ -913,6 +948,8 @@ data class MergeResult(
      */
     val needsHuman: Boolean,
     val needsHumanReason: String? = null,
+    /** A question waiting for an answer: absent on a card flagged for any other reason. */
+    val blocked: CardBlocked? = null,
     val position: Long? = null,
     /**
      * The card this one was split out of. Absent on every other card, including pieces split before
@@ -991,6 +1028,32 @@ object MergeStatusStateSerializer : SdkEnumSerializer<MergeStatusState>(
     MergeStatusState.REREVIEW to "rereview",
     MergeStatusState.CAPPED to "capped",
     MergeStatusState.UNKNOWN to "unknown",
+)
+
+@Serializable(with = CardBlockedCategorySerializer::class)
+enum class CardBlockedCategory {
+    DECISION,
+    ACCESS,
+    REQUIREMENTS,
+    ENVIRONMENT,
+    OTHER,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [CardBlockedCategory] by its wire spelling. A spelling it does not know reads as [CardBlockedCategory.UNKNOWN]. */
+object CardBlockedCategorySerializer : SdkEnumSerializer<CardBlockedCategory>(
+    "CardBlockedCategory",
+    CardBlockedCategory.UNKNOWN,
+    CardBlockedCategory.DECISION to "decision",
+    CardBlockedCategory.ACCESS to "access",
+    CardBlockedCategory.REQUIREMENTS to "requirements",
+    CardBlockedCategory.ENVIRONMENT to "environment",
+    CardBlockedCategory.OTHER to "other",
 )
 
 /** How the card ended, once it has. Absent for a card still on the board. */

@@ -286,6 +286,7 @@ describe('wilson card show', () => {
             needsHuman: false,
             needsHumanReason: null,
             mergeStatus: null,
+            blocked: null,
             splitFrom: null,
             pieces: [],
         });

@@ -111,6 +111,12 @@ internal static class Steps
             return;
         }
 
+        if (only == "question")
+        {
+            await QuestionAsync(walk);
+            return;
+        }
+
         if (only == "plan")
         {
             await PlanOnlyAsync(walk);
@@ -216,6 +222,33 @@ internal static class Steps
         var card = walk.Page<CardViewModel>();
         await walk.UntilAsync("the card's merge status", () => card.MergeStatus is not null);
         walk.Shot("03-merge-status-card");
+    }
+
+    /// <summary>
+    /// Answers a question a stage asked. Getting one takes a real run, or setting `blocked` and
+    /// `needs_human` on a card in the throwaway database, so this walks only a board that has one.
+    /// </summary>
+    private static async Task QuestionAsync(Walker walk)
+    {
+        walk.Shell.ShowBoardCommand.Execute(null);
+        var board = walk.Page<BoardViewModel>();
+        await walk.UntilAsync("columns", () => board.Columns.Count > 0);
+        await walk.UntilAsync("a card with a question", () => board.Columns.SelectMany(column => column.Cards).Any(tile => tile.Card.Blocked is not null));
+        board.OpenCard(board.Columns.SelectMany(column => column.Cards).First(tile => tile.Card.Blocked is not null).Card);
+
+        var card = walk.Page<CardViewModel>();
+        await walk.UntilAsync("the question read", () => card.Question is not null);
+        walk.Shot("16-question");
+
+        var option = card.Question!.Options![1];
+        card.UseOptionCommand.Execute(option);
+        await walk.UntilAsync("the likely answer in the box", () => card.Answer == option);
+        walk.Shot("16-question-filled");
+
+        await card.SendAnswerCommand.ExecuteAsync(null);
+        await walk.UntilAsync("the question gone, and the box empty", () => card.Question is null && card.Answer.Length == 0 && card.FlagReason is null);
+        Console.WriteLine($"     notice: {card.Notice}");
+        walk.Shot("16-question-answered");
     }
 
     private static async Task LanesAsync(Walker walk)

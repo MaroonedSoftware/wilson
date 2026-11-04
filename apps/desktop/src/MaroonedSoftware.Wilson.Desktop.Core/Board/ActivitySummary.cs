@@ -43,6 +43,8 @@ public static class ActivitySummary
         ["chain.stopped"] = new("Stopped after {stage}", ActivityTone.Quiet),
         ["card.flagged"] = new("Flagged for a human", ActivityTone.Bad),
         ["card.acked"] = new("Flag acknowledged", ActivityTone.Good),
+        ["card.answered"] = new("Question answered", ActivityTone.Good),
+        ["stage.blocked"] = new("{stage} asked a question", ActivityTone.Caution),
         ["card.over-budget"] = new("Went over budget", ActivityTone.Bad),
         ["card.auto-split"] = new("Split automatically", ActivityTone.Going),
         ["card.plan-drafted"] = new("Drafted a plan", ActivityTone.Good),

@@ -52,6 +52,37 @@ export interface MergeStatus {
 }
 
 /**
+ * Card 0091. Orders the parking lot; `list`'s `position, id` ordering (PostgresBoardRepository)
+ * sorts a card with one ahead of every card without. Absent for a card nothing has ever dragged —
+ * including every card that predates this, since there is no migration to back-fill it — and such a
+ * card sorts by `id` among the others like it, not at either end of the column. Meaningless outside
+ * `parking-lot`: no other stage's order is an operator's to set (POST .../reposition refuses it).
+ * The question a stage stopped to ask. Set alongside `needsHuman`, with the question as
+ * `needsHumanReason`, and cleared by an answer, an ack or a move.
+ * generated from [CardBlocked](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface CardBlocked {
+    category: 'decision' | 'access' | 'requirements' | 'environment' | 'other';
+    /** What the stage already tried or checked before asking. */
+    tried: string;
+    question: string;
+    /** Answers the stage thinks are likely. An operator may answer something else. */
+    options?: string[];
+    /** The stage that asked, so the answer goes back to the run it was meant for. */
+    stage: string;
+    askedAt: DateTime;
+    /** Where the stopped run's uncommitted work is preserved. Absent when it left none. */
+    patchPath?: string;
+}
+
+/** Rehydrates every wire-encoded scalar in a CardBlocked into its runtime type. Mutates and returns `raw`. */
+export function reviveCardBlocked(raw: CardBlocked): CardBlocked {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['askedAt'] = __dt(__o0['askedAt'], 'CardBlocked.askedAt');
+    return raw;
+}
+
+/**
  * One card cut from a split origin, as `CardDetail.pieces` lists it: enough to show how far the split
  * has got without a read per piece.
  * generated from [SplitPieceSummary](../../../../apps/api/data/contracts/board.ck)
@@ -199,9 +230,10 @@ export function reviveCardVersion(raw: CardVersion): CardVersion {
 }
 
 /**
- * Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed`/`stage.interrupted`
- * event for it, summed. `attempts` counts the passed and failed events themselves, including one whose
- * payload carried no `usage` at all (it still ran), and not an interrupted run, which spends no retry;
+ * Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed`/`stage.interrupted`/
+ * `stage.blocked` event for it, summed. `attempts` counts the passed and failed events themselves,
+ * including one whose payload carried no `usage` at all (it still ran), and not an interrupted or
+ * blocked run, neither of which spends a retry;
  * `inputTokens`/`outputTokens` sum whatever `usage` all of those events did carry, so the two can never
  * disagree with the event log. A stage interrupted every time so far has tokens and no attempts.
  * `inputTokens` includes cached tokens; `cachedInputTokens` is how many of them were cached, not an
@@ -487,11 +519,17 @@ export interface HumanFinding {
 }
 
 /**
- * Card 0091. Orders the parking lot; `list`'s `position, id` ordering (PostgresBoardRepository)
- * sorts a card with one ahead of every card without. Absent for a card nothing has ever dragged —
- * including every card that predates this, since there is no migration to back-fill it — and such a
- * card sorts by `id` among the others like it, not at either end of the column. Meaningless outside
- * `parking-lot`: no other stage's order is an operator's to set (POST .../reposition refuses it).
+ * A person's answer to the question a stage stopped to ask. Writes it into the plan, moving the pin
+ * past it so the next run reads it, and clears the flag. Unlike an ack it keeps the card's retries: the
+ * stage asking a question was not a failure, and an answer is not a person saying the failures so far
+ * no longer count.
+ * generated from [AnswerCardRequest](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface AnswerCardRequest {
+    answer: string;
+}
+
+/**
  * generated from [CardSummary](../../../../apps/api/data/contracts/board.ck)
  */
 export interface CardSummary {
@@ -525,6 +563,8 @@ export interface CardSummary {
      */
     needsHuman: boolean;
     needsHumanReason?: string;
+    /** A question waiting for an answer: absent on a card flagged for any other reason. */
+    blocked?: CardBlocked;
     position?: number;
     /**
      * The card this one was split out of. Absent on every other card, including pieces split before
@@ -554,6 +594,9 @@ export interface CardSummary {
 /** Rehydrates every wire-encoded scalar in a CardSummary into its runtime type. Mutates and returns `raw`. */
 export function reviveCardSummary(raw: CardSummary): CardSummary {
     const __o0 = raw as unknown as Record<string, unknown>;
+    if (__o0['blocked'] != null) {
+        reviveCardBlocked(__o0['blocked'] as never);
+    }
     if (__o0['stageEnteredAt'] != null) {
         __o0['stageEnteredAt'] = __dt(__o0['stageEnteredAt'], 'CardSummary.stageEnteredAt');
     }

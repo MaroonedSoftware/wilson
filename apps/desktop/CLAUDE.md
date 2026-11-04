@@ -52,7 +52,7 @@ cd apps/desktop && dotnet run --project tools/Walk -- /tmp/walk http://localhost
 
 Then Read the PNGs. Add a step for what you built, and pass `light` as a fifth argument for the other
 appearance. `admin` as a sixth walks only hosts, settings and security, which waits out the five minutes a
-session must age for a step-up, so a whole walk's end is that wait too. `plan` walks only planning, on a card of its own. `images` walks only sending an image in chat. `actions` walks only proposed changes, written to the throwaway database and read back through the API, with no agent turn. `lanes` walks only the lanes page, then waits out those five minutes for a save behind a step-up. `merge` walks only the merge status, and needs a card in `ready`. `dock` walks only the chat dock, and is
+session must age for a step-up, so a whole walk's end is that wait too. `plan` walks only planning, on a card of its own. `question` walks answering a stage's question, on a board that has one. `images` walks only sending an image in chat. `actions` walks only proposed changes, written to the throwaway database and read back through the API, with no agent turn. `lanes` walks only the lanes page, then waits out those five minutes for a save behind a step-up. `merge` walks only the merge status, and needs a card in `ready`. `dock` walks only the chat dock, and is
 the one walk that starts with it open, as a person does: the others close it to keep their pages whole. A planning or chat step sends a real turn to the agent, using the machine's Claude login.
 The older diff step needs a card with a branch: that API's `code_root` is its own scratch repo (see
 `wilson.projects`), so make a branch there and set `wilson.cards.branch`. `Walker.ScratchBranch` does

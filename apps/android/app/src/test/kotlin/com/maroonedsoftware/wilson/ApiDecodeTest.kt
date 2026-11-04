@@ -2,6 +2,7 @@ package com.maroonedsoftware.wilson
 
 import com.maroonedsoftware.wilson.sdk.models.ActivityEvent
 import com.maroonedsoftware.wilson.sdk.models.BoardColumns
+import com.maroonedsoftware.wilson.sdk.models.CardBlockedCategory
 import com.maroonedsoftware.wilson.sdk.models.CardDetail
 import com.maroonedsoftware.wilson.sdk.models.CardEvent
 import com.maroonedsoftware.wilson.sdk.models.CardSummary
@@ -46,6 +47,13 @@ class ApiDecodeTest {
         assertTrue(columns.stages.isNotEmpty())
         assertTrue(decode<List<CardSummary>>("cards").isNotEmpty())
         assertEquals(MergeStatusState.REREVIEW, decode<List<CardSummary>>("cards").last().mergeStatus?.state)
+    }
+
+    @Test
+    fun aCardWithAQuestionDecodes() {
+        val blocked = checkNotNull(decode<CardDetail>("card-blocked").blocked)
+        assertEquals(CardBlockedCategory.DECISION, blocked.category)
+        assertEquals(listOf("#c0392b", "#2980b9"), blocked.options)
     }
 
     @Test

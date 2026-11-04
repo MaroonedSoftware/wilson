@@ -164,6 +164,18 @@ public sealed class BoardClient(SdkHttp http)
         return http.ReadJson<CardDetail>(response);
     }
 
+    /// <summary>Answer a blocked card</summary>
+    /// <exception cref="SdkException">On 400, 404.</exception>
+    public async Task<CardDetail> AnswerABlockedCardAsync(string id, AnswerCardRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Post,
+            http.Path("api", "cards", http.Segment(id), "answer"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<CardDetail>(response);
+    }
+
     /// <summary>Approve card plan</summary>
     /// <exception cref="SdkException">On 400, 404.</exception>
     public async Task<CardDetail> ApproveCardPlanAsync(string id, CancellationToken cancellationToken = default)

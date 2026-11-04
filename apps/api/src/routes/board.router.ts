@@ -9,6 +9,7 @@ import { StagesService } from '#modules/stages/stages.service.js';
 import {
     ActivityEvent,
     ActivityQuery,
+    AnswerCardRequest,
     BoardColumns,
     CardDetail,
     CardDiff,
@@ -245,6 +246,27 @@ BoardRouter.post('/api/cards/:id/ack', requirePolicy({ policy: 'wilson.manage' }
 
     const service = ctx.container.get(BoardWriteService);
     const result: CardDetail = await service.ack(id);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/answer`
+ */
+BoardRouter.post('/api/cards/:id/answer', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, AnswerCardRequest);
+
+    const service = ctx.container.get(BoardWriteService);
+    const result: CardDetail = await service.answer(id, body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

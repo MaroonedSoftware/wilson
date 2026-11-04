@@ -38,6 +38,8 @@ private val SUMMARIES = mapOf(
     "chain.stopped" to ActivitySummary("Stopped after {stage}", ActivityTone.QUIET),
     "card.flagged" to ActivitySummary("Flagged for a human", ActivityTone.BAD),
     "card.acked" to ActivitySummary("Flag acknowledged", ActivityTone.GOOD),
+    "card.answered" to ActivitySummary("Question answered", ActivityTone.GOOD),
+    "stage.blocked" to ActivitySummary("{stage} asked a question", ActivityTone.WARNING),
     "card.over-budget" to ActivitySummary("Went over budget", ActivityTone.BAD),
     "card.auto-split" to ActivitySummary("Split automatically", ActivityTone.INFO),
     "card.plan-drafted" to ActivitySummary("Drafted a plan", ActivityTone.GOOD),

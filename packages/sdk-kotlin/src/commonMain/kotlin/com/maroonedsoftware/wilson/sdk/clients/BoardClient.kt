@@ -3,6 +3,7 @@ package com.maroonedsoftware.wilson.sdk.clients
 
 import com.maroonedsoftware.wilson.sdk.models.ActivityEvent
 import com.maroonedsoftware.wilson.sdk.models.ActivityQuery
+import com.maroonedsoftware.wilson.sdk.models.AnswerCardRequest
 import com.maroonedsoftware.wilson.sdk.models.BoardColumns
 import com.maroonedsoftware.wilson.sdk.models.CardDetail
 import com.maroonedsoftware.wilson.sdk.models.CardDiff
@@ -168,6 +169,18 @@ class BoardClient(private val http: SdkHttp) {
     suspend fun acknowledgeAFlaggedCard(id: String): CardDetail {
         val response = http.execute(HttpMethod.Post) {
             path("api", "cards", segment(id), "ack")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Answer a blocked card
+     * @throws SdkError on 400, 404
+     */
+    suspend fun answerABlockedCard(id: String, body: AnswerCardRequest): CardDetail {
+        val response = http.execute(HttpMethod.Post) {
+            path("api", "cards", segment(id), "answer")
+            jsonBody(body, "application/json")
         }
         return http.decodeJson(response)
     }

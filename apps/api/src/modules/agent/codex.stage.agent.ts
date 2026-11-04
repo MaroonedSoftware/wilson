@@ -6,6 +6,7 @@ import { EngineAccountsService } from '#modules/host/engine.accounts.service.js'
 import { PASSED_THROUGH } from '#modules/stages/run.command.js';
 import { modelOf } from '#modules/stages/stage.config.js';
 import { budgetedInputTokens, contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
+import { BlockedReportSchema, type BlockedReport } from './blocked.report.js';
 import { createToolGuard, ENGINE_PASSED_THROUGH } from './cli.stage.agent.js';
 import { CodexConnection, type CodexExit, type CodexNotification, type CodexServerRequest } from './codex.connection.js';
 import { buildRunTrace, type RunTrace } from './run.trace.js';
@@ -13,6 +14,7 @@ import { CodexLimitWatch, type UsageLimit } from './usage.limit.js';
 import { REPORT_RESULT_PATH, SCRATCH_PREFIX } from './scope.guard.js';
 import { StageInterrupt } from './stage.interrupt.js';
 import { StageAgent, type AgentRunInput, type AgentRunOutput } from './stage.agent.js';
+import { BLOCKED_TOOL, BLOCKED_TOOL_DESCRIPTION, blockedGuidance } from './tools/blocked.tool.js';
 import { requestScope } from './tools/scope.tool.js';
 import { toolHost, type ToolContext } from './tools/index.js';
 
@@ -106,6 +108,8 @@ interface Turn {
  * **Refusals.** An approval answer carries only a decision, so the reason would never reach the
  * model. It follows as `turn/steer`, in the running turn, so a model is told what to do differently.
  *
+ * `report_blocked` is another, for a stage that needs a person's answer, and ends the stage the same way.
+ *
  * **Ending.** A stage ends the moment `report_result` is accepted, rather than when the turn does:
  * an edit made after the result was reported is what `checkBeforeCommit` exists to catch, and this
  * engine leaves room to not have one at all. Usage then stops at the last figure the engine sent.
@@ -167,6 +171,9 @@ export class CodexStageAgent extends StageAgent {
 
         const schema = resultSchema as z.ZodTypeAny;
         const canWrite = stage.worktree === 'rw';
+        // Not for a step: an answer resumes the lane's own run, so the step would be lost.
+        const canAsk = !stage.step;
+        let blocked: BlockedReport | undefined;
         let reported: unknown;
         let reportSeen = false;
         let anyToolSeen = false;
@@ -182,7 +189,8 @@ export class CodexStageAgent extends StageAgent {
         const recordedUnasked = new Set<string>();
         const recording: Promise<unknown>[] = [];
 
-        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | 'interrupted' | 'reported' | 'unasked' | undefined;
+        let stoppedBecause:
+            'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | 'interrupted' | 'reported' | 'blocked' | 'unasked' | undefined;
         let budgetFailure: string | undefined;
         // What `request_scope` threw under the `kickback` policy, for this method to throw in turn.
         let thrown: unknown;
@@ -309,6 +317,14 @@ export class CodexStageAgent extends StageAgent {
                 stopFor('reported');
                 return toolReply('reported', true);
             }
+            if (params.tool === BLOCKED_TOOL && canAsk) {
+                const validated = BlockedReportSchema.safeParse(args);
+                if (!validated.success) return toolReply(`error: ${validated.error.message}`, false);
+                if (stoppedBecause) return toolReply('error: this stage has already stopped', false);
+                blocked = validated.data;
+                stopFor('blocked');
+                return toolReply('asked', true);
+            }
             if (params.tool === REQUEST_SCOPE_TOOL && canWrite) {
                 return toolReply(await requestScope(context, String(args.path ?? ''), String(args.reason ?? '')), true);
             }
@@ -357,8 +373,8 @@ export class CodexStageAgent extends StageAgent {
                 ranUnasked(item, { tool: String(item.type) }, true);
                 return;
             }
-            // Reporting ends the stage, so a stage on its last step can still do it.
-            if (item.type === 'dynamicToolCall' && item.tool === REPORT_TOOL) return;
+            // Reporting or asking ends the stage, so a stage on its last step can still do either.
+            if (item.type === 'dynamicToolCall' && (item.tool === REPORT_TOOL || (item.tool === BLOCKED_TOOL && canAsk))) return;
             steps += 1;
             // Refused calls are not charged, up to a limit, as in `CliStageAgent`.
             if (steps >= stage.maxSteps + Math.min(denied, stage.maxSteps)) {
@@ -517,7 +533,7 @@ export class CodexStageAgent extends StageAgent {
                     const started = await connection.request<{ thread: { id: string } }>('thread/start', {
                         ...thread,
                         ephemeral: false,
-                        dynamicTools: dynamicTools(schema, canWrite),
+                        dynamicTools: dynamicTools(schema, canWrite, canAsk),
                     });
                     threadId = started.thread.id;
                 }
@@ -563,6 +579,7 @@ export class CodexStageAgent extends StageAgent {
                     ...trace(),
                 };
             }
+            if (stoppedBecause === 'blocked') return { blocked, usage, truncated: false, ...trace() };
             if (stoppedBecause === 'interrupted') return interrupted();
             if (stoppedBecause === 'silent' && limitWatch.limit) return await limited(limitWatch.limit);
             if (stoppedBecause) {
@@ -643,7 +660,7 @@ const inputSchema = (schema: z.ZodTypeAny): unknown => {
     return json;
 };
 
-const dynamicTools = (schema: z.ZodTypeAny, canWrite: boolean): unknown[] => [
+const dynamicTools = (schema: z.ZodTypeAny, canWrite: boolean, canAsk: boolean): unknown[] => [
     {
         type: 'function',
         name: REPORT_TOOL,
@@ -651,6 +668,9 @@ const dynamicTools = (schema: z.ZodTypeAny, canWrite: boolean): unknown[] => [
             'Report the work you have completed and end the stage. Call this exactly once, only after every change is made and the build passes.',
         inputSchema: inputSchema(schema),
     },
+    ...(canAsk
+        ? [{ type: 'function', name: BLOCKED_TOOL, description: BLOCKED_TOOL_DESCRIPTION, inputSchema: inputSchema(BlockedReportSchema) }]
+        : []),
     ...(canWrite
         ? [
               {
@@ -746,4 +766,5 @@ const prompt = ({
         '',
         'Work first, report last: that call ends the stage at once, and a result describing work you did',
         'not do fails it, because the runner checks the diff and not your summary.',
+        ...(!stage.step ? ['', ...blockedGuidance(BLOCKED_TOOL)] : []),
     ].join('\n');

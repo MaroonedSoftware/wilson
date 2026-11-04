@@ -5,12 +5,14 @@ import { Logger } from '@maroonedsoftware/logger';
 import { AutoSplitter } from '#modules/board/auto.splitter.js';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
+import { withoutAnswers } from '#modules/board/append.answer.js';
 import { withAttempt, withoutAttempts, type Attempt } from '#modules/board/append.attempts.js';
 import { withFindings } from '#modules/board/append.findings.js';
-import { filesInScope, type Card } from '#modules/board/card.js';
+import { blockedRetryKey, filesInScope, type Card } from '#modules/board/card.js';
 import { unsatisfiedDependencies } from '#modules/board/next.card.js';
 import { serializeCard } from '#modules/board/card.parser.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
+import type { BlockedReport } from '#modules/agent/blocked.report.js';
 import { budgetedInputTokens } from '#modules/agent/budget.js';
 import { collateralPaths } from '#modules/agent/collateral.js';
 import { StageHeldError, StageInterruptedError, type InterruptedAttempt } from '#modules/agent/stage.interrupt.js';
@@ -72,6 +74,13 @@ class CardMovedDuringRunError extends Error {
         super(`card moved to "${actualStage}" during the run`);
     }
 }
+
+/**
+ * How many questions a stage may ask a person about one card. Not a retry budget: nothing failed. It
+ * bounds a stage that keeps asking instead of working, and the next question after these flags the
+ * card with nothing to answer, for a person to look at what is going on.
+ */
+const BLOCKED_QUESTION_CAP = 3;
 
 /**
  * Thrown by `assertDispatchable` in place of a bare `Error`.
@@ -655,7 +664,7 @@ export class StageDispatcher {
             // A stage that failed on a host whose engine or tools lost their connection failed for
             // a reason that is not the card's. Checked before anything is committed or transitioned,
             // so a lost host never costs the card a kickback.
-            if (placement && !outcome.passed) {
+            if (placement && !outcome.passed && !outcome.blocked) {
                 await this.throwIfHostLost(placement, cardId, stageName, outcome.failures.join('; ') || 'the stage did not pass');
             }
 
@@ -685,7 +694,7 @@ export class StageDispatcher {
             // path is deterministic from the card id alone — naming it here does not depend on
             // `reclaim` having actually run yet (card 0089: preservation happens lazily, at the
             // next `create`/`resume`/`reclaim`, not at the failure site).
-            if (!outcome.passed) {
+            if (!outcome.passed && !outcome.blocked) {
                 this.logger.warn(
                     `${cardId} ${stageName} failed with work still in the worktree; if anything is uncommitted, reclaim will save it to ${this.worktrees.failedAttemptPatchPath(cardId)}`,
                 );
@@ -694,9 +703,11 @@ export class StageDispatcher {
                 project: this.config.project,
                 cardId,
                 stage: stageName,
-                type: outcome.passed ? 'stage.passed' : 'stage.failed',
+                // A question is neither: the stage stopped before it had anything to judge.
+                type: outcome.blocked ? 'stage.blocked' : outcome.passed ? 'stage.passed' : 'stage.failed',
                 payload: {
                     ...(stage.step ? { step: stage.step } : {}),
+                    ...(outcome.blocked ? { blocked: outcome.blocked } : {}),
                     failures: outcome.failures,
                     changedPaths: outcome.changedPaths,
                     grants: outcome.scopeGrants,
@@ -756,7 +767,9 @@ export class StageDispatcher {
         let needsHuman = false;
         let splitInto: string[] | undefined;
         try {
-            const transition = await this.writeTransition(cardId, stageName, stage, head, card, outcome);
+            const transition = outcome.blocked
+                ? await this.parkBlocked(cardId, stageName, card, outcome, outcome.blocked)
+                : await this.writeTransition(cardId, stageName, stage, head, card, outcome);
             transitionedTo = transition.target;
             nextStep = transition.nextStep;
             needsHuman = transition.needsHuman;
@@ -767,7 +780,7 @@ export class StageDispatcher {
                 cardId,
                 stage: stageName,
                 type: 'transition.failed',
-                payload: { error: (err as Error).message, outcome: outcome.passed ? 'passed' : 'failed' },
+                payload: { error: (err as Error).message, outcome: outcome.blocked ? 'blocked' : outcome.passed ? 'passed' : 'failed' },
             });
             // Still thrown: the card is now stranded in a stage whose work is done, and a
             // silent failure here is how a card sits untouched forever.
@@ -900,8 +913,13 @@ export class StageDispatcher {
                     // On a pass, the section this stage may have accumulated while it kept failing is
                     // shed (the same "shed on pass" rule findings use); on a judged failure, one more
                     // bullet joins whatever is already there; any other outcome (unjudged, resultDropped)
-                    // leaves the section exactly as it stands.
-                    const body = outcome.passed ? withoutAttempts(current.body) : attempt ? withAttempt(current.body, attempt) : current.body;
+                    // leaves the section exactly as it stands. An operator's answer sheds the same way:
+                    // it was for the stage that just passed.
+                    const body = outcome.passed
+                        ? withoutAnswers(withoutAttempts(current.body))
+                        : attempt
+                          ? withAttempt(current.body, attempt)
+                          : current.body;
                     const nextBody = findings ? withFindings(body, findings, criteria) : body;
                     advancesPin = nextBody !== current.body && Boolean(head.frontmatter.planVersionId && current.frontmatter.planVersionId);
                     const { planCheck: _planCheck, planCheckReason: _planCheckReason, ...unchecked } = current.frontmatter;
@@ -945,29 +963,7 @@ export class StageDispatcher {
             );
         } catch (err) {
             if (!(err instanceof CardMovedDuringRunError)) throw err;
-            // No target: the card is where the human put it, so there is nothing to chain from, and
-            // the worktree and the notification below belong to a transition that did not happen.
-            await this.events.append({
-                project: this.config.project,
-                cardId,
-                stage: stageName,
-                type: 'stage.stale',
-                payload: { wantedStage: stageName, actualStage: err.actualStage },
-            });
-            this.logger.warn(`${cardId} moved to "${err.actualStage}" while ${stageName} ran; leaving it there`);
-            // `move` leaves the tree alone while this run is using it, so a card moved to a terminal
-            // stage gets its worktree back here, now that the run is over.
-            const reclaimed = await this.board.reclaimIfTerminal(this.worktrees, this.events, {
-                project: this.config.project,
-                cardId,
-                stage: stageName,
-                target: err.actualStage,
-                flagged: Boolean(head.frontmatter.needsHuman),
-            });
-            if (reclaimed.error) {
-                this.logger.warn(`could not reclaim worktree for ${cardId} after it moved to "${err.actualStage}": ${reclaimed.error}`);
-            }
-            return { needsHuman: false };
+            return this.leaveMovedCard(cardId, stageName, err, Boolean(head.frontmatter.needsHuman));
         }
 
         // The card's life has ended; the transition above already stands. `reclaimIfTerminal` is the
@@ -1000,6 +996,115 @@ export class StageDispatcher {
         }
 
         return { target: decision.target, ...(nextStep && { nextStep }), needsHuman: needsHuman !== undefined };
+    }
+
+    /**
+     * A person moved the card while its stage ran, so the transition that run wanted is not written.
+     * No target: the card is where the human put it, so there is nothing to chain from, and whatever
+     * else that transition would have done belongs to something that did not happen.
+     */
+    private async leaveMovedCard(
+        cardId: string,
+        stageName: string,
+        moved: CardMovedDuringRunError,
+        flagged: boolean,
+    ): Promise<{ needsHuman: boolean }> {
+        await this.events.append({
+            project: this.config.project,
+            cardId,
+            stage: stageName,
+            type: 'stage.stale',
+            payload: { wantedStage: stageName, actualStage: moved.actualStage },
+        });
+        this.logger.warn(`${cardId} moved to "${moved.actualStage}" while ${stageName} ran; leaving it there`);
+        // `move` leaves the tree alone while this run is using it, so a card moved to a terminal
+        // stage gets its worktree back here, now that the run is over.
+        const reclaimed = await this.board.reclaimIfTerminal(this.worktrees, this.events, {
+            project: this.config.project,
+            cardId,
+            stage: stageName,
+            target: moved.actualStage,
+            flagged,
+        });
+        if (reclaimed.error) {
+            this.logger.warn(`could not reclaim worktree for ${cardId} after it moved to "${moved.actualStage}": ${reclaimed.error}`);
+        }
+        return { needsHuman: false };
+    }
+
+    /**
+     * Stop a card whose stage asked a question, until someone answers it (`BoardWriteService.answer`).
+     *
+     * Parks like {@link refuseOverBudget}: flagged where it stands, with the question as the reason, so
+     * everything that holds back a flagged card holds this one back and every client shows it. Nothing
+     * failed, so no kickback counter moves. The tree is left alone, as a flagged card's always is, and
+     * what the run left uncommitted reaches the next attempt as the preserved patch.
+     *
+     * Two things are decided under the row lock, because either can have changed while the stage ran:
+     * a person moving the card wins as it does in `writeTransition`, and a ticket closed upstream wins
+     * over the question, since nobody wants the answer any more. Neither that nor passing
+     * {@link BLOCKED_QUESTION_CAP} leaves anything to answer, so both get a plain flag and the moment
+     * that goes with it.
+     */
+    private async parkBlocked(
+        cardId: string,
+        stageName: string,
+        card: Card,
+        outcome: StageOutcome,
+        report: BlockedReport,
+    ): Promise<{ target?: string; nextStep?: string; needsHuman: boolean; splitInto?: string[] }> {
+        const key = blockedRetryKey(stageName);
+        const payload: Record<string, unknown> = { from: stageName, to: stageName, by: 'runner', needsHuman: true };
+        let moment: CardNotification['moment'] = 'needs-answer';
+        let reason = report.question;
+
+        try {
+            await this.board.writeWithEvent(
+                cardId,
+                `${cardId}: ${stageName} asked a question`,
+                current => {
+                    if (current.frontmatter.stage !== stageName) throw new CardMovedDuringRunError(current.frontmatter.stage);
+
+                    const asked = (current.frontmatter.retries[key] ?? 0) + 1;
+                    const closed = Boolean(current.frontmatter.sourceClosed);
+                    const answerable = !closed && asked <= BLOCKED_QUESTION_CAP;
+                    if (!answerable) {
+                        moment = 'needs-human';
+                        reason = closed
+                            ? 'source-closed'
+                            : `"${stageName}" has asked ${BLOCKED_QUESTION_CAP} questions already and asked another: ${report.question}`;
+                    }
+                    const retries = closed ? current.frontmatter.retries : { ...current.frontmatter.retries, [key]: asked };
+                    payload.retries = retries;
+                    return {
+                        ...current,
+                        frontmatter: {
+                            ...current.frontmatter,
+                            retries,
+                            needsHuman: true,
+                            needsHumanReason: reason,
+                            ...(answerable
+                                ? {
+                                      blocked: {
+                                          ...report,
+                                          stage: stageName,
+                                          askedAt: new Date().toISOString(),
+                                          ...(outcome.changedPaths.length > 0 ? { patchPath: this.worktrees.failedAttemptPatchPath(cardId) } : {}),
+                                      },
+                                  }
+                                : {}),
+                        },
+                    };
+                },
+                { project: this.config.project, cardId, stage: stageName, type: 'transition.written', payload },
+            );
+        } catch (err) {
+            if (!(err instanceof CardMovedDuringRunError)) throw err;
+            return this.leaveMovedCard(cardId, stageName, err, false);
+        }
+
+        await this.notify({ cardId, title: card.frontmatter.title, stage: stageName, moment, reason });
+        return { target: stageName, needsHuman: true };
     }
 
     /**
@@ -1339,6 +1444,19 @@ export class StageDispatcher {
                 );
             }
             throw new StageInterruptedError(card.frontmatter.id, stage.name, run.usage, attempt);
+        }
+
+        // A question ends the run with nothing to verify: the stage said it could not finish, and why.
+        if (run.blocked) {
+            return {
+                passed: false,
+                failures: [],
+                blocked: run.blocked,
+                changedPaths: await this.worktrees.uncommittedPaths(worktree),
+                scopeGrants: scope.grants(),
+                usage: run.usage,
+                trace: run.trace,
+            };
         }
 
         const verifier = this.verifiers.get(stage.verifier ?? stage.name);

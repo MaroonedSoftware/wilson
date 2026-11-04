@@ -141,6 +141,7 @@ export interface WilsonCardJobs {
 }
 
 export interface WilsonCards {
+  blocked: Json | null;
   body: string;
   branch: string | null;
   createdAt: Generated<DateTime>;

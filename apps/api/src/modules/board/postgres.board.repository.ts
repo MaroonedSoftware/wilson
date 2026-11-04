@@ -255,6 +255,7 @@ export class PostgresBoardRepository extends BoardRepository {
                 sourceClosed: fm.sourceClosed ?? null,
                 needsHuman: fm.needsHuman ?? false,
                 needsHumanReason: fm.needsHumanReason ?? null,
+                blocked: fm.blocked ? JSON.stringify(fm.blocked) : null,
                 pinnedVersionId: fm.planVersionId ? BigInt(fm.planVersionId) : null,
             })
             .where('project', '=', this.config.project)
@@ -343,7 +344,7 @@ const versionId = (id: bigint): string => String(id);
  */
 const withDoneReason = (card: Card): Card => {
     const { doneReason: previous, ...unfinished } = card.frontmatter;
-    const { planCheck: _planCheck, planCheckReason: _planCheckReason, ...frontmatter } = unfinished;
+    const { planCheck: _planCheck, planCheckReason: _planCheckReason, blocked: _blocked, ...frontmatter } = unfinished;
     const ending = doneReasonFor(frontmatter.stage);
     if (ending) return { ...card, frontmatter: { ...frontmatter, stage: DONE, doneReason: ending } };
     if (frontmatter.stage === DONE) return { ...card, frontmatter: { ...frontmatter, doneReason: previous ?? 'merged' } };
@@ -365,6 +366,7 @@ const toCard = (
         sourceClosed: boolean | null;
         needsHuman: boolean;
         needsHumanReason: string | null;
+        blocked: unknown;
         pinnedVersionId: bigint | null;
         position: number | null;
         splitFrom: string | null;
@@ -392,6 +394,7 @@ const toCard = (
         sourceClosed: row.sourceClosed ?? undefined,
         needsHuman: row.needsHuman,
         needsHumanReason: row.needsHumanReason ?? undefined,
+        blocked: (row.blocked as CardFrontmatter['blocked'] | null) ?? undefined,
         position: row.position ?? undefined,
         splitFrom: row.splitFrom ?? undefined,
     };
