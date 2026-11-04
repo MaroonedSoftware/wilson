@@ -920,6 +920,48 @@ describe('WorktreeManager', () => {
         });
     });
 
+    describe('diffstatSinceFork', () => {
+        it('counts what the branch added and removed, and nothing main did since the fork', async () => {
+            await writeFile(join(codeRoot, 'src', 'shared.ts'), 'one\ntwo\nthree\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: codeRoot });
+            await exec('git', ['commit', '-q', '-m', 'shared file'], { cwd: codeRoot });
+
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await writeFile(join(worktree.path, 'src', 'shared.ts'), 'one\nTWO\nthree\n', 'utf8');
+            await writeFile(join(worktree.path, 'src', 'added.ts'), 'a\nb\nc\n', 'utf8');
+            await manager.commit(worktree, '0001: implementing');
+
+            await writeFile(join(codeRoot, 'src', 'only-main.ts'), 'x\n'.repeat(100), 'utf8');
+            await exec('git', ['add', '-A'], { cwd: codeRoot });
+            await exec('git', ['commit', '-q', '-m', 'main moved'], { cwd: codeRoot });
+
+            await expect(manager.diffstatSinceFork('card/0001-thing')).resolves.toEqual({ added: 4, removed: 1 });
+        });
+
+        it('counts a rename as a delete and an add, and a binary file as nothing', async () => {
+            await writeFile(join(codeRoot, 'src', 'old-name.ts'), 'a\nb\n', 'utf8');
+            await exec('git', ['add', '-A'], { cwd: codeRoot });
+            await exec('git', ['commit', '-q', '-m', 'file to rename'], { cwd: codeRoot });
+
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await exec('git', ['mv', 'src/old-name.ts', 'src/new-name.ts'], { cwd: worktree.path });
+            await writeFile(join(worktree.path, 'src', 'blob.bin'), Buffer.from([0, 1, 2, 0, 3]));
+            await manager.commit(worktree, '0001: implementing');
+
+            await expect(manager.diffstatSinceFork('card/0001-thing')).resolves.toEqual({ added: 2, removed: 2 });
+        });
+
+        it('reads zero for a branch with no changes of its own', async () => {
+            await manager.create('0001', 'card/0001-thing');
+
+            await expect(manager.diffstatSinceFork('card/0001-thing')).resolves.toEqual({ added: 0, removed: 0 });
+        });
+
+        it('answers undefined for a branch that does not exist', async () => {
+            await expect(manager.diffstatSinceFork('card/never-cut')).resolves.toBeUndefined();
+        });
+    });
+
     /**
      * Card 0238. `overlapSinceFork` is the git behind `merge`'s re-review check: the merge-base of
      * `branch` and `targetRef`, plus the intersection of what each side changed since it — the paths
