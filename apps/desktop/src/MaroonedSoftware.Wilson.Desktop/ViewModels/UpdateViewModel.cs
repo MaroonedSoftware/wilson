@@ -11,8 +11,10 @@ namespace MaroonedSoftware.Wilson.Desktop.ViewModels;
 /// </summary>
 public sealed partial class UpdateViewModel(UpdateChecker checker, UpdateDownloader? downloader, IUpdateInstaller? installer, string? bundle, Action quit) : ObservableObject
 {
-    private static readonly TimeSpan Again = TimeSpan.FromHours(6);
+    private static readonly TimeSpan Again = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan Linger = TimeSpan.FromSeconds(5);
+
+    private readonly UpdateDownloadRetry _retry = new(TimeSpan.FromHours(6));
 
     private string? _zip;
     private Version? _version;
@@ -37,7 +39,7 @@ public sealed partial class UpdateViewModel(UpdateChecker checker, UpdateDownloa
 
     public bool CanView => !Ready && Page is not null;
 
-    /// <summary>Checks at launch and every six hours after, because this app is left open for days.</summary>
+    /// <summary>Checks at launch and every five minutes after, because this app is left open for days.</summary>
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
         using var timer = new PeriodicTimer(Again);
@@ -97,7 +99,7 @@ public sealed partial class UpdateViewModel(UpdateChecker checker, UpdateDownloa
             {
                 if (found.Version != _version)
                 {
-                    await OfferAsync(found, cancellationToken);
+                    await OfferAsync(found, asked, cancellationToken);
                 }
             }
             else if (asked)
@@ -120,19 +122,31 @@ public sealed partial class UpdateViewModel(UpdateChecker checker, UpdateDownloa
         Message = before;
     }
 
-    private async Task OfferAsync(UpdateAvailable found, CancellationToken cancellationToken)
+    private async Task OfferAsync(UpdateAvailable found, bool asked, CancellationToken cancellationToken)
     {
+        // The notice from the failed attempt still stands, so there is nothing to change while it waits.
+        if (!_retry.ShouldTry(found.Version, DateTimeOffset.UtcNow, asked))
+        {
+            return;
+        }
+
         Page = found.Page;
         Ready = false;
         Message = $"Wilson {found.Version} is available.";
 
-        if (downloader is not null && installer is not null && bundle is not null
-            && await downloader.DownloadAsync(found, cancellationToken) is { } zip)
+        if (downloader is not null && installer is not null && bundle is not null)
         {
-            _zip = zip;
-            _version = found.Version;
-            Message = $"Wilson {found.Version} is ready.";
-            Ready = true;
+            if (await downloader.DownloadAsync(found, cancellationToken) is { } zip)
+            {
+                _zip = zip;
+                _version = found.Version;
+                Message = $"Wilson {found.Version} is ready.";
+                Ready = true;
+            }
+            else
+            {
+                _retry.Failed(found, DateTimeOffset.UtcNow);
+            }
         }
     }
 }
