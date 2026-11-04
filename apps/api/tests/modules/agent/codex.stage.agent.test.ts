@@ -180,7 +180,7 @@ describe('CodexStageAgent', () => {
 
             expect(startOf(server, 'turn/start').sandboxPolicy).toEqual({ type: 'readOnly', networkAccess: false });
             const tools = startOf(server, 'thread/start').dynamicTools as { name: string }[];
-            expect(tools.map(tool => tool.name)).toEqual(['report_result']);
+            expect(tools.map(tool => tool.name)).toEqual(['report_result', 'report_blocked']);
         });
 
         it('turns the network on only when the stage says so', async () => {
@@ -537,6 +537,63 @@ describe('CodexStageAgent', () => {
             const tools = startOf(server, 'thread/start').dynamicTools as { name: string; inputSchema: Record<string, unknown> }[];
             expect(tools[0]?.inputSchema).toMatchObject({ type: 'object', required: ['summary'] });
             expect(tools[0]?.inputSchema.$schema).toBeUndefined();
+        });
+    });
+
+    describe('report_blocked', () => {
+        const question = { category: 'decision', tried: 'read it', question: 'Red or blue?' };
+
+        it('ends the stage the moment a valid question is asked', async () => {
+            let reply: { text?: string; success?: boolean } | undefined;
+            const server = new SimulatedCodexServer(async s => {
+                reply = await s.callTool('report_blocked', question);
+            });
+
+            const { output } = await run(server);
+
+            expect(reply).toMatchObject({ text: 'asked', success: true });
+            expect(output).toMatchObject({ blocked: question, truncated: false });
+            expect(output.result).toBeUndefined();
+            expect(server.killed).toBe(true);
+        });
+
+        it('refuses a question missing its fields, and lets the model try again', async () => {
+            let first: { text?: string; success?: boolean } | undefined;
+            const { output } = await run(
+                new SimulatedCodexServer(async server => {
+                    first = await server.callTool('report_blocked', { question: 'Red or blue?' });
+                    await server.callTool('report_blocked', question);
+                }),
+            );
+
+            expect(first?.success).toBe(false);
+            expect(output.blocked).toEqual(question);
+        });
+
+        it('is not offered to a step, and refuses one that calls it anyway', async () => {
+            let reply: { text?: string; success?: boolean } | undefined;
+            const server = new SimulatedCodexServer(async s => {
+                reply = await s.callTool('report_blocked', question);
+                await report(s);
+            });
+
+            const { output } = await run(server, { stageOver: { step: 'challenge' } });
+
+            const tools = startOf(server, 'thread/start').dynamicTools as { name: string }[];
+            expect(tools.map(tool => tool.name)).not.toContain('report_blocked');
+            expect(reply?.success).toBe(false);
+            expect(output.blocked).toBeUndefined();
+        });
+
+        it('says when to use it, in the prompt, only where it is offered', async () => {
+            const asked = new SimulatedCodexServer(report);
+            await run(asked);
+            const step = new SimulatedCodexServer(report);
+            await run(step, { stageOver: { step: 'challenge' } });
+
+            const textOf = (server: SimulatedCodexServer) => JSON.stringify(startOf(server, 'turn/start').input);
+            expect(textOf(asked)).toContain('report_blocked');
+            expect(textOf(step)).not.toContain('report_blocked');
         });
     });
 

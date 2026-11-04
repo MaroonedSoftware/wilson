@@ -84,11 +84,11 @@ describe('ApiStageAgent budget wiring', () => {
         await agent.run(runInput(stage));
 
         const stopWhen = capturedOptions.current?.stopWhen as ((arg: { steps: unknown[] }) => boolean)[];
-        expect(stopWhen).toHaveLength(3);
+        expect(stopWhen).toHaveLength(4);
         // Neither hasToolCall nor stepCountIs would stop the loop here — only the new budget
         // condition looks at cumulative input tokens at all.
-        expect(stopWhen[2]!({ steps: [{ usage: { inputTokens: 1000 } }] })).toBe(true);
-        expect(stopWhen[2]!({ steps: [{ usage: { inputTokens: 999 } }] })).toBe(false);
+        expect(stopWhen[3]!({ steps: [{ usage: { inputTokens: 1000 } }] })).toBe(true);
+        expect(stopWhen[3]!({ steps: [{ usage: { inputTokens: 999 } }] })).toBe(false);
     });
 
     it('passes an abortSignal timed to the stage’s maxWallClockMs into generate', async () => {

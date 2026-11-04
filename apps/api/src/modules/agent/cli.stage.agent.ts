@@ -20,6 +20,7 @@ import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.j
 import { EngineAccountsService, LOCAL_ACCOUNT } from '#modules/host/engine.accounts.service.js';
 import { PASSED_THROUGH } from '#modules/stages/run.command.js';
 import { modelOf } from '#modules/stages/stage.config.js';
+import { BlockedReportSchema, type BlockedReport } from './blocked.report.js';
 import { buildRunTrace } from './run.trace.js';
 import { budgetedInputTokens, contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
 import { REPORT_RESULT_PATH, SCRATCH_PREFIX } from './scope.guard.js';
@@ -27,6 +28,7 @@ import { StageInterrupt } from './stage.interrupt.js';
 import type { RunTrace } from './run.trace.js';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
+import { BLOCKED_TOOL, BLOCKED_TOOL_DESCRIPTION, blockedGuidance } from './tools/blocked.tool.js';
 import { deleteFile } from './tools/delete.tool.js';
 import { requestScope } from './tools/scope.tool.js';
 import { toolHost, type ToolContext } from './tools/index.js';
@@ -153,6 +155,7 @@ const REPORT_TOOL = 'report_result';
 const REQUEST_SCOPE_TOOL = 'request_scope';
 const DELETE_TOOL = 'delete';
 const qualifiedReportTool = (): string => `mcp__${REPORT_SERVER}__${REPORT_TOOL}`;
+const qualifiedBlockedTool = (): string => `mcp__${REPORT_SERVER}__${BLOCKED_TOOL}`;
 const qualifiedRequestScopeTool = (): string => `mcp__${REPORT_SERVER}__${REQUEST_SCOPE_TOOL}`;
 // Exported so a test can assert the prompt names this tool by a value derived from the same
 // constant the MCP server below registers it under, rather than a literal the two could drift
@@ -349,9 +352,32 @@ export class CliStageAgent extends StageAgent {
         // the delete-tool guidance carries the "don't leave an it.skip behind" warning: that
         // consequence is only real where such a check actually runs.
         const checksTestCounts = stage.testReportPath !== undefined;
+        // Not for a step: an answer resumes the lane's own run, so the step would be lost.
+        const canAsk = !stage.step;
+        let blocked: BlockedReport | undefined;
         const reportServer = createSdkMcpServer({
             name: REPORT_SERVER,
             tools: [
+                ...(canAsk
+                    ? [
+                          tool(BLOCKED_TOOL, BLOCKED_TOOL_DESCRIPTION, BlockedReportSchema.shape, async (input: BlockedReport) => {
+                              // A run that has reported said it was finished, and one that has already
+                              // stopped for something else cannot start waiting for an answer.
+                              if (reported !== undefined) {
+                                  return { content: [{ type: 'text' as const, text: 'error: you have already reported your result' }] };
+                              }
+                              if (stoppedBecause) return { content: [{ type: 'text' as const, text: 'error: this stage has already stopped' }] };
+
+                              // The engine would keep working after a tool call, so the stage ends here:
+                              // the read loop stops waiting now, and its `finally` tears the engine down.
+                              // No abort from inside this handler, so the reply below is not racing it.
+                              blocked = input;
+                              stoppedBecause = 'blocked';
+                              stop();
+                              return { content: [{ type: 'text' as const, text: 'asked' }] };
+                          }),
+                      ]
+                    : []),
                 tool(
                     REPORT_TOOL,
                     `Report the work you have completed and end the stage. Call this exactly once, only after you have made every change the plan asks for and the build passes. Write the finished result to ${REPORT_RESULT_PATH} — that file, and only that file, is how the result is delivered — then call this with its path, or with no path since that is the default.`,
@@ -460,7 +486,7 @@ export class CliStageAgent extends StageAgent {
         // on a dead pipe cannot be asked to wake up, so the only reliable move is to stop waiting
         // for it. `abort()` still fires, for the engine's benefit when there is an engine left to
         // hear it, but nothing depends on it any more.
-        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | 'interrupted' | undefined;
+        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | 'interrupted' | 'blocked' | undefined;
         // Set alongside `stoppedBecause === 'context'`, naming the cap and the usage the engine
         // reported at the moment it crossed — the one piece of information the generic
         // `stoppedBecause` tag cannot carry on its own, same reason `overBudget`'s message names
@@ -626,6 +652,7 @@ export class CliStageAgent extends StageAgent {
                       'that path, so no argument is needed unless you wrote the result somewhere else.',
                       'Work first, report last: that call ends the stage, and a result describing work you did',
                       'not do fails it, because the runner checks the diff and not your summary.',
+                      ...(canAsk ? ['', ...blockedGuidance(qualifiedBlockedTool())] : []),
                   ].join('\n'),
             options: {
                 cwd: context.worktreeRoot,
@@ -713,7 +740,7 @@ export class CliStageAgent extends StageAgent {
         // A stage that has already reported is left to finish: its work is done, and stopping it here
         // would throw that away for the sake of a restart.
         const interrupt = (): void => {
-            if (reported !== undefined) return;
+            if (reported !== undefined || blocked) return;
             stoppedBecause ??= 'interrupted';
             abortController.abort();
             stop();
@@ -767,6 +794,13 @@ export class CliStageAgent extends StageAgent {
             };
         };
 
+        const blockedOutput = (report: BlockedReport): AgentRunOutput => ({
+            blocked: report,
+            usage: usage ?? spentSoFar(),
+            truncated: false,
+            ...traceField(),
+        });
+
         // Only ever for a run with nothing reported: one that has reported has finished its work,
         // whatever state its account is left in. A failed write costs the next engine start a refusal.
         const limitedOutput = async (limit: UsageLimit): Promise<AgentRunOutput> => {
@@ -791,6 +825,8 @@ export class CliStageAgent extends StageAgent {
             const messages = stream[Symbol.asyncIterator]();
             for (;;) {
                 const next = await Promise.race([messages.next(), stopped]);
+                // Whichever side of that race won, and whatever the engine sent as it went down.
+                if (blocked) return blockedOutput(blocked);
                 // The losing `messages.next()` is abandoned deliberately: it stays pending on a pipe
                 // that will never deliver, which is precisely the state being escaped.
                 if (next === STOPPED) {
@@ -1020,6 +1056,7 @@ export class CliStageAgent extends StageAgent {
             // attribution at all — exactly how a run turned into `stage.failed {"error":"Claude Code
             // process aborted by user"}` with nothing else to go on. `stoppedBecause` already knows
             // which of the runner's own controls fired, if any, independent of what the error says.
+            if (blocked) return blockedOutput(blocked);
             if (stoppedBecause === 'steps') {
                 return {
                     result: reported ?? (summary ? { summary } : undefined),
@@ -1395,6 +1432,12 @@ export const createToolGuard = (
         // callback, and containment/denial for that read is `checkRead`'s job inside the tool's own
         // handler above, not this guard's.
         if (toolName === qualifiedReportTool()) {
+            return { behavior: 'allow' };
+        }
+
+        // This adapter's own question tool, present on the MCP server only for a stage that can ask.
+        // It writes nothing, and the read-only stages can ask as well as any other.
+        if (toolName === qualifiedBlockedTool()) {
             return { behavior: 'allow' };
         }
 

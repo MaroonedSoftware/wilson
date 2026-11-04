@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import { bashTool } from './bash.tool.js';
+import { BLOCKED_TOOL, blockedTool } from './blocked.tool.js';
 import { deleteTool } from './delete.tool.js';
 import { fileTools } from './file.tools.js';
 import { REPORT_TOOL, reportTool } from './report.tool.js';
@@ -23,6 +24,7 @@ type StageTools = ReturnType<typeof fileTools> &
         delete: ReturnType<typeof deleteTool>;
         request_scope: ReturnType<typeof scopeTool>;
         [REPORT_TOOL]: ReturnType<typeof reportTool>;
+        [BLOCKED_TOOL]: ReturnType<typeof blockedTool>;
     };
 
 /**
@@ -31,8 +33,15 @@ type StageTools = ReturnType<typeof fileTools> &
  * A `readonly` or `none` worktree mode drops `write`, `edit`, `delete` and `request_scope` from the
  * set entirely rather than leaving them for the ScopeGuard to deny — a reviewer should not have the
  * tool to edit the code it is reviewing in the first place.
+ *
+ * `canAsk` adds `report_blocked`, which a step does not get: see `blockedGuidance`.
  */
-export const buildTools = (ctx: ToolContext, resultSchema: z.ZodTypeAny, worktreeMode: 'none' | 'readonly' | 'rw' = 'rw'): StageTools => {
+export const buildTools = (
+    ctx: ToolContext,
+    resultSchema: z.ZodTypeAny,
+    worktreeMode: 'none' | 'readonly' | 'rw' = 'rw',
+    canAsk = false,
+): StageTools => {
     const { write, edit, ...readOnlyFileTools } = fileTools(ctx);
     const canWrite = worktreeMode === 'rw';
 
@@ -48,9 +57,11 @@ export const buildTools = (ctx: ToolContext, resultSchema: z.ZodTypeAny, worktre
         bash: bashTool(ctx),
         ...(canWrite ? { delete: deleteTool(ctx), request_scope: scopeTool(ctx) } : {}),
         [REPORT_TOOL]: reportTool(resultSchema),
+        ...(canAsk ? { [BLOCKED_TOOL]: blockedTool() } : {}),
     } as StageTools;
 };
 
 export type AgentTools = StageTools;
 export * from './tool.context.js';
 export { REPORT_TOOL } from './report.tool.js';
+export { BLOCKED_TOOL, BLOCKED_TOOL_DESCRIPTION, blockedGuidance } from './blocked.tool.js';
