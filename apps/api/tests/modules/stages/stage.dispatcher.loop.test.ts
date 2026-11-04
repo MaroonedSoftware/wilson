@@ -137,7 +137,13 @@ describe('StageDispatcher after a run stopped in a loop', () => {
         expect(frontmatter.retries).toEqual({ implementing: 1 });
 
         const [failed] = await failedEvents();
-        expect(failed?.payload).toMatchObject({ failures: [LOOP], loopStopped: true, usage: { inputTokens: 100, outputTokens: 7 } });
+        expect(failed?.payload).toMatchObject({
+            failures: [LOOP],
+            loopStopped: true,
+            failureClass: 'loop',
+            reason: LOOP,
+            usage: { inputTokens: 100, outputTokens: 7 },
+        });
     });
 
     it('tells the retry why the last run stopped, and starts it in a fresh session', async () => {

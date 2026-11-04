@@ -522,6 +522,12 @@ verifier, since the outcome is already decided and testing would run its whole s
 it writes an attempt bullet, the only unjudged failure that does, so the fresh session knows what the
 last one got stuck on. `stage.failed` carries `loopStopped: true`.
 
+Every `stage.failed` also carries `failureClass`, a word for why (`verifier`, `reportRejected`,
+`schemaInvalid`, `noReport`, `resultDropped`, `budget`, `engine`, `loop` or `error`), and `reason`, the
+failure it leads with. A runner `transition.written` that sent a card back carries the same two, with
+`revise` as the class for a review that asked for changes, and one that flagged a card carries the
+flag's `reason`. Only `verifier` and `revise` are judgments about the work.
+
 `plan-review` is a separate stage rather than a gate inside planning. It has its own
 model, budget, retry policy, and structured output — all stage-level concepts — and
 folding it into planning would make planning a stage with two models and two

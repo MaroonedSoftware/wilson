@@ -320,7 +320,7 @@ export class CardStageJob extends Job<CardStagePayload> {
                 cardId,
                 stage: stageName,
                 type: 'transition.written',
-                payload: { from: stageName, to: stageName, by: 'runner', needsHuman: true },
+                payload: { from: stageName, to: stageName, by: 'runner', needsHuman: true, reason },
             },
         );
 

@@ -40,7 +40,15 @@ import { computeReviewEvidence, REVIEW_PREPARATION_DEADLINE_MS, reviewEvidenceAp
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
 import { findStage, isPlanCheck, type ProjectStages, type StageConfig } from './stage.config.js';
 import { StageConfigStore } from './stage.config.store.js';
-import { ReviewResultSchema, StageResultSchemaMap, type ReviewCriterion, type ReviewFinding, type StageOutcome } from './stage.result.js';
+import {
+    failureClassOf,
+    REASON_LIMIT,
+    ReviewResultSchema,
+    StageResultSchemaMap,
+    type ReviewCriterion,
+    type ReviewFinding,
+    type StageOutcome,
+} from './stage.result.js';
 import { StageVerifierMap } from './stage.verifier.js';
 import { endingOf } from './terminal.js';
 
@@ -763,6 +771,8 @@ export class StageDispatcher {
                               // arrived, where the SDK told the adapter nothing to carry here.
                               ...(outcome.engineStopReason ? { engineStopReason: outcome.engineStopReason } : {}),
                               ...(outcome.loopStopped ? { loopStopped: true } : {}),
+                              ...(outcome.failureClass ? { failureClass: outcome.failureClass } : {}),
+                              ...(outcome.failures[0] ? { reason: outcome.failures[0].slice(0, REASON_LIMIT) } : {}),
                           }),
                 },
             });
@@ -787,7 +797,7 @@ export class StageDispatcher {
                 cardId,
                 stage: stageName,
                 type: 'stage.failed',
-                payload: { error: reason, patchPath },
+                payload: { error: reason, patchPath, failureClass: 'error', reason: reason.slice(0, REASON_LIMIT) },
             });
             throw err;
         }
@@ -904,6 +914,11 @@ export class StageDispatcher {
         // from a result the verifier rejected are not evidence either.
         const criteria = outcome.passed && !reviseStep ? criteriaFrom(outcome.result) : undefined;
         const needsHuman = decision.needsHuman;
+        // What sent the card back, for counting: a `revise` still waiting on its step has not done so yet.
+        const kickedBack = !advanced && !reviseStep;
+        const leadingFailure = outcome.passed ? describe(outcome.result) : outcome.failures[0];
+        const reason = needsHuman?.reason ?? (kickedBack ? leadingFailure : undefined);
+        const failureClass = kickedBack ? (outcome.passed ? 'revise' : outcome.failureClass) : undefined;
         // A step sent round again (a report it could not stand behind, an engine cut off) is that step
         // again, not the lane's own run.
         const nextStep =
@@ -1006,6 +1021,8 @@ export class StageDispatcher {
                         by: 'runner',
                         ...(needsHuman ? { needsHuman: true } : {}),
                         ...(nextStep ? { step: nextStep } : {}),
+                        ...(failureClass ? { failureClass } : {}),
+                        ...(reason ? { reason: reason.slice(0, REASON_LIMIT) } : {}),
                     },
                 },
                 { repinIf: () => advancesPin },
@@ -1137,6 +1154,7 @@ export class StageDispatcher {
                     }
                     const retries = closed ? current.frontmatter.retries : { ...current.frontmatter.retries, [key]: asked };
                     payload.retries = retries;
+                    payload.reason = reason.slice(0, REASON_LIMIT);
                     return {
                         ...current,
                         frontmatter: {
@@ -1248,7 +1266,7 @@ export class StageDispatcher {
                 stage: stageName,
                 type: 'transition.written',
                 // `retries` is runner state, read from `head`, not the plan-contract snapshot `card`.
-                payload: { from: stageName, to: stageName, retries: head.frontmatter.retries, by: 'runner', needsHuman: true },
+                payload: { from: stageName, to: stageName, retries: head.frontmatter.retries, by: 'runner', needsHuman: true, reason: message },
             },
         );
 
@@ -1605,6 +1623,7 @@ export class StageDispatcher {
                 failures: [run.loopFailure],
                 unjudged: true,
                 loopStopped: true,
+                failureClass: 'loop',
                 changedPaths: await this.worktrees.uncommittedPaths(worktree),
                 scopeGrants: scope.grants(),
                 result: run.result,
@@ -1705,6 +1724,17 @@ export class StageDispatcher {
             resultDropped: run.resultDropped,
             engineStopReason: run.engineStopReason,
             trace: run.trace,
+            ...(failures.length > 0 && {
+                failureClass: failureClassOf({
+                    engineFailure: run.engineFailure,
+                    budgetFailure: run.budgetFailure,
+                    truncated: run.truncated,
+                    resultDropped: run.resultDropped,
+                    noReport: reported === undefined,
+                    schemaInvalid,
+                    reportRejected: verification.reportRejected,
+                }),
+            }),
             ...(supportedRefusal && { supportedRefusal }),
         };
     }

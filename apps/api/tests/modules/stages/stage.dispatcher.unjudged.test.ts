@@ -85,11 +85,13 @@ const outcome = (overrides: Partial<StageOutcome> = {}): StageOutcome => ({
 describe('StageDispatcher writeTransition routes an unjudged failure to the stage itself (card 0082)', () => {
     let board: BoardRepository;
     let dispatcher: StageDispatcher;
+    let events: { append: ReturnType<typeof vi.fn> };
+    const appended = () => events.append.mock.calls.map(([event]) => event as { payload: unknown });
 
     beforeEach(async () => {
         const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-unjudged-'));
 
-        const events = { append: vi.fn(async () => {}) };
+        events = { append: vi.fn(async () => {}) };
         const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
         board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
         await board.create(baseCard, 'initial');
@@ -131,6 +133,20 @@ describe('StageDispatcher writeTransition routes an unjudged failure to the stag
             }
         ).writeTransition('0001', 'review', stage, head, card, result);
     };
+
+    it('says on the transition what sent the card back, and that a revise did', async () => {
+        const stage = makeStage({ name: 'review', onPass: 'merge', onFail: 'implementing', maxKickbacks: 3 });
+        const card: Card = { ...baseCard, frontmatter: { ...baseCard.frontmatter, stage: 'review' } };
+        const failed = outcome({ passed: false, failures: ['the diff is empty'], failureClass: 'verifier' });
+
+        await writeTransition(stage, card, failed);
+
+        expect(appended().at(-1)?.payload).toMatchObject({ failureClass: 'verifier', reason: 'the diff is empty' });
+
+        await writeTransition(stage, card, outcome({ passed: true, failures: [], result: { verdict: 'revise', summary: 'needs a test' } }));
+
+        expect(appended().at(-1)?.payload).toMatchObject({ failureClass: 'revise', reason: 'needs a test' });
+    });
 
     it('routes a review that never reached a verdict back to review, not to onFail — card 0075’s shape', async () => {
         const stage = makeStage({ name: 'review', onPass: 'merge', onFail: 'implementing', maxKickbacks: 3 });
@@ -240,6 +256,7 @@ describe('StageDispatcher runAgent (via private access) computes unjudged from t
 
         expect(result.passed).toBe(false);
         expect(result.unjudged).toBe(true);
+        expect(result.failureClass).toBe('noReport');
     });
 
     it('marks a step-exhausted, truncated run as unjudged, whatever the verifier itself thought', async () => {
@@ -252,6 +269,7 @@ describe('StageDispatcher runAgent (via private access) computes unjudged from t
 
         expect(result.passed).toBe(false);
         expect(result.unjudged).toBe(true);
+        expect(result.failureClass).toBe('budget');
     });
 
     it('marks a wall-clock/budget cutoff as unjudged', async () => {
