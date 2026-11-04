@@ -253,9 +253,9 @@ export class EventLog {
      * (card 0263's Constraints); these are token counts, and a subscription run's tokens are not a
      * price.
      *
-     * One grouped query over `stage.passed`/`stage.failed`/`stage.interrupted` rows, keyed by `stage`.
+     * One grouped query over `stage.passed`/`stage.failed`/`stage.interrupted`/`stage.blocked` rows, keyed by `stage`.
      * `stages` comes back in the order each stage was first run — `min(id)` ascending, since `id` is a
-     * `BIGSERIAL` assigned in insertion order (`append`) — not alphabetically. An interrupted run spent
+     * `BIGSERIAL` assigned in insertion order (`append`) — not alphabetically. An interrupted or blocked run spent
      * its tokens but ended in no verdict and spends no retry, so it adds to the token sums and not to
      * `attempts`; a stage interrupted every time so far has a row with no attempts. A passed or failed
      * event whose payload has no `usage` still counts as an attempt, at zero tokens, so `attempts` can
@@ -268,10 +268,10 @@ export class EventLog {
             .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
-            .where('type', 'in', ['stage.passed', 'stage.failed', 'stage.interrupted'])
+            .where('type', 'in', ['stage.passed', 'stage.failed', 'stage.interrupted', 'stage.blocked'])
             .select([
                 'stage',
-                sql<string>`count(*) filter (where type <> 'stage.interrupted')`.as('attempts'),
+                sql<string>`count(*) filter (where type in ('stage.passed', 'stage.failed'))`.as('attempts'),
                 sql<string>`coalesce(sum(coalesce((payload->'usage'->>'inputTokens')::bigint, 0) + coalesce((payload->'usage'->>'cachedInputTokens')::bigint, 0)), 0)`.as(
                     'inputTokens',
                 ),
@@ -321,7 +321,7 @@ export class EventLog {
             .selectFrom('wilson.cardEvents as event')
             .leftJoin('wilson.cards as card', join => join.onRef('card.project', '=', 'event.project').onRef('card.id', '=', 'event.cardId'))
             .where('event.project', '=', project)
-            .where('event.type', 'in', ['stage.passed', 'stage.failed', 'stage.interrupted'])
+            .where('event.type', 'in', ['stage.passed', 'stage.failed', 'stage.interrupted', 'stage.blocked'])
             .where('event.createdAt', '>=', since)
             .where('event.createdAt', '<', until)
             .select([
@@ -450,7 +450,8 @@ export class EventLog {
      * `DAILY_OUTPUT_TOKEN_CEILING`'s own doc comment gives, and there is no per-stage grouping to
      * preserve here the way `usageByStage` needs one. An event with no `usage` still coalesces to zero
      * rather than being skipped, the same as `usageByStage`. Unlike `usageByStage`, this leaves out
-     * `stage.interrupted` rows, so what an interrupted run spent does not count against the ceiling.
+     * `stage.interrupted` rows, so what an interrupted run spent does not count against the ceiling. A
+     * `stage.blocked` run counts: it finished, and the stage is not sent again to spend it twice.
      *
      * `since` is compared straight against `createdAt` — a caller means whatever zone it computed
      * `since` in, and this does no conversion of its own. `createdAt` is stored in UTC (this table's
@@ -461,7 +462,7 @@ export class EventLog {
         const row = await this.db
             .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
-            .where('type', 'in', ['stage.passed', 'stage.failed'])
+            .where('type', 'in', ['stage.passed', 'stage.failed', 'stage.blocked'])
             .where('createdAt', '>=', since)
             .select(sql<string>`coalesce(sum((payload->'usage'->>'outputTokens')::bigint), 0)`.as('total'))
             .executeTakeFirstOrThrow();

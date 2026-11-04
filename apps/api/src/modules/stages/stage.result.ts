@@ -1,3 +1,4 @@
+import type { BlockedReport } from '#modules/agent/blocked.report.js';
 import type { TreeSnapshot } from '#modules/worktree/worktree.manager.js';
 import { z } from 'zod';
 import type { RunTrace } from '#modules/agent/run.trace.js';
@@ -231,6 +232,8 @@ export interface SupportedRefusal {
 }
 
 export interface StageOutcome {
+    /** The question the stage stopped to ask. Not a failure: nothing was judged, and no retry is spent. */
+    blocked?: BlockedReport;
     /** A step of the lane the card stays in to run next, with `transitionedTo` naming that lane. */
     nextStep?: string;
     passed: boolean;

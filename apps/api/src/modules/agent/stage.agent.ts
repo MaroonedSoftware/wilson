@@ -1,3 +1,4 @@
+import type { BlockedReport } from './blocked.report.js';
 import type { RunTrace } from './run.trace.js';
 import type { UsageLimit } from './usage.limit.js';
 import type { ToolContext } from './tools/index.js';
@@ -78,6 +79,11 @@ export interface AgentRunOutput {
      * (card 0092: out of scope).
      */
     resultDropped?: boolean;
+    /**
+     * Set when the stage stopped to ask a person a question (`report_blocked`). The run ended there,
+     * so there is nothing to verify: the dispatcher parks the card until someone answers.
+     */
+    blocked?: BlockedReport;
     /** Set when `StageInterrupt` stopped the run, which says nothing about the stage itself. */
     interrupted?: { sessionId?: string; wallClockMs: number; steps: number };
     /** The engine could not continue `AgentRunInput.resume`'s session. Never leaves `CliStageAgent`. */

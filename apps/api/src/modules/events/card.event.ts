@@ -27,6 +27,10 @@ export type CardEventType =
     // instead, and the stage is sent again at `heldUntil`.
     | 'stage.interrupted'
     | 'stage.passed'
+    // Carries `blocked`, the question the stage stopped to ask, with `usage`, `changedPaths` and
+    // `patchPath` as a `stage.failed` would. Neither a pass nor a failure: no retry is spent, and the
+    // card waits for an answer.
+    | 'stage.blocked'
     // Carries `patchPath` (card 0089): the deterministic path — `WorktreeManager.failedAttemptPatchPath`,
     // `<runRoot>/cards/<id>/last-failed-attempt.patch` — where `reclaim` preserves this attempt's
     // uncommitted work, including files it created but never tracked, the next time the card's

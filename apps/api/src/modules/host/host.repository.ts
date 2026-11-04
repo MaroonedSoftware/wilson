@@ -97,6 +97,7 @@ const RUN_ENDINGS = [
     'stage.dead',
     'stage.host-lost',
     'stage.interrupted',
+    'stage.blocked',
     'stage.stale',
 ];
 
