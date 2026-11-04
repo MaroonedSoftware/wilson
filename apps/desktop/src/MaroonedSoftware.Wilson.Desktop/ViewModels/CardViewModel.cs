@@ -124,6 +124,12 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     private string? _fileNote;
 
     [ObservableProperty]
+    private string _answer = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Question))]
+    [NotifyPropertyChangedFor(nameof(QuestionFrom))]
+    [NotifyPropertyChangedFor(nameof(QuestionTried))]
     [NotifyPropertyChangedFor(nameof(CanPlan))]
     [NotifyPropertyChangedFor(nameof(PlanCheck))]
     [NotifyPropertyChangedFor(nameof(MergeStatus))]
@@ -211,6 +217,13 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
 
     public string SubmitFindingsLabel => Findings.Count == 1 ? "Submit 1 comment" : $"Submit {Findings.Count} comments";
 
+    /// <summary>A question the stage stopped to ask, waiting for an answer. Absent on any other flag.</summary>
+    public CardBlocked? Question => Card?.Blocked;
+
+    public string? QuestionFrom => Card?.Blocked is { } blocked ? $"{blocked.Stage} stopped to ask" : null;
+
+    public string? QuestionTried => Card?.Blocked is { } blocked ? $"Already tried: {blocked.Tried}" : null;
+
     public bool CanPlan => Card?.Stage is "planning" or BoardRules.ParkingLot;
 
     public string? PlanCheck => BoardRules.PlanCheck(Card?.PlanCheck, Card?.PlanCheckReason);
@@ -223,6 +236,19 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
 
     [RelayCommand]
     public Task AcknowledgeAsync() => ActAsync("Acknowledged.", token => _sdk.Board.AcknowledgeAFlaggedCardAsync(id, token));
+
+    /// <summary>A likely answer fills the box rather than sends, so it can be reworded first.</summary>
+    [RelayCommand]
+    public void UseOption(string option) => Answer = option;
+
+    /// <summary>The stage runs again in a fresh session, with the answer in its plan, when next dispatched.</summary>
+    [RelayCommand]
+    public Task SendAnswerAsync() =>
+        string.IsNullOrWhiteSpace(Answer)
+            ? Task.CompletedTask
+            : ActAsync(
+                "Answered. It runs again when next dispatched.",
+                token => _sdk.Board.AnswerABlockedCardAsync(id, new AnswerCardRequest { Answer = Answer }, token));
 
     [RelayCommand]
     public Task ApproveAsync() => ActAsync("Plan approved. Checking its scope.", token => _sdk.Board.ApproveCardPlanAsync(id, token));
@@ -523,7 +549,13 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
             var card = await _sdk.Board.GetCardAsync(id, cancellationToken);
             var events = await _sdk.Board.ListCardEventsAsync(id, new ListQuery { Limit = HistoryLimit }, cancellationToken);
             Card = card;
-            FlagReason = card.NeedsHuman ? card.NeedsHumanReason ?? "This card is flagged for a human." : null;
+            FlagReason = card is { NeedsHuman: true, Blocked: null } ? card.NeedsHumanReason ?? "This card is flagged for a human." : null;
+            // Kept while the question stands, so a refused answer can be sent again.
+            if (card.Blocked is null)
+            {
+                Answer = string.Empty;
+            }
+
             Draw(card, events);
             _seed = events;
             DrawTools();
