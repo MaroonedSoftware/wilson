@@ -27,8 +27,8 @@ const notification = (overrides: Partial<CardNotification> = {}): CardNotificati
 });
 
 /**
- * Card 0050: `Notifier` is the whole of the runner's one notification channel — everything the
- * Notification section of PROJECT.md asks for funnels through this one `notify()` call. These are
+ * Card 0050: everything the Notification section of PROJECT.md asks for funnels through this one
+ * `notify()` call, which reaches the webhook and every registered channel. These are
  * unit tests of that class in isolation (the three call sites get their own integration coverage),
  * standing in for a real webhook with a stubbed `fetch`.
  */
