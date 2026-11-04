@@ -113,11 +113,14 @@ nothing either, so no release would run.
 
 ## Updates
 
-The app checks GitHub at launch and every six hours, using its own `HttpClient` so the operator's
-token never reaches GitHub. It downloads a newer `desktop-v*` release in the background, and installs
-it only on "Restart to update", so a planning turn or a merge is never cut off. Check for Updates in
-the application menu runs the same check and also answers when there is nothing to offer, using
-`UpdateCheckResult.Answered` so a GitHub that did not answer never reads as up to date.
+The app checks GitHub at launch and every five minutes, using its own `HttpClient` so the operator's
+token never reaches GitHub. That makes the checks anonymous, so each running app spends 12 of the 60
+requests an hour GitHub allows an IP address. It downloads a newer `desktop-v*` release in the
+background, and installs it only on "Restart to update", so a planning turn or a merge is never cut
+off. A failed download is tried again only every six hours (`UpdateDownloadRetry`), so a bad release
+is not fetched whole on every check. Check for Updates in the application menu runs the same check,
+skips that wait, and also answers when there is nothing to offer, using `UpdateCheckResult.Answered`
+so a GitHub that did not answer never reads as up to date.
 
 - **Nothing vouches for an update but `UpdateSignature`.** The app is not notarised, and a file it
   downloads itself is not quarantined, so Gatekeeper never looks. The workflow signs
