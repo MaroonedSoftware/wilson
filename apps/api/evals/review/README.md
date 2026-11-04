@@ -21,6 +21,8 @@ The results file is rewritten after every case, so a run that stops early keeps 
 
 The report goes to the terminal. The results file holds every finding, and it stays out of the repository.
 
+`pnpm eval:review --rescore <results.json>` scores a saved run again with today's truths and rules, and spends nothing. What the reviewer reported and what the verifier said stay as they were, so a fix to how a case is seeded shows only in a new run. `--out` writes the new results file.
+
 ## A case
 
 `cases/<id>/` holds:

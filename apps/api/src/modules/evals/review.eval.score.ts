@@ -219,6 +219,8 @@ export interface ReviewEvalLabel {
     promptSha256: string;
     /** The commit of the corpus and runner. */
     corpusCommit: string;
+    /** The commit whose truths and rules scored these runs, when that came later. */
+    rescoredAt?: string;
 }
 
 export interface ReviewEvalReport {
@@ -242,6 +244,24 @@ export const buildReport = (label: ReviewEvalLabel, startedAt: string, runs: Rev
         verified: { scores: verified, summary: summarizeView(verified) },
         unscored: runs.flatMap(run => (run.unscored === undefined ? [] : [{ caseId: run.caseId, reason: run.unscored }])),
     };
+};
+
+/**
+ * A saved run scored again by today's truths and rules, which costs no model usage. What the reviewer
+ * reported and what the verifier said stay as they were, so a fix to how a case is seeded shows only
+ * in a new run.
+ */
+export const rescoreReport = (
+    saved: Pick<ReviewEvalReport, 'label' | 'startedAt' | 'runs'>,
+    truthOf: (caseId: string) => ReviewEvalTruth | undefined,
+    rescoredAt: string,
+): ReviewEvalReport => {
+    const runs = saved.runs.map(run => {
+        const truth = truthOf(run.caseId);
+        if (!truth) throw new Error(`the corpus has no case ${run.caseId}, so it cannot rescore this run`);
+        return { ...run, truth };
+    });
+    return buildReport({ ...saved.label, rescoredAt }, saved.startedAt, runs);
 };
 
 /** Output tokens across runs, which is what the runner's ceiling counts. */
@@ -274,6 +294,7 @@ export const formatReport = (report: ReviewEvalReport): string =>
         '',
         `Model ${report.label.model} on ${report.label.engine}, prompt ${report.label.promptRevision} (sha256 ${report.label.promptSha256.slice(0, 12)}).`,
         `Corpus at ${report.label.corpusCommit.slice(0, 12)}, started ${report.startedAt}.`,
+        ...(report.label.rescoredAt ? [`Rescored at ${report.label.rescoredAt.slice(0, 12)}, with no new reviews.`] : []),
         '',
         '- These scores stop at review. A blocker still has to survive challenge, so they overstate what would reach a kickback.',
         '- A match is by location only. Read the matched findings in the results file before quoting recall.',

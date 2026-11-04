@@ -5,6 +5,7 @@ import {
     formatReport,
     outputTokensSpent,
     rawView,
+    rescoreReport,
     scoreCase,
     verifiedView,
     type ReviewEvalLabel,
@@ -184,5 +185,29 @@ describe('buildReport', () => {
 
     it('does not divide by zero on an empty run', () => {
         expect(formatReport(buildReport(label, 't', []))).toContain('no cases');
+    });
+});
+
+describe('rescoreReport', () => {
+    const label = { model: 'm', engine: 'e', promptRevision: 'r', promptSha256: 'a'.repeat(64), corpusCommit: 'c'.repeat(40) };
+    const saved = {
+        label,
+        startedAt: 'then',
+        runs: [{ caseId: 'a', truth: defect, reported: result([finding({ file: 'src/b.ts' })]), verification: passed }],
+    };
+
+    it('scores saved findings by the truth given now, and says it did', () => {
+        expect(buildReport(label, 'then', saved.runs).raw.summary.recall.caught).toBe(0);
+
+        const report = rescoreReport(saved, () => ({ ...defect, file: 'src/b.ts' }), 'd'.repeat(40));
+
+        expect(report.raw.summary.recall.caught).toBe(1);
+        expect(report.label).toMatchObject({ corpusCommit: label.corpusCommit, rescoredAt: 'd'.repeat(40) });
+        expect(report.startedAt).toBe('then');
+        expect(formatReport(report)).toContain(`Rescored at ${'d'.repeat(12)}`);
+    });
+
+    it('refuses a run whose case has left the corpus', () => {
+        expect(() => rescoreReport(saved, () => undefined, 'd')).toThrow('no case a');
     });
 });

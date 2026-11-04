@@ -10,7 +10,14 @@ import { CLAUDE_BINARY_VERSION } from '#modules/agent/cli.engine.version.js';
 import { CliStageAgent } from '#modules/agent/cli.stage.agent.js';
 import { caseProblems, loadCorpus } from '#modules/evals/review.eval.corpus.js';
 import { runCase, seedCase } from '#modules/evals/review.eval.run.js';
-import { buildReport, formatReport, outputTokensSpent, type ReviewEvalRun } from '#modules/evals/review.eval.score.js';
+import {
+    buildReport,
+    formatReport,
+    outputTokensSpent,
+    rescoreReport,
+    type ReviewEvalReport,
+    type ReviewEvalRun,
+} from '#modules/evals/review.eval.score.js';
 import { findStage, parseStages } from '#modules/stages/stage.config.js';
 
 // Scores the real review stage against apps/api/evals/review, which says how to read the result.
@@ -19,6 +26,7 @@ import { findStage, parseStages } from '#modules/stages/stage.config.js';
 
 const { values: opts } = parseArgs({
     options: {
+        rescore: { type: 'string' },
         snapshot: { type: 'string' },
         'prompt-revision': { type: 'string' },
         cases: { type: 'string' },
@@ -38,11 +46,21 @@ const fail = (message: string): never => {
 // Read here to refuse, so it is no input to a build and needs no place in turbo's environment.
 // eslint-disable-next-line turbo/no-undeclared-env-vars
 if (process.env.CI) fail('the review measurement spends model usage and does not run in CI');
+const casesDir = resolve(process.cwd(), 'evals/review/cases');
+const git = async (args: string[]): Promise<string> => (await promisify(execFile)('git', args)).stdout.trim();
+
+if (opts.rescore) {
+    const saved = JSON.parse(await readFile(opts.rescore, 'utf8')) as ReviewEvalReport;
+    const truths = new Map((await loadCorpus(casesDir)).map(evalCase => [evalCase.id, evalCase.truth]));
+    const report = rescoreReport(saved, caseId => truths.get(caseId), await git(['rev-parse', 'HEAD']));
+    if (opts.out) await writeFile(opts.out, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    console.log(formatReport(report));
+    process.exit(0);
+}
+
 const snapshotPath = opts.snapshot ?? fail('--snapshot <stage config YAML> is required: the live prompt is only in the database');
 const promptRevision = opts['prompt-revision'] ?? fail('--prompt-revision <label> is required: it names what --snapshot holds');
 
-const casesDir = resolve(process.cwd(), 'evals/review/cases');
-const git = async (args: string[]): Promise<string> => (await promisify(execFile)('git', args)).stdout.trim();
 const sourceRepo = await git(['rev-parse', '--show-toplevel']);
 
 const stages = parseStages(await readFile(snapshotPath, 'utf8'), snapshotPath);
