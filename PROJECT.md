@@ -1441,6 +1441,11 @@ what is done, what is not, and what each remaining one is actually waiting on.
   over-budget card never reaches a model. Input caps are cost-weighted: fresh input
   at 1, cache reads at 0.1, cache writes at 1.25 (`budgetedInputTokens`), mirroring API
   pricing. Stats show raw tokens, so a stage's figure there is not what its cap saw.
+- **Gate stats.** `GET /api/stats/gates` and the Gates panel on the web stats page report kickbacks by
+  reason, why attempts failed, questions, rule failures, loop stops, how often a person was pulled in and
+  first-pass rate. A flag counts once however many events describe it. Older `stage.failed` events have no
+  `failureClass`, so they are matched by text and labelled as matched. A `revise` is a pass in `/api/stats`,
+  so the page takes those out of its pass rates.
 - **Engine compaction.** A lane's optional `autoCompactWindow` sets the window the `cli`
   engine compacts against, at about that window minus 33k. Unset leaves it to the engine.
   Stage config refuses a window `maxContextWindowFraction` would stop first, from about
