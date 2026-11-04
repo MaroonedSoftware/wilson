@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import type { Kysely } from 'kysely';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import type { DB } from '#modules/data/db.js';
-import { localHost } from '#modules/host/local.execution.host.js';
+import { LocalHost, localHost } from '#modules/host/local.execution.host.js';
 import { parseJudgeReply, RULE_DIFF_MAX_CHARS, RULE_JUDGE_CONCURRENCY, RuleJudge } from '#modules/rules/rule.judge.js';
 import { RuleJudgeEngine, RuleJudgeEngineMap, type RuleJudgeCall, type RuleJudgeReply } from '#modules/rules/rule.judge.engine.js';
 import { PostgresRuleStore } from '#modules/rules/rule.store.js';
@@ -229,19 +229,43 @@ describe('RuleJudge', () => {
     it(`runs at most ${RULE_JUDGE_CONCURRENCY} judges at once`, async () => {
         const repo = await repoWith();
         for (const id of ['r1', 'r2', 'r3', 'r4', 'r5']) await addRule(id);
+
+        // A judge starts by reading its rule's diff, so this counts the judges under way, including any
+        // not yet at the engine. Reaching it takes a process and a query, which take as long as they take.
+        let underWay = 0;
+        class CountingHost extends LocalHost {
+            override exec(...call: Parameters<LocalHost['exec']>) {
+                if (call[1][0] === '--literal-pathspecs') underWay++;
+                return super.exec(...call);
+            }
+        }
+
+        // Nobody leaves the engine until the limit's worth have arrived and no judge under way has yet to,
+        // so every judge allowed to start is in there at the same moment, however slowly each got there.
         let running = 0;
         let most = 0;
+        let allArrived!: () => void;
+        const arrived = new Promise<void>(resolve => (allArrived = resolve));
         const engine = new ScriptedEngine(async () => {
             most = Math.max(most, ++running);
-            await new Promise(resolve => setTimeout(resolve, 20));
+            if (engine.calls.length >= RULE_JUDGE_CONCURRENCY && engine.calls.length === underWay) allArrived();
+            await arrived;
             running--;
             return pass;
         });
 
-        const { verdicts: found } = await run(judgeWith(engine), repo);
+        const { verdicts: found } = await judgeWith(engine).judge({
+            rules: await rules.list(),
+            host: new CountingHost(),
+            cwd: repo.cwd,
+            range: [repo.baseSha],
+            // A limit below the constant never fills the engine, so the deadline is what ends that run.
+            deadlineMs: 15_000,
+        });
 
-        expect(found.map(verdict => verdict.rule)).toEqual(['r1', 'r2', 'r3', 'r4', 'r5']);
         expect(most).toBe(RULE_JUDGE_CONCURRENCY);
+        expect(found.map(verdict => verdict.rule)).toEqual(['r1', 'r2', 'r3', 'r4', 'r5']);
+        expect(found.every(verdict => verdict.verdict === 'pass')).toBe(true);
     });
 
     it('says nothing, rather than throwing, when git cannot answer', async () => {
