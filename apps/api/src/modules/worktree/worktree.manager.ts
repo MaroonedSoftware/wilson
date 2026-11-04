@@ -32,6 +32,16 @@ export interface Worktree {
 /** The host a worktree's files and commands live on: its own, or this machine when it names none. */
 export const worktreeHost = (worktree: Worktree): ExecutionHost => worktree.host ?? localHost;
 
+/** What happened to a path since a branch was cut. A rename is `deleted` plus `added`. */
+export type PathChangeStatus = 'added' | 'modified' | 'deleted';
+
+/** One entry of `WorktreeManager.pathChanges`. */
+export interface PathChange {
+    /** Relative to the worktree root. */
+    path: string;
+    status: PathChangeStatus;
+}
+
 /** Card 0265. One file changed in {@link WorktreeManager.patchSinceFork}'s range. */
 export interface DiffFileEntry {
     path: string;
@@ -847,5 +857,45 @@ export class WorktreeManager {
             .filter(Boolean);
 
         return [...added, ...untracked];
+    }
+
+    /**
+     * Every path that differs from the branch's base, with what happened to it: committed work,
+     * uncommitted work and untracked files alike, since a stage's work is still uncommitted when its
+     * verifier runs. For a caller that is about to compare the two sides of each file, which
+     * `changedPaths` and `addedPaths` cannot serve: both follow the repository's rename detection,
+     * and under it a test file that was renamed and gutted reads as a new file with nothing to compare
+     * against.
+     *
+     * `-z` because git quotes a path with a non-ASCII byte otherwise, and that quoted form opens nothing.
+     */
+    async pathChanges(worktree: Worktree): Promise<PathChange[]> {
+        const host = worktreeHost(worktree);
+        const { stdout } = await gitOn(host, worktree.path, ['diff', '--no-renames', '--name-status', '-z', worktree.baseSha, '--']);
+        const fields = stdout.split('\0');
+        const changes = new Map<string, PathChangeStatus>();
+        for (let index = 0; index + 1 < fields.length; index += 2) {
+            const [code, path] = [fields[index]!, fields[index + 1]!];
+            changes.set(path, code.startsWith('A') ? 'added' : code.startsWith('D') ? 'deleted' : 'modified');
+        }
+
+        const { stdout: untracked } = await gitOn(host, worktree.path, ['ls-files', '--others', '--exclude-standard', '-z']);
+        for (const path of untracked.split('\0').filter(Boolean)) {
+            // `git rm --cached` makes a file both: deleted to the diff and untracked on disk. It is
+            // still there, so it has two sides to compare.
+            changes.set(path, changes.has(path) ? 'modified' : 'added');
+        }
+
+        return [...changes].map(([path, status]) => ({ path, status })).sort((a, b) => (a.path < b.path ? -1 : 1));
+    }
+
+    /** A file as it was when the branch was cut, read on the worktree's own host. Throws if it did not exist then. */
+    async readAtBase(worktree: Worktree, path: string): Promise<string> {
+        return (await gitOn(worktreeHost(worktree), worktree.path, ['show', `${worktree.baseSha}:${path}`])).stdout;
+    }
+
+    /** A file as it is now, uncommitted changes included, read on the worktree's own host. Throws if it is gone. */
+    async readCurrent(worktree: Worktree, path: string): Promise<string> {
+        return worktreeHost(worktree).readFile(join(worktree.path, path));
     }
 }
