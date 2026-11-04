@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { withFindings } from '#modules/board/append.findings.js';
+import { filesInScope, sectionsOf } from '#modules/board/card.js';
 import { isRuleFinding, MAX_REVIEW_FINDINGS, ruleFinding, ruleVerdictsMarkdown, withRuleFindings } from '#modules/rules/rule.findings.js';
 import type { RuleVerdict } from '#modules/rules/rule.judge.js';
 import { ReviewResultSchema, type ReviewFinding, type ReviewResult } from '#modules/stages/stage.result.js';
@@ -146,5 +148,30 @@ describe('ruleVerdictsMarkdown', () => {
 
     it('is empty with no verdicts', () => {
         expect(ruleVerdictsMarkdown([])).toBe('');
+    });
+});
+
+describe('a rule finding under Review findings', () => {
+    it('renders a blocker with its file and line, the rule first and the suggestion after the dash', () => {
+        const finding = ruleFinding(verdict({ evidence: 'It builds\nSQL by hand.', statement: 'Queries go\nthrough Kysely' }), lines)!;
+
+        expect(withFindings('## Goal\n\ng\n', [finding])).toBe(
+            '## Goal\n\ng\n\n## Review findings\n\n' +
+                '- **blocker** `src/a.ts:3`: Rule no-raw-sql failed: It builds SQL by hand. — Change the code so that this holds: Queries go through Kysely',
+        );
+    });
+
+    it('renders a concern that could not cite a line with its file alone', () => {
+        const finding = ruleFinding(verdict({ line: 99 }), lines)!;
+
+        expect(withFindings('', [finding])).toContain(
+            '- **concern** `src/a.ts`: Rule no-raw-sql failed: It builds SQL by hand. — Change the code so that this holds: Queries go through Kysely',
+        );
+    });
+
+    it('stays out of the plan section it follows', () => {
+        const body = withFindings('## Files in scope\n\n- src/a.ts\n', [ruleFinding(verdict(), lines)!]);
+
+        expect(filesInScope({ frontmatter: {} as never, sections: sectionsOf(body), body })).toEqual(['src/a.ts']);
     });
 });
