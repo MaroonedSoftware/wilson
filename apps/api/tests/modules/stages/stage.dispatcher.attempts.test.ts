@@ -13,6 +13,7 @@ import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { StageAgentMap, type AgentRunOutput } from '#modules/agent/stage.agent.js';
 import { StageVerifierMap, type StageVerifier, type VerificationOutcome } from '#modules/stages/stage.verifier.js';
 import { StageResultSchemaMap } from '#modules/stages/stage.result.js';
+import { withAnswer } from '#modules/board/append.answer.js';
 import type { Card } from '#modules/board/card.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
 import { stageDefaults } from '#tests/modules/stages/stage.fixture.js';
@@ -210,6 +211,23 @@ describe('StageDispatcher writeTransition records why a stage’s previous attem
         // one blank line behind when the removed section was the last thing in the body).
         expect(passed.body.trim()).toBe('## Goal\n\nDo the thing.');
         expect(passed.body.match(/^## Goal\n\nDo the thing\.\n?$/)).not.toBeNull();
+    });
+
+    it("sheds an operator's answer on a pass, and keeps it through a failure", async () => {
+        await board.write('0001', 'answered', current => ({
+            ...current,
+            body: withAnswer(current.body, { stage: 'implementing', question: 'Which?', askedAt: 'then', answer: 'That one.', answeredAt: 'now' }),
+        }));
+
+        await writeTransition(makeStage(), await board.read('0001'), outcome({ passed: false, failures: ['it failed'] }));
+        expect((await board.read('0001')).body).toContain('> That one.');
+
+        const head = await board.read('0001');
+        await writeTransition(makeStage(), { ...head, frontmatter: { ...head.frontmatter, stage: 'implementing' } }, outcome());
+
+        const passed = await board.read('0001');
+        expect(passed.body).not.toContain('Operator answer');
+        expect(passed.body.trim()).toBe('## Goal\n\nDo the thing.');
     });
 
     it('adds no bullet for an unjudged failure (AC4)', async () => {

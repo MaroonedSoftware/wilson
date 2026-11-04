@@ -19,6 +19,7 @@ import authTokenCommand from './commands/auth/token.command.js';
 import boardInitCommand from './commands/board/init.command.js';
 import cardListCommand from './commands/card/list.command.js';
 import cardAckCommand from './commands/card/ack.command.js';
+import cardAnswerCommand from './commands/card/answer.command.js';
 import cardApproveCommand from './commands/card/approve.command.js';
 import cardCreateCommand from './commands/card/create.command.js';
 import cardDependCommand from './commands/card/depend.command.js';
@@ -95,6 +96,7 @@ const app = await createCliApp({
         reg(['board', 'init'], boardInitCommand),
         reg(['card', 'list'], cardListCommand),
         reg(['card', 'ack'], cardAckCommand),
+        reg(['card', 'answer'], cardAnswerCommand),
         reg(['card', 'approve'], cardApproveCommand),
         reg(['card', 'create'], cardCreateCommand),
         reg(['card', 'depend'], cardDependCommand),

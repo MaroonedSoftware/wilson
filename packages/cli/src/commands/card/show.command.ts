@@ -94,6 +94,7 @@ const command: CommandModule<ShowOpts> = {
                         needsHuman: card.needsHuman,
                         needsHumanReason: card.needsHumanReason ?? null,
                         mergeStatus: card.mergeStatus ?? null,
+                        blocked: card.blocked ?? null,
                         splitFrom: card.splitFrom ?? null,
                         pieces: card.pieces ?? [],
                     },
@@ -110,7 +111,14 @@ const command: CommandModule<ShowOpts> = {
         ctx.logger.info(`branch:   ${card.branch ?? '—'}`);
         if (card.mergeStatus) ctx.logger.info(`merge:    ${describeMergeStatus(card.mergeStatus)}`);
         if (blockedOn.length > 0) ctx.logger.info(`blocked:  ${blockedOn.join(', ')}`);
-        if (card.needsHuman) ctx.logger.info(`needs human: ${card.needsHumanReason ?? '(no reason given)'}`);
+        if (card.blocked) {
+            ctx.logger.info(`question from ${card.blocked.stage}: ${card.blocked.question}`);
+            ctx.logger.info(`  tried: ${card.blocked.tried}`);
+            for (const option of card.blocked.options ?? []) ctx.logger.info(`  option: ${option}`);
+            ctx.logger.info(`  answer it with: wilson card answer ${cardId} "<answer>"`);
+        } else if (card.needsHuman) {
+            ctx.logger.info(`needs human: ${card.needsHumanReason ?? '(no reason given)'}`);
+        }
         if (card.splitFrom) ctx.logger.info(`split from: ${card.splitFrom}`);
 
         const pieces = card.pieces ?? [];

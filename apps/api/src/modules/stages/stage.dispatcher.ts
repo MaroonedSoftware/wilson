@@ -5,6 +5,7 @@ import { Logger } from '@maroonedsoftware/logger';
 import { AutoSplitter } from '#modules/board/auto.splitter.js';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
+import { withoutAnswers } from '#modules/board/append.answer.js';
 import { withAttempt, withoutAttempts, type Attempt } from '#modules/board/append.attempts.js';
 import { withFindings } from '#modules/board/append.findings.js';
 import { filesInScope, type Card } from '#modules/board/card.js';
@@ -900,8 +901,13 @@ export class StageDispatcher {
                     // On a pass, the section this stage may have accumulated while it kept failing is
                     // shed (the same "shed on pass" rule findings use); on a judged failure, one more
                     // bullet joins whatever is already there; any other outcome (unjudged, resultDropped)
-                    // leaves the section exactly as it stands.
-                    const body = outcome.passed ? withoutAttempts(current.body) : attempt ? withAttempt(current.body, attempt) : current.body;
+                    // leaves the section exactly as it stands. An operator's answer sheds the same way:
+                    // it was for the stage that just passed.
+                    const body = outcome.passed
+                        ? withoutAnswers(withoutAttempts(current.body))
+                        : attempt
+                          ? withAttempt(current.body, attempt)
+                          : current.body;
                     const nextBody = findings ? withFindings(body, findings, criteria) : body;
                     advancesPin = nextBody !== current.body && Boolean(head.frontmatter.planVersionId && current.frontmatter.planVersionId);
                     const { planCheck: _planCheck, planCheckReason: _planCheckReason, ...unchecked } = current.frontmatter;

@@ -23,6 +23,7 @@ import { CardJobs } from '#modules/jobs/card.jobs.js';
 import { RunningCards } from '#modules/jobs/running.cards.js';
 import { ScopeCheckResultSchema } from '#modules/stages/stage.result.js';
 import type {
+    AnswerCardRequest,
     CardDetail,
     CardDivision,
     CreateCardRequest,
@@ -43,6 +44,7 @@ import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
 import { toCardDetail } from './board.service.js';
+import { withAnswer } from './append.answer.js';
 import { withFindings } from './append.findings.js';
 import { git, gitOn } from './git.js';
 import { rankBetween, renormalizedPositions } from './card.position.js';
@@ -654,6 +656,54 @@ export class BoardWriteService {
                 type: 'card.acked',
                 payload: { stage, reason, retries: droppedRetries, by: 'human' },
             },
+        );
+
+        return toCardDetail(await this.boardRepository.read(id));
+    }
+
+    /**
+     * Answer the question a stage stopped to ask: the answer goes into the plan, the flag comes off,
+     * and the stage runs again in a fresh session when next dispatched. Unlike {@link ack} this keeps
+     * `retries`: nothing failed, and the stage's kickback count still means what it meant.
+     *
+     * The question is read from `current`, under the row lock, so a second answer racing this one is
+     * refused rather than appended, and an answer to a card moved in the meantime has nothing to say.
+     * Never from the pin, which is frozen at approval. The pin moves past the answer, as it does past
+     * human findings ({@link recordFindings}): the next stage reads the plan at the pin.
+     */
+    async answer(id: string, request: AnswerCardRequest): Promise<CardDetail> {
+        const before = await this.readOrThrow(id);
+        const answer = request.answer.trim();
+        if (answer.length === 0) throw httpError(400).withDetails({ reason: `cannot answer ${id}: the answer is empty` });
+
+        const stage = before.frontmatter.stage;
+        const payload: Record<string, unknown> = { stage, answer, by: 'human' };
+        let advancesPin = false;
+
+        await this.boardRepository.writeWithEvent(
+            id,
+            `Answer ${id}`,
+            current => {
+                const { needsHuman: _needsHuman, needsHumanReason: _needsHumanReason, blocked, ...rest } = current.frontmatter;
+                if (!blocked) throw httpError(400).withDetails({ reason: `${id} has no question waiting for an answer` });
+
+                payload.question = blocked.question;
+                advancesPin = Boolean(current.frontmatter.planVersionId);
+                return {
+                    ...current,
+                    frontmatter: rest,
+                    body: withAnswer(current.body, {
+                        stage: blocked.stage,
+                        question: blocked.question,
+                        askedAt: blocked.askedAt,
+                        answer,
+                        answeredAt: new Date().toISOString(),
+                        patchPath: blocked.patchPath,
+                    }),
+                };
+            },
+            { project: this.boardConfig.project, cardId: id, stage, type: 'card.answered', payload },
+            { repinIf: () => advancesPin },
         );
 
         return toCardDetail(await this.boardRepository.read(id));

@@ -114,10 +114,11 @@ const planHeading = (line: string): PlanSection | undefined => {
 };
 
 /**
- * The headings the runner appends to a body (`append.findings.ts`, `append.attempts.ts`). `sectionsOf`
- * reads them as part of the plan section they follow; anything that rewrites a section must not.
+ * The headings the runner appends to a body (`append.findings.ts`, `append.attempts.ts`,
+ * `append.answer.ts`). `sectionsOf` reads them as part of the plan section they follow; anything that
+ * rewrites a section must not.
  */
-const RUNNER_HEADINGS = ['## Review findings', '## Previous attempts'];
+const RUNNER_HEADINGS = ['## Review findings', '## Previous attempts', '## Operator answer'];
 
 const endsSection = (line: string): boolean => planHeading(line) !== undefined || RUNNER_HEADINGS.includes(line.trim());
 

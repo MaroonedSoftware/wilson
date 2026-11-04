@@ -482,6 +482,18 @@ export const HumanFinding = z.strictObject({
 export type HumanFinding = z.infer<typeof HumanFinding>;
 
 /**
+ * A person's answer to the question a stage stopped to ask. Writes it into the plan, moving the pin
+ * past it so the next run reads it, and clears the flag. Unlike an ack it keeps the card's retries: the
+ * stage asking a question was not a failure, and an answer is not a person saying the failures so far
+ * no longer count.
+ * generated from [AnswerCardRequest](../../data/contracts/board.ck)
+ */
+export const AnswerCardRequest = z.strictObject({
+    answer: z.string(),
+});
+export type AnswerCardRequest = z.infer<typeof AnswerCardRequest>;
+
+/**
  * generated from [CardSummary](../../data/contracts/board.ck)
  */
 export const CardSummary = z.strictObject({

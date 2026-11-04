@@ -153,3 +153,119 @@ describe('the blocked column', () => {
         expect((await board.read('0104')).frontmatter.blocked).toBeUndefined();
     });
 });
+
+describe('answer', () => {
+    it('writes the answer into the plan, clears the flag and keeps retries', async () => {
+        const { board, events, service } = freshBoard();
+        const retries = { implementing: 2, 'implementing:blocked': 1 };
+        await seed(board, parked('0110', { retries }));
+
+        const detail = await service.answer('0110', { answer: 'Keep it for one release.' });
+
+        expect(detail.needsHuman).toBe(false);
+        expect(detail.needsHumanReason).toBeUndefined();
+        expect(detail.blocked).toBeUndefined();
+        expect(detail.body).toContain('## Operator answer');
+        expect(detail.body).toContain(`> ${blocked.question}`);
+        expect(detail.body).toContain('> Keep it for one release.');
+
+        const { frontmatter } = await board.read('0110');
+        expect(frontmatter.retries).toEqual(retries);
+        expect(frontmatter.stage).toBe('implementing');
+        expect(events.append).toHaveBeenCalledWith(
+            expect.objectContaining({
+                cardId: '0110',
+                type: 'card.answered',
+                payload: { stage: 'implementing', answer: 'Keep it for one release.', question: blocked.question, by: 'human' },
+            }),
+            expect.anything(),
+        );
+    });
+
+    it("names the stopped run's preserved patch in the section", async () => {
+        const { board, service } = freshBoard();
+        await seed(board, parked('0111', { blocked: { ...blocked, patchPath: '/run/cards/0111/last-failed-attempt.patch' } }));
+
+        const detail = await service.answer('0111', { answer: 'Yes.' });
+
+        expect(detail.body).toContain('`/run/cards/0111/last-failed-attempt.patch`');
+    });
+
+    it('moves a pinned plan past the answer, so the next run reads it', async () => {
+        const { board, service } = freshBoard();
+        await seed(board, parked('0112'));
+        const pin = await board.currentVersion('0112');
+        await board.write('0112', 'pin', current => ({ ...current, frontmatter: { ...current.frontmatter, planVersionId: pin } }));
+
+        await service.answer('0112', { answer: 'Keep it.' });
+
+        const { frontmatter } = await board.read('0112');
+        expect(frontmatter.planVersionId).not.toBe(pin);
+        expect((await board.readAt('0112', frontmatter.planVersionId!)).body).toContain('> Keep it.');
+    });
+
+    it('leaves an unpinned card unpinned', async () => {
+        const { board, service } = freshBoard();
+        await seed(board, parked('0113'));
+
+        await service.answer('0113', { answer: 'Keep it.' });
+
+        expect((await board.read('0113')).frontmatter.planVersionId).toBeUndefined();
+    });
+
+    it('takes the question from the head row, not the pinned plan', async () => {
+        const { board, service } = freshBoard();
+        await board.create(parked('0114', { needsHuman: false, needsHumanReason: undefined, blocked: undefined }), 'seed');
+        const pin = await board.currentVersion('0114');
+        await board.write('0114', 'pin', current => ({ ...current, frontmatter: { ...current.frontmatter, planVersionId: pin } }));
+        // Asked after the pin, so the pinned version has never heard of it.
+        await board.write('0114', 'park', current => ({
+            ...current,
+            frontmatter: { ...current.frontmatter, needsHuman: true, needsHumanReason: blocked.question, blocked },
+        }));
+
+        const detail = await service.answer('0114', { answer: 'Keep it.' });
+
+        expect(detail.body).toContain(`> ${blocked.question}`);
+    });
+
+    it('refuses a card flagged for any other reason, writing nothing', async () => {
+        const { board, service } = freshBoard();
+        await seed(board, parked('0115', { blocked: undefined, needsHumanReason: 'failed 3 times' }));
+        const version = await board.currentVersion('0115');
+
+        await expect(service.answer('0115', { answer: 'Keep it.' })).rejects.toMatchObject({
+            statusCode: 400,
+            details: { reason: '0115 has no question waiting for an answer' },
+        });
+
+        expect(await board.currentVersion('0115')).toBe(version);
+        expect((await board.read('0115')).frontmatter.needsHuman).toBe(true);
+    });
+
+    it('refuses a second answer', async () => {
+        const { board, service } = freshBoard();
+        await seed(board, parked('0116'));
+
+        await service.answer('0116', { answer: 'Keep it.' });
+
+        await expect(service.answer('0116', { answer: 'Remove it.' })).rejects.toMatchObject({ statusCode: 400 });
+        expect((await board.read('0116')).body).not.toContain('Remove it.');
+    });
+
+    it('refuses an empty answer, writing nothing', async () => {
+        const { board, service } = freshBoard();
+        await seed(board, parked('0117'));
+        const version = await board.currentVersion('0117');
+
+        await expect(service.answer('0117', { answer: '   ' })).rejects.toMatchObject({ statusCode: 400 });
+
+        expect(await board.currentVersion('0117')).toBe(version);
+    });
+
+    it('answers 404 for no such card', async () => {
+        const { service } = freshBoard();
+
+        await expect(service.answer('nope', { answer: 'Keep it.' })).rejects.toMatchObject({ statusCode: 404 });
+    });
+});

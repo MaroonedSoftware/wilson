@@ -1,6 +1,7 @@
 import type {
     ActivityEvent,
     ActivityQuery,
+    AnswerCardRequest,
     BoardColumns,
     CardDetail,
     CardDiff,
@@ -174,6 +175,16 @@ export class BoardClient {
     /** @name Acknowledge a flagged card */
     async acknowledgeAFlaggedCard(id: string): Promise<CardDetail> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/ack`, { method: 'POST' });
+        return reviveCardDetail(await parseJson<CardDetail>(result));
+    }
+
+    /** @name Answer a blocked card */
+    async answerABlockedCard(id: string, body: AnswerCardRequest): Promise<CardDetail> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/answer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
         return reviveCardDetail(await parseJson<CardDetail>(result));
     }
 

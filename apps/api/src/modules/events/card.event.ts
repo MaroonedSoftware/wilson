@@ -181,6 +181,8 @@ export type CardEventType =
     | 'chain.stopped'
     | 'card.flagged'
     | 'card.acked'
+    // A person answered the question a stage stopped to ask. Carries `stage`, `question` and `answer`.
+    | 'card.answered'
     /** `BoardWriteService.repin` moved the approved plan to a newer version. Payload: `from`, `to`, `by`. */
     | 'plan.repinned'
     // An image was added to a card, or removed from one. Each carries `attachmentId`, its sniffed

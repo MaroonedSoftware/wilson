@@ -485,6 +485,17 @@ data class HumanFinding(
     val suggestion: String,
 )
 
+/**
+ * A person's answer to the question a stage stopped to ask. Writes it into the plan, moving the pin
+ * past it so the next run reads it, and clears the flag. Unlike an ack it keeps the card's retries: the
+ * stage asking a question was not a failure, and an answer is not a person saying the failures so far
+ * no longer count.
+ */
+@Serializable
+data class AnswerCardRequest(
+    val answer: String,
+)
+
 @Serializable
 data class CardSummary(
     val id: String,
