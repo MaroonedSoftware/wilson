@@ -33,8 +33,8 @@ import { CARD_STAGE_CONCURRENCY_DEFAULT, POLLER_INTERVAL_MS_DEFAULT } from './jo
  * to thirty — so a stage that legitimately ran past fifteen minutes had its job redelivered while
  * the first attempt was still going, putting two agents in one worktree on one branch. The stage cap
  * is `MAX_STAGE_WALL_CLOCK_MS` and the schema enforces it; the difference is headroom for everything
- * a job does around the run itself: cutting the worktree, installing dependencies, verifying, and
- * writing the transition.
+ * a job does around the run itself: cutting the worktree, installing dependencies, computing review
+ * evidence (`REVIEW_EVIDENCE_DEADLINE_MS`), verifying, and writing the transition.
  */
 export const CARD_STAGE_EXPIRES_IN = Duration.fromMillis(MAX_STAGE_WALL_CLOCK_MS).plus({ minutes: 10 });
 
