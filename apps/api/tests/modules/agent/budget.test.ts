@@ -3,6 +3,7 @@ import {
     budgetedInputTokens,
     contextBudgetExceeded,
     overBudget,
+    stageUsageOf,
     sumInputTokens,
     tokenBudgetExceeded,
     wallClockExceeded,
@@ -158,5 +159,31 @@ describe('budgetedInputTokens', () => {
     it('has nothing to count when no usage was reported', () => {
         expect(budgetedInputTokens(undefined)).toBeUndefined();
         expect(budgetedInputTokens({})).toBeUndefined();
+    });
+});
+
+describe('stageUsageOf', () => {
+    it('takes the cache out of the AI SDK’s input total, keeping the sum', () => {
+        const usage = stageUsageOf({ inputTokens: 1000, outputTokens: 7, inputTokenDetails: { cacheReadTokens: 800, cacheWriteTokens: 150 } });
+
+        expect(usage).toEqual({ inputTokens: 50, outputTokens: 7, cachedInputTokens: 950, cacheWriteInputTokens: 150 });
+    });
+
+    it('counts everything as fresh when the provider gives no split', () => {
+        expect(stageUsageOf({ inputTokens: 900, outputTokens: 7 })).toEqual({
+            inputTokens: 900,
+            outputTokens: 7,
+            cachedInputTokens: 0,
+            cacheWriteInputTokens: 0,
+        });
+    });
+
+    it('never reports negative fresh input from a provider whose details overrun its total', () => {
+        expect(stageUsageOf({ inputTokens: 10, inputTokenDetails: { cacheReadTokens: 20 } }).inputTokens).toBe(0);
+    });
+
+    it('leaves input unreported when the provider reported none', () => {
+        expect(stageUsageOf({ outputTokens: 7 })).toEqual({ inputTokens: undefined, outputTokens: 7 });
+        expect(stageUsageOf(undefined)).toEqual({ inputTokens: undefined, outputTokens: undefined });
     });
 });

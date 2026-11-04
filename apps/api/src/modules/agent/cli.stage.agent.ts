@@ -115,6 +115,18 @@ export const subscriptionEnv = (
 };
 
 /**
+ * The engine's two cache figures as a stage's `usage` holds them: `cachedInputTokens` is reads plus
+ * writes, so whatever reads it as "how many tokens were cached" stays right, and
+ * `cacheWriteInputTokens` says how many of them were writes, which cost far more than reads.
+ */
+const cacheTokens = (
+    usage: { cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null } | undefined,
+): { cachedInputTokens: number; cacheWriteInputTokens: number } => {
+    const written = usage?.cache_creation_input_tokens ?? 0;
+    return { cachedInputTokens: (usage?.cache_read_input_tokens ?? 0) + written, cacheWriteInputTokens: written };
+};
+
+/**
  * The `query()` options that start the engine on `host` rather than here: the binary named plainly so
  * the SDK passes its flags straight through (it treats anything not ending in `.js` as a native
  * binary), and the host's own spawn. Nothing for a host without `spawnClaude`.
@@ -711,7 +723,10 @@ export class CliStageAgent extends StageAgent {
         // Input tokens per API message, by id: the engine emits one assistant message per content
         // block, each repeating its API message's `usage`, so counting messages would charge a turn
         // once per block. Summed, these match the `result` message's own totals.
-        const inputTokensByMessage = new Map<string, { inputTokens: number; outputTokens: number; cachedInputTokens: number }>();
+        const inputTokensByMessage = new Map<
+            string,
+            { inputTokens: number; outputTokens: number; cachedInputTokens: number; cacheWriteInputTokens: number }
+        >();
 
         // `reported` still undefined at the point a result is built, despite the report tool having
         // been seen on the stream: the call was made but never reached the callback above (or
@@ -731,8 +746,9 @@ export class CliStageAgent extends StageAgent {
                     inputTokens: total.inputTokens + tokens.inputTokens,
                     outputTokens: total.outputTokens + tokens.outputTokens,
                     cachedInputTokens: total.cachedInputTokens + tokens.cachedInputTokens,
+                    cacheWriteInputTokens: total.cacheWriteInputTokens + tokens.cacheWriteInputTokens,
                 }),
-                { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 },
+                { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0 },
             );
 
         // The session last written to the event log, so one is recorded once rather than per message.
@@ -877,7 +893,7 @@ export class CliStageAgent extends StageAgent {
                         inputTokensByMessage.set(message.message.id, {
                             inputTokens: turn.input_tokens,
                             outputTokens: turn.output_tokens,
-                            cachedInputTokens: (turn.cache_read_input_tokens ?? 0) + (turn.cache_creation_input_tokens ?? 0),
+                            ...cacheTokens(turn),
                         });
                         const spent = spentSoFar();
                         const failure = overBudget(budgetedInputTokens(spent), stage.maxInputTokens);
@@ -908,7 +924,7 @@ export class CliStageAgent extends StageAgent {
                     usage = {
                         inputTokens: message.usage?.input_tokens,
                         outputTokens: message.usage?.output_tokens,
-                        cachedInputTokens: (message.usage?.cache_read_input_tokens ?? 0) + (message.usage?.cache_creation_input_tokens ?? 0),
+                        ...cacheTokens(message.usage),
                     };
                     if (usageWatch.limit && reported === undefined) return await limitedOutput(usageWatch.limit);
                     // The engine reports its own truncation; treat anything but a clean end as cut off.

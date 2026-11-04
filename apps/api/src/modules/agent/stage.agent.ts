@@ -40,8 +40,12 @@ export interface AgentRunInput {
 export interface AgentRunOutput {
     /** What the agent reported, or undefined when it never reported finishing. */
     result?: unknown;
-    /** Cumulative usage, as far as the adapter can report it. */
-    usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number };
+    /**
+     * Cumulative usage, as far as the adapter can report it. `inputTokens` leaves out what the cache
+     * served or stored; `cachedInputTokens` is that, reads plus writes; `cacheWriteInputTokens` is how
+     * many of those were writes, absent where the engine reports only reads (`codex`).
+     */
+    usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; cacheWriteInputTokens?: number };
     /** True when the loop was cut off rather than ending because the agent finished. */
     truncated: boolean;
     /**

@@ -35,6 +35,25 @@ export const budgetedInputTokens = (usage: { inputTokens?: number; cachedInputTo
         : (usage.inputTokens ?? 0) + (usage.cachedInputTokens ?? 0);
 
 /**
+ * The AI SDK's usage as a stage's `usage` holds it. Its `inputTokens` is everything sent, cached or
+ * not, with the split in `inputTokenDetails`, where a stage's `inputTokens` leaves the cache out. The
+ * sum stays the same. `undefined` input means the provider reported none, which stays unreported.
+ */
+export const stageUsageOf = (
+    usage: { inputTokens?: number; outputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number; cacheWriteTokens?: number } } | undefined,
+): { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; cacheWriteInputTokens?: number } => {
+    if (usage?.inputTokens === undefined) return { inputTokens: undefined, outputTokens: usage?.outputTokens };
+    const read = usage.inputTokenDetails?.cacheReadTokens ?? 0;
+    const written = usage.inputTokenDetails?.cacheWriteTokens ?? 0;
+    return {
+        inputTokens: Math.max(0, usage.inputTokens - read - written),
+        outputTokens: usage.outputTokens,
+        cachedInputTokens: read + written,
+        cacheWriteInputTokens: written,
+    };
+};
+
+/**
  * A failure string naming both the cap and what was actually spent, or `undefined` when `used` is
  * still under `cap`.
  *

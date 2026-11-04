@@ -170,7 +170,7 @@ describe('CliStageAgent engine session', () => {
             interrupts,
         );
 
-        expect(output.usage).toEqual({ inputTokens: 10, outputTokens: 2, cachedInputTokens: 5 });
+        expect(output.usage).toEqual({ inputTokens: 10, outputTokens: 2, cachedInputTokens: 5, cacheWriteInputTokens: 0 });
     });
 
     const resumedRun = (sessionId?: string) =>
