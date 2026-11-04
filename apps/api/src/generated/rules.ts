@@ -119,6 +119,34 @@ export const RuleCheckUsage = z.strictObject({
 export type RuleCheckUsage = z.infer<typeof RuleCheckUsage>;
 
 /**
+ * A rule a model drafted from a blocker that survived challenge and sent a card back. It is nothing until
+ * a person accepts it, and stops being offered after 45 days.
+ * generated from [RuleProposal](../../data/contracts/rules.ck)
+ */
+export const RuleProposal = z.strictObject({
+    id: z.string(),
+    cardId: z.string(),
+    statement: z.string(),
+    paths: z.array(z.string()),
+    reason: z.string(),
+    expiresAt: _ZodDatetime,
+    createdAt: _ZodDatetime,
+});
+export type RuleProposal = z.infer<typeof RuleProposal>;
+
+/**
+ * What the rule is called, which a person chooses, and any words they changed.
+ * generated from [AcceptRuleProposalRequest](../../data/contracts/rules.ck)
+ */
+export const AcceptRuleProposalRequest = z.strictObject({
+    id: z.string(),
+    statement: z.string().optional(),
+    paths: z.array(z.string()).optional(),
+    severity: z.enum(['blocker', 'concern']).optional(),
+});
+export type AcceptRuleProposalRequest = z.infer<typeof AcceptRuleProposalRequest>;
+
+/**
  * generated from [RuleCheckReport](../../data/contracts/rules.ck)
  */
 export const RuleCheckReport = z.strictObject({

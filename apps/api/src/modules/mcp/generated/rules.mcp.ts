@@ -6,8 +6,9 @@ import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import { requireMcpPolicy, type McpToolHandler, type McpToolHandlerMap, type McpToolContext } from '@maroonedsoftware/mcp';
 import { PolicyService } from '@maroonedsoftware/policies';
 import { parseAndValidate } from '@maroonedsoftware/zod';
+import { RuleProposalService } from '#modules/rules/rule.proposal.service.js';
 import { RulesService } from '#modules/rules/rules.service.js';
-import { Rule, RuleRevision, RuleRevisionsQuery } from '../../../generated/rules.js';
+import { Rule, RuleProposal, RuleRevision, RuleRevisionsQuery } from '../../../generated/rules.js';
 
 /** The request's scoped container, which a tool resolving per call reads its service and policies from. */
 function requireMcpContainer(context: McpToolContext): Container {
@@ -18,6 +19,7 @@ function requireMcpContainer(context: McpToolContext): Container {
 }
 
 const ListRulesArgs = z.object({});
+const ListRuleProposalsArgs = z.object({});
 const ListRuleRevisionsArgs = z.object({ query: RuleRevisionsQuery.optional() });
 
 /**
@@ -37,6 +39,28 @@ export class ListRulesMcpTool implements McpToolHandler {
         const container = requireMcpContainer(context);
         await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
         const result = await container.get(RulesService).list();
+        const resultJson = JSON.stringify({ items: result });
+        return { content: [{ type: 'text', text: resultJson }], structuredContent: JSON.parse(resultJson) };
+    }
+}
+
+/**
+ * from [rules.ck](../../../../data/contracts/rules.ck) `GET /api/rules/proposals`
+ */
+@Injectable()
+export class ListRuleProposalsMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'list_rule_proposals',
+        inputSchema: z.toJSONSchema(ListRuleProposalsArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(z.object({ items: z.array(RuleProposal) }), { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
+    };
+
+    async handle(_args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
+        const result = await container.get(RuleProposalService).list();
         const resultJson = JSON.stringify({ items: result });
         return { content: [{ type: 'text', text: resultJson }], structuredContent: JSON.parse(resultJson) };
     }
@@ -71,11 +95,13 @@ export class ListRuleRevisionsMcpTool implements McpToolHandler {
 /** Add a handler for each of this file's operations to the catalog, unlisted in `tools/list`. */
 export function registerRulesMcpCatalog(map: McpToolHandlerMap, container: Container): void {
     map.set('list_rules', container.get(ListRulesMcpTool));
+    map.set('list_rule_proposals', container.get(ListRuleProposalsMcpTool));
     map.set('list_rule_revisions', container.get(ListRuleRevisionsMcpTool));
 }
 
 /** Register this file's tool classes on the registry, so the tool maps can resolve them. */
 export function registerRulesMcpToolClasses(registry: Registry): void {
     registry.register(ListRulesMcpTool).useClass(ListRulesMcpTool).asSingleton();
+    registry.register(ListRuleProposalsMcpTool).useClass(ListRuleProposalsMcpTool).asSingleton();
     registry.register(ListRuleRevisionsMcpTool).useClass(ListRuleRevisionsMcpTool).asSingleton();
 }

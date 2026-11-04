@@ -149,14 +149,14 @@ export class CardJobs {
 
     /**
      * What a drain reports: `held` is every `card.stage` job waiting to run, and `planDrafts` every
-     * running `card.plan-draft` job. Across every project, like `activeCardStageJobs`, since a
+     * running `card.plan-draft` or `card.rule-proposal` job, each a model run a restart would lose. Across every project, like `activeCardStageJobs`, since a
      * restart is too.
      */
     async drainCounts(): Promise<{ held: number; planDrafts: number }> {
         const { rows } = await sql<{ held: number; planDrafts: number }>`
             select
                 count(*) filter (where name = 'card.stage' and state in ('created', 'retry'))::int as held,
-                count(*) filter (where name = 'card.plan-draft' and state = 'active')::int as plan_drafts
+                count(*) filter (where name in ('card.plan-draft', 'card.rule-proposal') and state = 'active')::int as plan_drafts
             from pgboss.job
         `.execute(this.db);
 

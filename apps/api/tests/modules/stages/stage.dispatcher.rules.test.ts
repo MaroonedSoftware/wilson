@@ -308,4 +308,61 @@ describe('StageDispatcher judges rules at review', () => {
         expect(usage.total.outputTokens).toBe(50);
         expect(usage.stages).toEqual([expect.objectContaining({ stage: 'review', attempts: 1, inputTokens: 1210, cachedInputTokens: 200 })]);
     });
+
+    describe('naming what a challenge upheld, for a rule to be proposed from', () => {
+        const blocker = {
+            severity: 'blocker',
+            kind: 'defect',
+            file: 'src/changed.ts',
+            line: 2,
+            problem: 'The review found this.',
+            suggestion: 'Fix it.',
+        };
+        const review = () => ({ summary: 'One blocker.', verdict: 'revise', findings: [blocker], criteria: [] });
+        const passing = () => ({ text: '{"verdict":"pass","evidence":"fine"}' });
+
+        it('names one that sent the card back', async () => {
+            const { dispatcher } = await setUp({
+                judge: passing,
+                review,
+                challenge: { summary: 'It stands.', verdict: 'revise', findings: [blocker], refuted: [] },
+            });
+
+            await dispatcher.run('0001', 'review');
+            const challenged = await dispatcher.run('0001', 'review', undefined, 'challenge');
+
+            expect(challenged.transitionedTo).toBe('implementing');
+            expect(challenged.upheldBlockers).toEqual([blocker]);
+        });
+
+        it('names nothing for the review itself, before anyone has challenged it', async () => {
+            const { dispatcher } = await setUp({ judge: passing, review });
+
+            expect((await dispatcher.run('0001', 'review')).upheldBlockers).toBeUndefined();
+        });
+
+        it('names nothing for a blocker the challenge refuted', async () => {
+            const { dispatcher } = await setUp({
+                judge: passing,
+                review,
+                challenge: { summary: 'No.', verdict: 'pass', findings: [], refuted: [{ problem: blocker.problem, reason: 'It is fine.' }] },
+            });
+
+            await dispatcher.run('0001', 'review');
+
+            expect((await dispatcher.run('0001', 'review', undefined, 'challenge')).upheldBlockers).toBeUndefined();
+        });
+
+        it('names nothing for a failure of a rule, which already has one', async () => {
+            const ruleBlocker = { ...blocker, problem: PROBLEM };
+            const { dispatcher } = await setUp({
+                judge: () => failing(2),
+                challenge: { summary: 'It stands.', verdict: 'revise', findings: [ruleBlocker], refuted: [] },
+            });
+
+            await dispatcher.run('0001', 'review');
+
+            expect((await dispatcher.run('0001', 'review', undefined, 'challenge')).upheldBlockers).toBeUndefined();
+        });
+    });
 });

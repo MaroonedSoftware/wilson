@@ -2,4 +2,4 @@
 '@wilson/desktop': patch
 ---
 
-The activity feed now names the event a review writes when independent judges check a card against the project's rules.
+The activity feed now names the two events checked rules write: judges looking at a review's diff, and a rule being proposed after a kickback.

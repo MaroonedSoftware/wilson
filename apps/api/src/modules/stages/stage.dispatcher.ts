@@ -26,7 +26,7 @@ import { LearningsStore } from '#modules/learnings/learnings.store.js';
 import { DevServerPortAllocator } from '#modules/lease/dev.server.port.allocator.js';
 import { Notifier } from '#modules/notify/notifier.js';
 import { withRulesGuidance } from '#modules/rules/rule.guidance.js';
-import { incomingBlockersMarkdown, ruleFinding, ruleVerdictsMarkdown, withRuleFindings } from '#modules/rules/rule.findings.js';
+import { incomingBlockersMarkdown, isRuleFinding, ruleFinding, ruleVerdictsMarkdown, withRuleFindings } from '#modules/rules/rule.findings.js';
 import { RuleJudge, type RuleVerdict } from '#modules/rules/rule.judge.js';
 import { RuleStore } from '#modules/rules/rule.store.js';
 import type { CardNotification } from '#modules/notify/notification.js';
@@ -798,14 +798,17 @@ export class StageDispatcher {
         let nextStep: string | undefined;
         let needsHuman = false;
         let splitInto: string[] | undefined;
+        let upheldBlockers: ReviewFinding[] | undefined;
         try {
-            const transition = outcome.blocked
-                ? await this.parkBlocked(cardId, stageName, card, outcome, outcome.blocked)
-                : await this.writeTransition(cardId, stageName, stage, head, card, outcome);
+            const transition: { target?: string; nextStep?: string; needsHuman: boolean; splitInto?: string[]; upheldBlockers?: ReviewFinding[] } =
+                outcome.blocked
+                    ? await this.parkBlocked(cardId, stageName, card, outcome, outcome.blocked)
+                    : await this.writeTransition(cardId, stageName, stage, head, card, outcome);
             transitionedTo = transition.target;
             nextStep = transition.nextStep;
             needsHuman = transition.needsHuman;
             splitInto = transition.splitInto;
+            upheldBlockers = transition.upheldBlockers;
         } catch (err) {
             await this.events.append({
                 project: this.config.project,
@@ -818,7 +821,14 @@ export class StageDispatcher {
             // silent failure here is how a card sits untouched forever.
             throw err;
         }
-        return { ...outcome, transitionedTo, ...(nextStep && { nextStep }), needsHuman, ...(splitInto && { splitInto }) };
+        return {
+            ...outcome,
+            transitionedTo,
+            ...(nextStep && { nextStep }),
+            needsHuman,
+            ...(splitInto && { splitInto }),
+            ...(upheldBlockers && { upheldBlockers }),
+        };
     }
 
     /**
@@ -837,7 +847,7 @@ export class StageDispatcher {
         head: Card,
         card: Card,
         outcome: StageOutcome,
-    ): Promise<{ target?: string; nextStep?: string; needsHuman: boolean; splitInto?: string[] }> {
+    ): Promise<{ target?: string; nextStep?: string; needsHuman: boolean; splitInto?: string[]; upheldBlockers?: ReviewFinding[] }> {
         // Before any routing: a split replaces the kickback rather than following it, and when it
         // declines the card routes exactly as it would have. A card whose ticket closed mid-run is
         // left to the halt below: nobody wants its work divided up.
@@ -1028,7 +1038,19 @@ export class StageDispatcher {
             });
         }
 
-        return { target: decision.target, ...(nextStep && { nextStep }), needsHuman: needsHuman !== undefined };
+        // Only what a challenge upheld and what moved the card counts as a blocker worth a rule. A rule's
+        // own failure already has one.
+        const upheld =
+            stage.step && stage.verifier === 'challenge' && decision.target !== stageName && !needsHuman
+                ? findings?.filter(finding => finding.severity === 'blocker' && !isRuleFinding(finding))
+                : undefined;
+
+        return {
+            target: decision.target,
+            ...(nextStep && { nextStep }),
+            needsHuman: needsHuman !== undefined,
+            ...(upheld?.length && { upheldBlockers: upheld }),
+        };
     }
 
     /**

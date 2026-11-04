@@ -1,6 +1,7 @@
 options {
     services: {
         RulesService: "#modules/rules/rules.service.js"
+        RuleProposalService: "#modules/rules/rule.proposal.service.js"
     }
     security: {
         policy: wilson.manage
@@ -94,6 +95,26 @@ contract RuleCheckReport: {
     usage?: RuleCheckUsage
 }
 
+# A rule a model drafted from a blocker that survived challenge and sent a card back. It is nothing until
+# a person accepts it, and stops being offered after 45 days.
+contract RuleProposal: {
+    id: string
+    cardId: string
+    statement: string
+    paths: array(string)
+    reason: string
+    expiresAt: datetime
+    createdAt: datetime
+}
+
+# What the rule is called, which a person chooses, and any words they changed.
+contract AcceptRuleProposalRequest: {
+    id: string
+    statement?: string
+    paths?: array(string)
+    severity?: enum(blocker, concern)
+}
+
 operation /api/rules: {
     get: {
         security: {
@@ -124,6 +145,63 @@ operation /api/rules: {
             # A malformed id, an empty statement or a glob that cannot match. The reason is in `details`.
             400:
             # A rule with that id already exists.
+            409:
+        }
+    }
+}
+
+operation /api/rules/proposals: {
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: List rule proposals
+        service: RuleProposalService.list
+        response: {
+            200: {
+                application/json: array(RuleProposal)
+            }
+        }
+    }
+}
+
+operation /api/rules/proposals/{id}/accept: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Accept rule proposal
+        mcp: exclude # Human-write-only machinery (PROJECT.md decision 8): this writes a rule.
+        service: RuleProposalService.accept
+        security: {
+            policy: wilson.step.up
+        }
+        request: {
+            application/json: AcceptRuleProposalRequest
+        }
+        response: {
+            200: {
+                application/json: Rule
+            }
+            # A malformed rule. The proposal stays pending. The reason is in `details`.
+            400:
+            # No such proposal waiting: already decided, expired or never there, or the id is taken.
+            409:
+        }
+    }
+}
+
+operation /api/rules/proposals/{id}/decline: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Decline rule proposal
+        mcp: exclude # A person must decide (PROJECT.md decision 8).
+        service: RuleProposalService.decline
+        response: {
+            204:
+            # No such proposal waiting: already decided, expired or never there.
             409:
         }
     }

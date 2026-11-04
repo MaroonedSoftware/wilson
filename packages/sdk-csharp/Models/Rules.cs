@@ -182,6 +182,53 @@ public sealed record RuleCheckUsage
     public long? OutputTokens { get; init; }
 }
 
+/// <summary>
+/// A rule a model drafted from a blocker that survived challenge and sent a card back. It is nothing until
+/// a person accepts it, and stops being offered after 45 days.
+/// </summary>
+public sealed record RuleProposal
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("cardId")]
+    public required string CardId { get; init; }
+
+    [JsonPropertyName("statement")]
+    public required string Statement { get; init; }
+
+    [JsonPropertyName("paths")]
+    public required List<string> Paths { get; init; }
+
+    [JsonPropertyName("reason")]
+    public required string Reason { get; init; }
+
+    [JsonPropertyName("expiresAt")]
+    public required DateTimeOffset ExpiresAt { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; init; }
+}
+
+/// <summary>What the rule is called, which a person chooses, and any words they changed.</summary>
+public sealed record AcceptRuleProposalRequest
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("statement")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Statement { get; init; }
+
+    [JsonPropertyName("paths")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Paths { get; init; }
+
+    [JsonPropertyName("severity")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AcceptRuleProposalRequestSeverity? Severity { get; init; }
+}
+
 public sealed record RuleCheckReport
 {
     [JsonPropertyName("branch")]
@@ -480,5 +527,61 @@ public sealed class RuleCheckVerdictVerdictConverter : JsonConverter<RuleCheckVe
         RuleCheckVerdictVerdict.Fail => "fail",
         RuleCheckVerdictVerdict.Unavailable => "unavailable",
         _ => throw new JsonException($"RuleCheckVerdictVerdict.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(AcceptRuleProposalRequestSeverityConverter))]
+public enum AcceptRuleProposalRequestSeverity
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("blocker")]
+    Blocker,
+
+    [JsonStringEnumMemberName("concern")]
+    Concern,
+}
+
+/// <summary>
+/// Reads and writes <see cref="AcceptRuleProposalRequestSeverity"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="AcceptRuleProposalRequestSeverity.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class AcceptRuleProposalRequestSeverityConverter : JsonConverter<AcceptRuleProposalRequestSeverity>
+{
+    public override AcceptRuleProposalRequestSeverity Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for AcceptRuleProposalRequestSeverity, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, AcceptRuleProposalRequestSeverity value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override AcceptRuleProposalRequestSeverity ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, AcceptRuleProposalRequestSeverity value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static AcceptRuleProposalRequestSeverity FromWire(string? text) => text switch
+    {
+        "blocker" => AcceptRuleProposalRequestSeverity.Blocker,
+        "concern" => AcceptRuleProposalRequestSeverity.Concern,
+        _ => AcceptRuleProposalRequestSeverity.Unknown,
+    };
+
+    private static string ToWire(AcceptRuleProposalRequestSeverity value) => value switch
+    {
+        AcceptRuleProposalRequestSeverity.Blocker => "blocker",
+        AcceptRuleProposalRequestSeverity.Concern => "concern",
+        _ => throw new JsonException($"AcceptRuleProposalRequestSeverity.{value} has no wire spelling, so it cannot be sent."),
     };
 }

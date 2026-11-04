@@ -102,6 +102,27 @@ describe('CardStageJob', () => {
         expect(events.append).not.toHaveBeenCalled();
     });
 
+    describe('a kickback a challenge upheld', () => {
+        const blockers = [{ severity: 'blocker', kind: 'defect', file: 'a.ts', line: 1, problem: 'p', suggestion: 's' }];
+
+        it('enqueues one look for a rule, beside chaining on', async () => {
+            dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'implementing', upheldBlockers: blockers as never }));
+
+            await job.run({ cardId: '0001', stageName: 'review' });
+
+            expect(broker.send).toHaveBeenCalledWith('card.rule-proposal', { cardId: '0001', project: 'test', blockers });
+        });
+
+        it('records a send that fails, and does not fail the stage over it', async () => {
+            dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'split', upheldBlockers: blockers as never }));
+            broker.send.mockRejectedValue(new Error('pg-boss closed'));
+
+            await expect(job.run({ cardId: '0001', stageName: 'review' })).resolves.toBeUndefined();
+
+            expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ cardId: '0001', type: 'rule.proposed' }));
+        });
+    });
+
     it('enqueues a plan draft for each piece of an automatic split, and no further stage', async () => {
         dispatcher.run.mockResolvedValue(outcome({ transitionedTo: 'split', splitInto: ['0002', '0003'] }));
 

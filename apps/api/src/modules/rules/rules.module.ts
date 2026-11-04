@@ -2,6 +2,9 @@ import { Registry } from 'injectkit';
 import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { RuleJudge } from './rule.judge.js';
+import { RuleProposalDrafter } from './rule.proposal.drafter.js';
+import { RuleProposalRepository } from './rule.proposal.repository.js';
+import { RuleProposalService } from './rule.proposal.service.js';
 import { ApiRuleJudgeEngine, CliRuleJudgeEngine, RuleJudgeEngineMap } from './rule.judge.engine.js';
 import { RuleJudgeSettingService } from './rule.judge.setting.service.js';
 import { PostgresRuleStore, RuleStore } from './rule.store.js';
@@ -29,5 +32,8 @@ export const RulesModule: ServerKitModule = {
             })
             .asSingleton();
         registry.register(RuleJudge).useClass(RuleJudge).asTransient();
+        registry.register(RuleProposalRepository).useClass(RuleProposalRepository).asTransient();
+        registry.register(RuleProposalDrafter).useClass(RuleProposalDrafter).asTransient();
+        registry.register(RuleProposalService).useClass(RuleProposalService).asTransient();
     },
 };

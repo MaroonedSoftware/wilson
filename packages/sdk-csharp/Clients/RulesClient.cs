@@ -42,6 +42,38 @@ public sealed class RulesClient(SdkHttp http)
         return http.ReadJson<Rule>(response);
     }
 
+    /// <summary>List rule proposals</summary>
+    public async Task<List<RuleProposal>> ListRuleProposalsAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "rules", "proposals"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<List<RuleProposal>>(response);
+    }
+
+    /// <summary>Accept rule proposal</summary>
+    /// <exception cref="SdkException">On 400, 409.</exception>
+    public async Task<Rule> AcceptRuleProposalAsync(string id, AcceptRuleProposalRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Post,
+            http.Path("api", "rules", "proposals", http.Segment(id), "accept"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<Rule>(response);
+    }
+
+    /// <summary>Decline rule proposal</summary>
+    /// <exception cref="SdkException">On 409.</exception>
+    public async Task DeclineRuleProposalAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await http.ExecuteAsync(
+            HttpMethod.Post,
+            http.Path("api", "rules", "proposals", http.Segment(id), "decline"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Check rules</summary>
     /// <exception cref="SdkException">On 400.</exception>
     public async Task<RuleCheckReport> CheckRulesAsync(RuleCheckRequest body, CancellationToken cancellationToken = default)

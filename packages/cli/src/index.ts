@@ -69,6 +69,9 @@ import rulesEditCommand from './commands/rules/edit.command.js';
 import rulesRmCommand from './commands/rules/rm.command.js';
 import rulesCheckCommand from './commands/rules/check.command.js';
 import rulesRouteCommand from './commands/rules/route.command.js';
+import rulesProposalsCommand from './commands/rules/proposals.command.js';
+import rulesAcceptCommand from './commands/rules/accept.command.js';
+import rulesDeclineCommand from './commands/rules/decline.command.js';
 
 import { apiSignedIn } from './checks/api.signed.in.js';
 import { boardReady } from './checks/board.ready.js';
@@ -152,6 +155,9 @@ const app = await createCliApp({
         reg(['rules', 'rm'], rulesRmCommand),
         reg(['rules', 'check'], rulesCheckCommand),
         reg(['rules', 'route'], rulesRouteCommand),
+        reg(['rules', 'proposals'], rulesProposalsCommand),
+        reg(['rules', 'accept'], rulesAcceptCommand),
+        reg(['rules', 'decline'], rulesDeclineCommand),
     ],
     checks: [
         nodeVersion({ min: 22 }),

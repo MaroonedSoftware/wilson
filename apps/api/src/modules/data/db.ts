@@ -445,6 +445,20 @@ export interface WilsonRuleVerdicts {
   verdict: string;
 }
 
+export interface WilsonRuleProposals {
+  cardId: string;
+  createdAt: Generated<DateTime>;
+  decidedAt: DateTime | null;
+  expiresAt: DateTime;
+  id: Generated<bigint>;
+  paths: string[] | null;
+  project: string;
+  reason: string | null;
+  rule: string | null;
+  statement: string | null;
+  status: string;
+}
+
 export interface WilsonRuleRevisions {
   createdAt: Generated<DateTime>;
   id: Generated<bigint>;
@@ -541,6 +555,7 @@ export interface DB {
   "wilson.laneRevisions": WilsonLaneRevisions;
   "wilson.lanes": WilsonLanes;
   "wilson.projectLaneSettings": WilsonProjectLaneSettings;
+  "wilson.ruleProposals": WilsonRuleProposals;
   "wilson.ruleRevisions": WilsonRuleRevisions;
   "wilson.ruleVerdicts": WilsonRuleVerdicts;
   "wilson.rules": WilsonRules;

@@ -11,6 +11,9 @@ const { default: edit } = await import('../../../../packages/cli/src/commands/ru
 const { default: rm } = await import('../../../../packages/cli/src/commands/rules/rm.command.js');
 const { default: check } = await import('../../../../packages/cli/src/commands/rules/check.command.js');
 const { default: route } = await import('../../../../packages/cli/src/commands/rules/route.command.js');
+const { default: proposals } = await import('../../../../packages/cli/src/commands/rules/proposals.command.js');
+const { default: accept } = await import('../../../../packages/cli/src/commands/rules/accept.command.js');
+const { default: decline } = await import('../../../../packages/cli/src/commands/rules/decline.command.js');
 
 type Opts = { severity?: string; statement?: string; message?: string; base?: string };
 const invoke = (command: { run: unknown }, ctx: unknown, args: unknown[], opts: Opts = {}) =>
@@ -196,5 +199,61 @@ describe('wilson rules route', () => {
         fetchMock.mockClear();
         expect(await invoke(route, ctx, ['api'])).toBe(1);
         expect(fetchMock).not.toHaveBeenCalled();
+    });
+});
+
+describe('wilson rules proposals', () => {
+    it('prints what is waiting, and why', async () => {
+        fetchMock.mockResolvedValueOnce(
+            jsonResponse([
+                {
+                    id: '7',
+                    cardId: '0012',
+                    statement: 'Never log a token.',
+                    paths: ['src/**'],
+                    reason: 'It recurs.',
+                    expiresAt: '2026-12-01T00:00:00.000Z',
+                    createdAt: '2026-11-04T00:00:00.000Z',
+                },
+            ]),
+        );
+        const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+        const { ctx } = buildCtx();
+
+        expect(await invoke(proposals, ctx, [])).toBe(0);
+
+        expect(write).toHaveBeenCalledWith(expect.stringContaining('7  from card 0012  src/**'));
+        expect(write).toHaveBeenCalledWith(expect.stringContaining('Why: It recurs.'));
+    });
+
+    it('says so when there are none', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse([]));
+        const { ctx, logger } = buildCtx();
+
+        expect(await invoke(proposals, ctx, [])).toBe(0);
+
+        expect(logger.info).toHaveBeenCalledWith('no proposals');
+    });
+});
+
+describe('wilson rules accept and decline', () => {
+    it('accepts under the name given', async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(RULE));
+        const { ctx } = buildCtx();
+
+        expect(await invoke(accept, ctx, ['7', 'no-token-logs'], { severity: 'concern' })).toBe(0);
+
+        expect(methodOf(fetchMock.mock.calls[0]!)).toBe('POST');
+        expect(urlOf(fetchMock.mock.calls[0]!)).toContain('/api/rules/proposals/7/accept');
+        expect(sentBody()).toEqual({ id: 'no-token-logs', severity: 'concern' });
+    });
+
+    it('declines', async () => {
+        fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+        const { ctx } = buildCtx();
+
+        expect(await invoke(decline, ctx, ['7'])).toBe(0);
+
+        expect(urlOf(fetchMock.mock.calls[0]!)).toContain('/api/rules/proposals/7/decline');
     });
 });

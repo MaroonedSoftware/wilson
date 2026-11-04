@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Badge, Button, Code, Group, Loader, Paper, Select, Stack, Table, Text, Textarea, TextInput, Title } from '@mantine/core';
-import type { Rule, RuleJudgeSetting, WilsonSdk } from '@wilson/sdk';
+import type { Rule, RuleJudgeSetting, RuleProposal, WilsonSdk } from '@wilson/sdk';
 import { apiErrorMessage } from '#src/lib/api.error.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 import { parseGlobs } from '#src/lib/rules.js';
@@ -10,6 +10,7 @@ import { wilsonForProject } from '#src/lib/sdk.js';
 
 const rulesQueryKey = (project: string) => ['project', project, 'rules'];
 const routeQueryKey = (project: string) => ['project', project, 'rule-judge'];
+const proposalsQueryKey = (project: string) => ['project', project, 'rule-proposals'];
 
 type Severity = Rule['severity'];
 
@@ -179,6 +180,83 @@ function RulesTable({ project, client, rules, onEdit }: { project: string; clien
     );
 }
 
+/** One rule proposed from a past kickback. It checks nothing until a person names and accepts it. */
+function ProposalRow({ project, client, proposal }: { project: string; client: WilsonSdk; proposal: RuleProposal }) {
+    const queryClient = useQueryClient();
+    const [id, setId] = useState('');
+    const settled = () => {
+        void queryClient.invalidateQueries({ queryKey: proposalsQueryKey(project) });
+        void queryClient.invalidateQueries({ queryKey: rulesQueryKey(project) });
+    };
+    const accept = useMutation({
+        mutationFn: () => client.rules.acceptRuleProposal(proposal.id, { id: id.trim() }),
+        onSuccess: settled,
+    });
+    const decline = useMutation({
+        mutationFn: () => client.rules.declineRuleProposal(proposal.id),
+        onSuccess: settled,
+    });
+    const failure = accept.error ?? decline.error;
+
+    return (
+        <Paper withBorder p="sm">
+            <Stack gap="xs">
+                <Text size="sm">{proposal.statement}</Text>
+                <Group gap={4}>
+                    {proposal.paths.map(path => (
+                        <Code key={path}>{path}</Code>
+                    ))}
+                </Group>
+                <Text size="xs" c="dimmed">
+                    From card{' '}
+                    <AnchorLink to="/projects/$project/cards/$cardId" params={{ project, cardId: proposal.cardId }} size="xs">
+                        {proposal.cardId}
+                    </AnchorLink>
+                    {proposal.reason ? `: ${proposal.reason}` : ''}
+                </Text>
+                {failure && (
+                    <Alert color="red" title="Not saved">
+                        {apiErrorMessage(failure)}
+                    </Alert>
+                )}
+                <Group align="flex-end" gap="xs">
+                    <TextInput
+                        size="xs"
+                        label="Name it"
+                        aria-label={`Name for proposal ${proposal.id}`}
+                        value={id}
+                        onChange={event => setId(event.currentTarget.value)}
+                    />
+                    <Button size="xs" disabled={!id.trim()} loading={accept.isPending} onClick={() => accept.mutate()}>
+                        Make it a rule
+                    </Button>
+                    <Button size="xs" variant="subtle" color="gray" loading={decline.isPending} onClick={() => decline.mutate()}>
+                        Decline
+                    </Button>
+                </Group>
+            </Stack>
+        </Paper>
+    );
+}
+
+function ProposalsSection({ project, client }: { project: string; client: WilsonSdk }) {
+    const proposals = useQuery({ queryKey: proposalsQueryKey(project), queryFn: () => client.rules.listRuleProposals() });
+    if (!proposals.data?.length) return null;
+    return (
+        <Stack gap="xs" aria-label="Proposed rules" role="group">
+            <Title order={5} fw={500}>
+                Proposed
+            </Title>
+            <Text size="sm" c="dimmed">
+                Drafted from blockers that survived challenge and sent a card back. These lapse after 45 days.
+            </Text>
+            {proposals.data.map(proposal => (
+                <ProposalRow key={proposal.id} project={project} client={client} proposal={proposal} />
+            ))}
+        </Stack>
+    );
+}
+
 /** Which engine and model the judges run on, apart from any lane's routing. */
 function JudgeRouteForm({ project, client }: { project: string; client: WilsonSdk }) {
     const queryClient = useQueryClient();
@@ -267,6 +345,7 @@ function ProjectRulesRoute() {
                 Rules
             </Title>
             {rules.data ? <RulesTable project={project} client={client} rules={rules.data} onEdit={setEditing} /> : <Loader size="sm" />}
+            <ProposalsSection project={project} client={client} />
             <RuleForm key={editing?.id ?? 'new'} project={project} client={client} editing={editing} onDone={() => setEditing(undefined)} />
             <JudgeRouteForm project={project} client={client} />
         </Stack>

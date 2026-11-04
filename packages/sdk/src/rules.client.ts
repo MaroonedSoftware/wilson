@@ -1,14 +1,16 @@
 import type {
+    AcceptRuleProposalRequest,
     CreateRuleRequest,
     DeleteRuleQuery,
     PatchRuleRequest,
     Rule,
     RuleCheckReport,
     RuleCheckRequest,
+    RuleProposal,
     RuleRevision,
     RuleRevisionsQuery,
 } from './types/rules.js';
-import { reviveRule, reviveRuleRevision } from './types/rules.js';
+import { reviveRule, reviveRuleProposal, reviveRuleRevision } from './types/rules.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson, buildQueryString } from './sdk-options.js';
 
@@ -32,6 +34,27 @@ export class RulesClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return reviveRule(await parseJson<Rule>(result));
+    }
+
+    /** @name List rule proposals */
+    async listRuleProposals(): Promise<RuleProposal[]> {
+        const result = await this.fetch(`/api/rules/proposals`, { method: 'GET' });
+        return (await parseJson<RuleProposal[]>(result)).map(reviveRuleProposal);
+    }
+
+    /** @name Accept rule proposal */
+    async acceptRuleProposal(id: string, body: AcceptRuleProposalRequest): Promise<Rule> {
+        const result = await this.fetch(`/api/rules/proposals/${encodeURIComponent(id)}/accept`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return reviveRule(await parseJson<Rule>(result));
+    }
+
+    /** @name Decline rule proposal */
+    async declineRuleProposal(id: string): Promise<void> {
+        await this.fetch(`/api/rules/proposals/${encodeURIComponent(id)}/decline`, { method: 'POST' });
     }
 
     /** @name Check rules */

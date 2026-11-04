@@ -89,6 +89,30 @@ data class RuleCheckUsage(
     val outputTokens: Long? = null,
 )
 
+/**
+ * A rule a model drafted from a blocker that survived challenge and sent a card back. It is nothing until
+ * a person accepts it, and stops being offered after 45 days.
+ */
+@Serializable
+data class RuleProposal(
+    val id: String,
+    val cardId: String,
+    val statement: String,
+    val paths: List<String>,
+    val reason: String,
+    val expiresAt: Instant,
+    val createdAt: Instant,
+)
+
+/** What the rule is called, which a person chooses, and any words they changed. */
+@Serializable
+data class AcceptRuleProposalRequest(
+    val id: String,
+    val statement: String? = null,
+    val paths: List<String>? = null,
+    val severity: AcceptRuleProposalRequestSeverity? = null,
+)
+
 @Serializable
 data class RuleCheckReport(
     val branch: String,
@@ -197,4 +221,24 @@ object RuleCheckVerdictVerdictSerializer : SdkEnumSerializer<RuleCheckVerdictVer
     RuleCheckVerdictVerdict.PASS to "pass",
     RuleCheckVerdictVerdict.FAIL to "fail",
     RuleCheckVerdictVerdict.UNAVAILABLE to "unavailable",
+)
+
+@Serializable(with = AcceptRuleProposalRequestSeveritySerializer::class)
+enum class AcceptRuleProposalRequestSeverity {
+    BLOCKER,
+    CONCERN,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [AcceptRuleProposalRequestSeverity] by its wire spelling. A spelling it does not know reads as [AcceptRuleProposalRequestSeverity.UNKNOWN]. */
+object AcceptRuleProposalRequestSeveritySerializer : SdkEnumSerializer<AcceptRuleProposalRequestSeverity>(
+    "AcceptRuleProposalRequestSeverity",
+    AcceptRuleProposalRequestSeverity.UNKNOWN,
+    AcceptRuleProposalRequestSeverity.BLOCKER to "blocker",
+    AcceptRuleProposalRequestSeverity.CONCERN to "concern",
 )

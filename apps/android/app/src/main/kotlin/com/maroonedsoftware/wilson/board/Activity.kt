@@ -42,6 +42,7 @@ private val SUMMARIES = mapOf(
     "stage.blocked" to ActivitySummary("{stage} asked a question", ActivityTone.WARNING),
     "card.over-budget" to ActivitySummary("Went over budget", ActivityTone.BAD),
     "rule.verdicts" to ActivitySummary("Checked the rules", ActivityTone.INFO),
+    "rule.proposed" to ActivitySummary("Looked for a rule to propose", ActivityTone.INFO),
     "card.auto-split" to ActivitySummary("Split automatically", ActivityTone.INFO),
     "card.plan-drafted" to ActivitySummary("Drafted a plan", ActivityTone.GOOD),
     "job.orphaned" to ActivitySummary("Recovered an orphaned job", ActivityTone.WARNING),

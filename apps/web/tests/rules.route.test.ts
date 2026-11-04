@@ -68,6 +68,7 @@ beforeEach(() => {
     vi.spyOn(HealthClient.prototype, 'getHealth').mockResolvedValue({ ok: true, project: 'demo' } as unknown as Health);
     vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([]);
     list = vi.spyOn(RulesClient.prototype, 'listRules').mockResolvedValue([rule()]);
+    vi.spyOn(RulesClient.prototype, 'listRuleProposals').mockResolvedValue([]);
     vi.spyOn(SettingsClient.prototype, 'getRuleJudgeSetting').mockResolvedValue({ engine: 'cli', provider: 'anthropic', model: 'claude-sonnet-5-5' });
 });
 
@@ -156,5 +157,48 @@ describe('the rules page', () => {
         fireEvent.click(screen.getAllByRole('button', { name: 'Save' }).at(-1)!);
 
         await waitFor(() => expect(save).toHaveBeenCalledWith({ engine: 'cli', provider: 'anthropic', model: 'claude-opus-5-5' }));
+    });
+
+    describe('with a proposal waiting', () => {
+        const proposal = {
+            id: '7',
+            cardId: '0012',
+            statement: 'Never log a token.',
+            paths: ['src/**'],
+            reason: 'It recurs.',
+            expiresAt: DateTime.utc().plus({ days: 45 }),
+            createdAt: DateTime.utc(),
+        };
+
+        beforeEach(() => {
+            vi.spyOn(RulesClient.prototype, 'listRuleProposals').mockResolvedValue([proposal]);
+        });
+
+        it('shows it, and needs a name before it can be accepted', async () => {
+            renderApp();
+
+            expect(await screen.findByText('Never log a token.')).toBeTruthy();
+            expect(screen.getByText(/It recurs/)).toBeTruthy();
+            expect((screen.getByRole('button', { name: 'Make it a rule' }) as HTMLButtonElement).disabled).toBe(true);
+        });
+
+        it('accepts under the name given', async () => {
+            const accept = vi.spyOn(RulesClient.prototype, 'acceptRuleProposal').mockResolvedValue(rule());
+            renderApp();
+
+            fireEvent.change(await screen.findByLabelText('Name for proposal 7'), { target: { value: 'no-token-logs' } });
+            fireEvent.click(screen.getByRole('button', { name: 'Make it a rule' }));
+
+            await waitFor(() => expect(accept).toHaveBeenCalledWith('7', { id: 'no-token-logs' }));
+        });
+
+        it('declines', async () => {
+            const decline = vi.spyOn(RulesClient.prototype, 'declineRuleProposal').mockResolvedValue(undefined);
+            renderApp();
+
+            fireEvent.click(await screen.findByRole('button', { name: 'Decline' }));
+
+            await waitFor(() => expect(decline).toHaveBeenCalledWith('7'));
+        });
     });
 });

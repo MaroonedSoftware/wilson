@@ -125,6 +125,40 @@ export interface RuleCheckUsage {
 }
 
 /**
+ * A rule a model drafted from a blocker that survived challenge and sent a card back. It is nothing until
+ * a person accepts it, and stops being offered after 45 days.
+ * generated from [RuleProposal](../../../../apps/api/data/contracts/rules.ck)
+ */
+export interface RuleProposal {
+    id: string;
+    cardId: string;
+    statement: string;
+    paths: string[];
+    reason: string;
+    expiresAt: DateTime;
+    createdAt: DateTime;
+}
+
+/** Rehydrates every wire-encoded scalar in a RuleProposal into its runtime type. Mutates and returns `raw`. */
+export function reviveRuleProposal(raw: RuleProposal): RuleProposal {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['expiresAt'] = __dt(__o0['expiresAt'], 'RuleProposal.expiresAt');
+    __o0['createdAt'] = __dt(__o0['createdAt'], 'RuleProposal.createdAt');
+    return raw;
+}
+
+/**
+ * What the rule is called, which a person chooses, and any words they changed.
+ * generated from [AcceptRuleProposalRequest](../../../../apps/api/data/contracts/rules.ck)
+ */
+export interface AcceptRuleProposalRequest {
+    id: string;
+    statement?: string;
+    paths?: string[];
+    severity?: 'blocker' | 'concern';
+}
+
+/**
  * generated from [RuleCheckReport](../../../../apps/api/data/contracts/rules.ck)
  */
 export interface RuleCheckReport {
