@@ -1,5 +1,15 @@
 # @wilson/desktop
 
+## 0.16.0
+
+### Minor Changes
+
+- 28d6417: Show what Merge would do on a `ready` card, on the board and the card page.
+
+### Patch Changes
+
+- 4da0eb6: Name engine compaction in a card's activity.
+
 ## 0.15.0
 
 ### Minor Changes
