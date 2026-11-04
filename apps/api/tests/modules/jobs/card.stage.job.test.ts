@@ -13,6 +13,7 @@ import type { BoardConfig } from '#modules/board/board.config.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { BoardRepository } from '#modules/board/board.repository.js';
 import type { CardJobs } from '#modules/jobs/card.jobs.js';
+import { registerNotificationChannel } from '#modules/notify/notifier.js';
 import type { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import type { StageOutcome } from '#modules/stages/stage.result.js';
 import type { DB } from '#modules/data/db.js';
@@ -813,16 +814,28 @@ describe('CardStageJob notifies a manual gate (card 0050)', () => {
         expect('reason' in body).toBe(false);
     });
 
-    it('makes no HTTP call, and does not re-read the card for notification, when no webhook URL is configured', async () => {
+    it('makes no HTTP call when no webhook URL is configured', async () => {
         const job = await buildJob(undefined);
 
         await job.run({ cardId: '0001', stageName: 'testing' });
 
         expect(fetchMock).not.toHaveBeenCalled();
-        // Card 0104: `deferOnScopeConflict` now reads the card once before every dispatch, regardless
-        // of notification config, so "never reads the card" no longer holds — what this still pins
-        // down is that `notifyManualGate` does not read it a second time when no webhook is set.
-        expect(boardRepo.read).toHaveBeenCalledTimes(1);
+    });
+
+    it('reaches a registered channel when no webhook URL is configured', async () => {
+        const send = vi.fn(async () => undefined);
+        const remove = registerNotificationChannel({ name: 'test', send });
+        try {
+            const job = await buildJob(undefined);
+
+            await job.run({ cardId: '0001', stageName: 'testing' });
+
+            expect(send).toHaveBeenCalledWith(
+                expect.objectContaining({ moment: 'manual', cardId: '0001', title: 'a card waiting on review', stage: 'review' }),
+            );
+        } finally {
+            remove();
+        }
     });
 
     // `decideChain` checks `needsHuman` before it ever looks at the target stage's mode, so a card
