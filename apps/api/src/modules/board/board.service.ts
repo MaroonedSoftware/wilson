@@ -26,7 +26,7 @@ import { BoardRepository } from './board.repository.js';
 import { MergeStatusReader } from './merge.status.reader.js';
 import { RE_REVIEW_RETRY_KEY } from './re.review.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
-import { acceptanceCriteria, authoredText, PLAN_SECTIONS, sectionKey, type Card } from './card.js';
+import { acceptanceCriteria, PLAN_SECTIONS, sectionKey, type Card } from './card.js';
 
 /** `limit` when a caller omits it. */
 const DEFAULT_HISTORY_LIMIT = 50;
@@ -205,7 +205,7 @@ export class BoardService {
         const sectionLengths: Record<string, number> = {};
         for (const section of PLAN_SECTIONS) {
             const text = card.sections[section];
-            if (text !== undefined) sectionLengths[sectionKey(section)] = authoredText(text).length;
+            if (text !== undefined) sectionLengths[sectionKey(section)] = text.length;
         }
         const text = query.section ? card.sections[PLAN_SECTIONS.find(section => sectionKey(section) === query.section)!] : undefined;
 
@@ -216,7 +216,7 @@ export class BoardService {
             pinnedVersion,
             differsFromPin: pinned !== undefined && pinned.body !== head.body,
             sectionLengths,
-            text: text === undefined ? undefined : authoredText(text),
+            text,
             criteria: acceptanceCriteria(card),
         };
     }
