@@ -6,9 +6,10 @@ export const MAX_REVIEW_FINDINGS = 20;
 
 /**
  * What a rule's finding says. Starts with the rule's id, which is unique, so two rules can never share
- * the text `ChallengeVerifier` accounts for a blocker by.
+ * the text `ChallengeVerifier` accounts for a blocker by. A spaced dash is taken out of the judge's words,
+ * since on a plan the first one marks where the problem ends and the suggestion starts.
  */
-const problemOf = (verdict: RuleVerdict): string => `Rule ${verdict.rule} failed: ${oneLine(verdict.evidence)}`;
+const problemOf = (verdict: RuleVerdict): string => `Rule ${verdict.rule} failed: ${oneLine(verdict.evidence).replace(/\s+—\s+/g, '; ')}`;
 
 const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
 
@@ -88,20 +89,4 @@ export const ruleVerdictsMarkdown = (verdicts: readonly RuleVerdict[]): string =
               "Independent judges checked this card's diff against the project's rules. The runner adds their failures to your report, so do not judge these rules again or report them yourself. Spend your review on everything else.",
               '',
               ...verdicts.map(verdictLine),
-          ].join('\n');
-
-/**
- * What the challenge step has to account for, in the words its report has to use. A review's result is
- * in the event log and not in the card, which is only written once the step has spoken, so this is how
- * the step gets it. `problem` is what `ChallengeVerifier` matches on.
- */
-export const incomingBlockersMarkdown = (blockers: readonly Pick<ReviewFinding, 'problem' | 'file' | 'line'>[]): string =>
-    blockers.length === 0
-        ? ''
-        : [
-              '## Blockers to challenge',
-              '',
-              'The review raised these. Uphold each one in `findings` or refute it in `refuted`, with its `problem` text exactly as written here.',
-              '',
-              ...blockers.map(blocker => `- ${blocker.file}${blocker.line ? `:${blocker.line}` : ''}: ${blocker.problem}`),
           ].join('\n');

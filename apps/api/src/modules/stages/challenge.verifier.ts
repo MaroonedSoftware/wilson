@@ -205,7 +205,7 @@ export const incomingReview = async (
     events: Pick<EventLog, 'tail'>,
     project: string,
     cardId: string,
-): Promise<{ blockers: ReviewFinding[]; criteria: ReviewCriterion[] } | undefined> => {
+): Promise<{ findings: ReviewFinding[]; blockers: ReviewFinding[]; criteria: ReviewCriterion[] } | undefined> => {
     const rows = await events.tail(project, cardId);
     for (let i = rows.length - 1; i >= 0; i--) {
         const row = rows[i]!;
@@ -217,6 +217,7 @@ export const incomingReview = async (
         const parsed = ReviewResultSchema.safeParse((row.payload as { result?: unknown }).result);
         if (!parsed.success || parsed.data.verdict !== 'revise') return undefined;
         return {
+            findings: parsed.data.findings,
             blockers: parsed.data.findings.filter(finding => finding.severity === 'blocker'),
             criteria: parsed.data.criteria,
         };

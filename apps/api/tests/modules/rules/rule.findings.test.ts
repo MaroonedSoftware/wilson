@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-    incomingBlockersMarkdown,
-    isRuleFinding,
-    MAX_REVIEW_FINDINGS,
-    ruleFinding,
-    ruleVerdictsMarkdown,
-    withRuleFindings,
-} from '#modules/rules/rule.findings.js';
+import { isRuleFinding, MAX_REVIEW_FINDINGS, ruleFinding, ruleVerdictsMarkdown, withRuleFindings } from '#modules/rules/rule.findings.js';
 import type { RuleVerdict } from '#modules/rules/rule.judge.js';
 import { ReviewResultSchema, type ReviewFinding, type ReviewResult } from '#modules/stages/stage.result.js';
 
@@ -59,6 +52,12 @@ describe('ruleFinding', () => {
 
     it('has no finding to make when none of the files are there', () => {
         expect(ruleFinding(verdict(), new Map())).toBeUndefined();
+    });
+
+    it("keeps a spaced dash out of the problem, where one marks the suggestion's start on a plan", () => {
+        expect(ruleFinding(verdict({ evidence: 'It builds SQL — by hand.' }), lines)?.problem).toBe(
+            'Rule no-raw-sql failed: It builds SQL; by hand.',
+        );
     });
 
     it('makes a finding the review schema accepts', () => {
@@ -147,21 +146,5 @@ describe('ruleVerdictsMarkdown', () => {
 
     it('is empty with no verdicts', () => {
         expect(ruleVerdictsMarkdown([])).toBe('');
-    });
-});
-
-describe('incomingBlockersMarkdown', () => {
-    it('gives each blocker its exact words', () => {
-        const text = incomingBlockersMarkdown([
-            { file: 'a.ts', line: 2, problem: 'Rule r failed: broken.' },
-            { file: 'b.ts', problem: 'Missing.' },
-        ]);
-
-        expect(text).toContain('- a.ts:2: Rule r failed: broken.');
-        expect(text).toContain('- b.ts: Missing.');
-    });
-
-    it('is empty with none', () => {
-        expect(incomingBlockersMarkdown([])).toBe('');
     });
 });

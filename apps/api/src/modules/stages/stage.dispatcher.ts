@@ -26,7 +26,7 @@ import { LearningsStore } from '#modules/learnings/learnings.store.js';
 import { DevServerPortAllocator } from '#modules/lease/dev.server.port.allocator.js';
 import { Notifier } from '#modules/notify/notifier.js';
 import { withRulesGuidance } from '#modules/rules/rule.guidance.js';
-import { incomingBlockersMarkdown, isRuleFinding, ruleFinding, ruleVerdictsMarkdown, withRuleFindings } from '#modules/rules/rule.findings.js';
+import { isRuleFinding, ruleFinding, ruleVerdictsMarkdown, withRuleFindings } from '#modules/rules/rule.findings.js';
 import { RuleJudge, type RuleVerdict } from '#modules/rules/rule.judge.js';
 import { RuleStore } from '#modules/rules/rule.store.js';
 import type { CardNotification } from '#modules/notify/notification.js';
@@ -597,8 +597,14 @@ export class StageDispatcher {
             await this.events.append({ project: this.config.project, cardId, stage: stageName, type: 'review.evidence', payload: evidence.summary });
         }
 
-        const notes = [evidence?.markdown, ruleVerdictsMarkdown(ruleVerdicts ?? []), await this.incomingBlockersNote(cardId, stage)];
-        const localPlanPath = await this.materializePlan(card, pinnedSha, stages, stage, notes.filter(Boolean).join('\n\n'));
+        const notes = [evidence?.markdown, ruleVerdictsMarkdown(ruleVerdicts ?? [])];
+        const localPlanPath = await this.materializePlan(
+            await this.withIncomingReview(card, stage),
+            pinnedSha,
+            stages,
+            stage,
+            notes.filter(Boolean).join('\n\n'),
+        );
         // The agent reads the plan where its worktree is. A placed stage gets a copy on the host,
         // under the host's run root, outside its worktree for the same reason the local one is.
         const planPath = placement ? await this.mirrorToHost(placement, cardId, localPlanPath, true) : localPlanPath;
@@ -1403,11 +1409,15 @@ export class StageDispatcher {
         }
     }
 
-    /** For a challenge step, the review's blockers in the words its report has to use. */
-    private async incomingBlockersNote(cardId: string, stage: StageConfig): Promise<string> {
-        if (!stage.step || stage.verifier !== 'challenge') return '';
-        const incoming = await incomingReview(this.events, this.config.project, cardId);
-        return incomingBlockersMarkdown(incoming?.blockers ?? []);
+    /**
+     * The card as a challenge step reads it: with what it is challenging under `## Review findings`,
+     * where its instructions say to look. A `revise` waiting on its step is written nowhere else but the
+     * event log until the step has spoken, so this goes on the plan and not on the card.
+     */
+    private async withIncomingReview(card: Card, stage: StageConfig): Promise<Card> {
+        if (!stage.step || stage.verifier !== 'challenge') return card;
+        const incoming = await incomingReview(this.events, this.config.project, card.frontmatter.id);
+        return incoming ? { ...card, body: withFindings(card.body, incoming.findings, incoming.criteria) } : card;
     }
 
     /**

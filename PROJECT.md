@@ -430,7 +430,9 @@ A lane can hold **steps**: runs of their own, with their own prompt, verifier an
 lane's provider, model and routes, with the card staying in the lane throughout. `planning` runs
 `scope-check` when a plan is approved, and a card waits there under a `planCheck` until it passes,
 or until a person reads why it did not. `review` runs `challenge` when it reports `revise`, a fresh
-context trying to refute each blocker before anything is kicked back.
+context trying to refute each blocker before anything is kicked back. The card holds nothing of that
+`revise` yet, so the step's plan, and only its plan, carries the review's result under `## Review
+findings`.
 
 A card in `ready` also reports a `mergeStatus` on every board read: what Merge would do right now,
 `clean`, `conflict`, `rereview` (it would go back to review, because the target moved under files the

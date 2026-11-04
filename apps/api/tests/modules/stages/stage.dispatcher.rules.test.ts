@@ -201,13 +201,34 @@ describe('StageDispatcher judges rules at review', () => {
 
         expect(challenged.passed).toBe(true);
         expect(challenged.transitionedTo).toBe('implementing');
-        expect(plans.challenge).toContain(`- src/changed.ts:2: ${PROBLEM}`);
+        expect(plans.challenge).toContain(`- **blocker** \`src/changed.ts:2\`: ${PROBLEM} — ${blocker.suggestion}`);
         const after = await board.read('0001');
         expect(after.frontmatter.stage).toBe('implementing');
         expect(after.frontmatter.retries).toEqual({ review: 1 });
         expect(after.body).toContain(PROBLEM);
         // The step judges the review's report, and no rule again.
         expect(engine.calls).toBe(1);
+    });
+
+    it("gives the challenge the review's whole result under Review findings, on the plan and not the card", async () => {
+        const concern = { severity: 'concern', kind: 'omission', file: 'src/kept.ts', problem: 'A review concern.', suggestion: 'Look at it.' };
+        const criterion = { id: 'AC1', status: 'unmet', note: 'Not done.' };
+        const { dispatcher, board, plans } = await setUp({
+            judge: () => failing(2),
+            review: () => ({ summary: 'One concern.', verdict: 'revise', findings: [concern], criteria: [criterion] }),
+            challenge: { summary: 'Unfinished.', verdict: 'revise', findings: [], refuted: [] },
+        });
+
+        await dispatcher.run('0001', 'review');
+        await dispatcher.run('0001', 'review', undefined, 'challenge');
+
+        expect(plans.challenge).toContain('## Review findings');
+        expect(plans.challenge).toContain(`\`src/changed.ts:2\`: ${PROBLEM} — `);
+        expect(plans.challenge).toContain('- **concern** `src/kept.ts`: A review concern. — Look at it.');
+        expect(plans.challenge).toContain('### Criteria');
+        expect(plans.challenge).toContain('- AC1 unmet: Not done.');
+        expect(plans.review).not.toContain('## Review findings');
+        expect((await board.read('0001')).body).not.toContain(PROBLEM);
     });
 
     it('lets challenge refute a rule blocker as it can any other', async () => {
