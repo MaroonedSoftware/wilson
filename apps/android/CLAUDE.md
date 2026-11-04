@@ -53,3 +53,14 @@ skill, and say plainly what you did not run. Record what you find here, dated.
 - 2026-11-01: an address field needs `autoCorrectEnabled = false` as well as `KeyboardType.Uri`, or the
   keyboard treats it as prose and adds a space after each dot. Check with `dumpsys input_method`: the
   address field reads `inputType=0x11`, with no `0x8000` autocorrect flag.
+- 2026-11-04: `.claude/settings.json` still does not exist, so `./gradlew` has no sandbox exclusion. Gradle does
+  work inside the sandbox with `GRADLE_USER_HOME`, `ANDROID_USER_HOME` and `java.io.tmpdir` under `$TMPDIR`, and
+  the proxy's host, port and login as `systemProp`s in that home's `gradle.properties` (Java answers 407 without
+  the login, and needs `jdk.http.auth.tunneling.disabledSchemes=` empty). A build made that way is signed with a
+  different debug key, so `adb install -r` refuses it over the usual build: uninstall first, and again when done.
+- 2026-11-04: chat cannot propose a change without engine credentials, so check the proposal card by inserting
+  rows into `wilson.chat_threads` and `wilson.chat_pending_actions` in `wilson_android`. Swipes in the list's
+  side padding do nothing: it sits outside the scroller. A long value's box scrolls first, then hands the
+  gesture on to the list, so Confirm is reachable even in landscape, where the box is taller than the list.
+- 2026-11-04: a confirmed action that fails leaves the card and the screen shows nothing, because only awaiting
+  actions are drawn. The action's `status` and `error` are right in the database; the web card shows them.

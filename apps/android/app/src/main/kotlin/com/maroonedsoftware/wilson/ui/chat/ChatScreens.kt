@@ -1,17 +1,22 @@
 package com.maroonedsoftware.wilson.ui.chat
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -28,7 +33,12 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -115,17 +125,75 @@ fun ChatScreen(model: ChatModel, onBack: () -> Unit) {
     }
 }
 
-/** A change the chat wants to make. Nothing happens until it is confirmed here. */
+/** How tall a long value gets before it scrolls in its own box, so Confirm stays near the summary. */
+private val TALLEST_VALUE = 280.dp
+
+private val LABEL_WIDTH = 96.dp
+
+/**
+ * A change the chat wants to make. Nothing happens until it is confirmed here, and Confirm runs exactly
+ * the operation and arguments shown, so every argument is on the card and the arguments as they will
+ * really be sent are one press away.
+ */
 @Composable
 private fun Proposed(action: ChatPendingAction, model: ChatModel) {
+    var raw by rememberSaveable(action.id) { mutableStateOf(false) }
+    val fields = remember(action.arguments) { actionFields(action.arguments) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(action.summary)
-            Text(action.operation + (action.project?.let { " on $it" } ?: ""), style = MaterialTheme.typography.bodySmall)
+            Text("Runs ${action.operation}${action.project?.let { " in $it" }.orEmpty()} as you.", style = MaterialTheme.typography.bodySmall)
+            SelectionContainer {
+                if (raw) LongValue(prettyArguments(action.arguments), ChatFieldKind.JSON) else Fields(fields)
+            }
+            if (fields.isNotEmpty()) {
+                TextButton(onClick = { raw = !raw }) { Text(if (raw) "Show fields" else "Show raw JSON") }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { model.decide(action.id, DecideChatActionRequestDecision.CONFIRM) }) { Text("Confirm") }
                 OutlinedButton(onClick = { model.decide(action.id, DecideChatActionRequestDecision.DECLINE) }) { Text("Decline") }
             }
         }
     }
+}
+
+/** The short values beside their labels, then anything long under its own. */
+@Composable
+private fun Fields(fields: List<ChatActionField>) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        fields.forEach { field ->
+            if (field.kind == ChatFieldKind.LINE) {
+                Row {
+                    FieldLabel(field.label, Modifier.width(LABEL_WIDTH).alignByBaseline())
+                    Text(field.value, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).alignByBaseline())
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FieldLabel(field.label)
+                    LongValue(field.value, field.kind)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FieldLabel(label: String, modifier: Modifier = Modifier) {
+    Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier)
+}
+
+/** Plain text in a box of capped height that scrolls on its own: there is no Markdown renderer here, and JSON keeps its indent in a fixed-width face. */
+@Composable
+private fun LongValue(value: String, kind: ChatFieldKind) {
+    Text(
+        value,
+        style = MaterialTheme.typography.bodySmall,
+        fontFamily = if (kind == ChatFieldKind.JSON) FontFamily.Monospace else null,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.small)
+            .heightIn(max = TALLEST_VALUE)
+            .verticalScroll(rememberScrollState())
+            .padding(8.dp),
+    )
 }
