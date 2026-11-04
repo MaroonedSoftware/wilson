@@ -87,3 +87,49 @@ export interface RuleRevisionsQuery {
     rule?: string;
     limit?: number;
 }
+
+/**
+ * What to check: `branch`'s diff from its merge base with `base`, which is what the project's code root
+ * has checked out when left out.
+ * generated from [RuleCheckRequest](../../../../apps/api/data/contracts/rules.ck)
+ */
+export interface RuleCheckRequest {
+    branch: string;
+    base?: string;
+}
+
+/**
+ * generated from [RuleCheckVerdict](../../../../apps/api/data/contracts/rules.ck)
+ */
+export interface RuleCheckVerdict {
+    rule: string;
+    revision: string;
+    statement: string;
+    severity: 'blocker' | 'concern';
+    paths: string[];
+    verdict: 'pass' | 'fail' | 'unavailable';
+    file?: string;
+    line?: number;
+    evidence: string;
+    reused: boolean;
+}
+
+/**
+ * generated from [RuleCheckUsage](../../../../apps/api/data/contracts/rules.ck)
+ */
+export interface RuleCheckUsage {
+    inputTokens?: number;
+    cachedInputTokens?: number;
+    cacheWriteInputTokens?: number;
+    outputTokens?: number;
+}
+
+/**
+ * generated from [RuleCheckReport](../../../../apps/api/data/contracts/rules.ck)
+ */
+export interface RuleCheckReport {
+    branch: string;
+    mergeBase: string;
+    verdicts: RuleCheckVerdict[];
+    usage?: RuleCheckUsage;
+}

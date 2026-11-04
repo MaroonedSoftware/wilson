@@ -67,6 +67,8 @@ import rulesListCommand from './commands/rules/list.command.js';
 import rulesAddCommand from './commands/rules/add.command.js';
 import rulesEditCommand from './commands/rules/edit.command.js';
 import rulesRmCommand from './commands/rules/rm.command.js';
+import rulesCheckCommand from './commands/rules/check.command.js';
+import rulesRouteCommand from './commands/rules/route.command.js';
 
 import { apiSignedIn } from './checks/api.signed.in.js';
 import { boardReady } from './checks/board.ready.js';
@@ -148,6 +150,8 @@ const app = await createCliApp({
         reg(['rules', 'add'], rulesAddCommand),
         reg(['rules', 'edit'], rulesEditCommand),
         reg(['rules', 'rm'], rulesRmCommand),
+        reg(['rules', 'check'], rulesCheckCommand),
+        reg(['rules', 'route'], rulesRouteCommand),
     ],
     checks: [
         nodeVersion({ min: 22 }),

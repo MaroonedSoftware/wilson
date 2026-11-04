@@ -57,6 +57,46 @@ data class RuleRevisionsQuery(
     val limit: Long? = null,
 )
 
+/**
+ * What to check: `branch`'s diff from its merge base with `base`, which is what the project's code root
+ * has checked out when left out.
+ */
+@Serializable
+data class RuleCheckRequest(
+    val branch: String,
+    val base: String? = null,
+)
+
+@Serializable
+data class RuleCheckVerdict(
+    val rule: String,
+    val revision: String,
+    val statement: String,
+    val severity: RuleCheckVerdictSeverity,
+    val paths: List<String>,
+    val verdict: RuleCheckVerdictVerdict,
+    val file: String? = null,
+    val line: Long? = null,
+    val evidence: String,
+    val reused: Boolean,
+)
+
+@Serializable
+data class RuleCheckUsage(
+    val inputTokens: Long? = null,
+    val cachedInputTokens: Long? = null,
+    val cacheWriteInputTokens: Long? = null,
+    val outputTokens: Long? = null,
+)
+
+@Serializable
+data class RuleCheckReport(
+    val branch: String,
+    val mergeBase: String,
+    val verdicts: List<RuleCheckVerdict>,
+    val usage: RuleCheckUsage? = null,
+)
+
 @Serializable(with = RuleSeveritySerializer::class)
 enum class RuleSeverity {
     BLOCKER,
@@ -115,4 +155,46 @@ object PatchRuleRequestSeveritySerializer : SdkEnumSerializer<PatchRuleRequestSe
     PatchRuleRequestSeverity.UNKNOWN,
     PatchRuleRequestSeverity.BLOCKER to "blocker",
     PatchRuleRequestSeverity.CONCERN to "concern",
+)
+
+@Serializable(with = RuleCheckVerdictSeveritySerializer::class)
+enum class RuleCheckVerdictSeverity {
+    BLOCKER,
+    CONCERN,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [RuleCheckVerdictSeverity] by its wire spelling. A spelling it does not know reads as [RuleCheckVerdictSeverity.UNKNOWN]. */
+object RuleCheckVerdictSeveritySerializer : SdkEnumSerializer<RuleCheckVerdictSeverity>(
+    "RuleCheckVerdictSeverity",
+    RuleCheckVerdictSeverity.UNKNOWN,
+    RuleCheckVerdictSeverity.BLOCKER to "blocker",
+    RuleCheckVerdictSeverity.CONCERN to "concern",
+)
+
+@Serializable(with = RuleCheckVerdictVerdictSerializer::class)
+enum class RuleCheckVerdictVerdict {
+    PASS,
+    FAIL,
+    UNAVAILABLE,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [RuleCheckVerdictVerdict] by its wire spelling. A spelling it does not know reads as [RuleCheckVerdictVerdict.UNKNOWN]. */
+object RuleCheckVerdictVerdictSerializer : SdkEnumSerializer<RuleCheckVerdictVerdict>(
+    "RuleCheckVerdictVerdict",
+    RuleCheckVerdictVerdict.UNKNOWN,
+    RuleCheckVerdictVerdict.PASS to "pass",
+    RuleCheckVerdictVerdict.FAIL to "fail",
+    RuleCheckVerdictVerdict.UNAVAILABLE to "unavailable",
 )

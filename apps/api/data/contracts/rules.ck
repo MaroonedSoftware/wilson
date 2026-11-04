@@ -60,6 +60,40 @@ contract RuleRevisionsQuery: {
     limit?: int
 }
 
+# What to check: `branch`'s diff from its merge base with `base`, which is what the project's code root
+# has checked out when left out.
+contract RuleCheckRequest: {
+    branch: string
+    base?: string
+}
+
+contract RuleCheckVerdict: {
+    rule: string
+    revision: string
+    statement: string
+    severity: enum(blocker, concern)
+    paths: array(string)
+    verdict: enum(pass, fail, unavailable)
+    file?: string
+    line?: int
+    evidence: string
+    reused: boolean
+}
+
+contract RuleCheckUsage: {
+    inputTokens?: int
+    cachedInputTokens?: int
+    cacheWriteInputTokens?: int
+    outputTokens?: int
+}
+
+contract RuleCheckReport: {
+    branch: string
+    mergeBase: string
+    verdicts: array(RuleCheckVerdict)
+    usage?: RuleCheckUsage
+}
+
 operation /api/rules: {
     get: {
         security: {
@@ -91,6 +125,24 @@ operation /api/rules: {
             400:
             # A rule with that id already exists.
             409:
+        }
+    }
+}
+
+operation /api/rules/check: {
+    post: {
+        name: Check rules
+        mcp: exclude # Spends a model call per matching rule, which a person decides to do.
+        service: RulesService.check
+        request: {
+            application/json: RuleCheckRequest
+        }
+        response: {
+            200: {
+                application/json: RuleCheckReport
+            }
+            # No such branch or base. The reason is in `details`.
+            400:
         }
     }
 }

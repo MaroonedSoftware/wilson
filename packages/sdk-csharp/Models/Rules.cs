@@ -114,6 +114,90 @@ public sealed record RuleRevisionsQuery
     public long? Limit { get; init; }
 }
 
+/// <summary>
+/// What to check: `branch`'s diff from its merge base with `base`, which is what the project's code root
+/// has checked out when left out.
+/// </summary>
+public sealed record RuleCheckRequest
+{
+    [JsonPropertyName("branch")]
+    public required string Branch { get; init; }
+
+    [JsonPropertyName("base")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Base { get; init; }
+}
+
+public sealed record RuleCheckVerdict
+{
+    [JsonPropertyName("rule")]
+    public required string Rule { get; init; }
+
+    [JsonPropertyName("revision")]
+    public required string Revision { get; init; }
+
+    [JsonPropertyName("statement")]
+    public required string Statement { get; init; }
+
+    [JsonPropertyName("severity")]
+    public required RuleCheckVerdictSeverity Severity { get; init; }
+
+    [JsonPropertyName("paths")]
+    public required List<string> Paths { get; init; }
+
+    [JsonPropertyName("verdict")]
+    public required RuleCheckVerdictVerdict Verdict { get; init; }
+
+    [JsonPropertyName("file")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? File { get; init; }
+
+    [JsonPropertyName("line")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? Line { get; init; }
+
+    [JsonPropertyName("evidence")]
+    public required string Evidence { get; init; }
+
+    [JsonPropertyName("reused")]
+    public required bool Reused { get; init; }
+}
+
+public sealed record RuleCheckUsage
+{
+    [JsonPropertyName("inputTokens")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? InputTokens { get; init; }
+
+    [JsonPropertyName("cachedInputTokens")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? CachedInputTokens { get; init; }
+
+    [JsonPropertyName("cacheWriteInputTokens")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? CacheWriteInputTokens { get; init; }
+
+    [JsonPropertyName("outputTokens")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? OutputTokens { get; init; }
+}
+
+public sealed record RuleCheckReport
+{
+    [JsonPropertyName("branch")]
+    public required string Branch { get; init; }
+
+    [JsonPropertyName("mergeBase")]
+    public required string MergeBase { get; init; }
+
+    [JsonPropertyName("verdicts")]
+    public required List<RuleCheckVerdict> Verdicts { get; init; }
+
+    [JsonPropertyName("usage")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public RuleCheckUsage? Usage { get; init; }
+}
+
 [JsonConverter(typeof(RuleSeverityConverter))]
 public enum RuleSeverity
 {
@@ -279,5 +363,122 @@ public sealed class PatchRuleRequestSeverityConverter : JsonConverter<PatchRuleR
         PatchRuleRequestSeverity.Blocker => "blocker",
         PatchRuleRequestSeverity.Concern => "concern",
         _ => throw new JsonException($"PatchRuleRequestSeverity.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(RuleCheckVerdictSeverityConverter))]
+public enum RuleCheckVerdictSeverity
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("blocker")]
+    Blocker,
+
+    [JsonStringEnumMemberName("concern")]
+    Concern,
+}
+
+/// <summary>
+/// Reads and writes <see cref="RuleCheckVerdictSeverity"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="RuleCheckVerdictSeverity.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class RuleCheckVerdictSeverityConverter : JsonConverter<RuleCheckVerdictSeverity>
+{
+    public override RuleCheckVerdictSeverity Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for RuleCheckVerdictSeverity, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, RuleCheckVerdictSeverity value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override RuleCheckVerdictSeverity ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, RuleCheckVerdictSeverity value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static RuleCheckVerdictSeverity FromWire(string? text) => text switch
+    {
+        "blocker" => RuleCheckVerdictSeverity.Blocker,
+        "concern" => RuleCheckVerdictSeverity.Concern,
+        _ => RuleCheckVerdictSeverity.Unknown,
+    };
+
+    private static string ToWire(RuleCheckVerdictSeverity value) => value switch
+    {
+        RuleCheckVerdictSeverity.Blocker => "blocker",
+        RuleCheckVerdictSeverity.Concern => "concern",
+        _ => throw new JsonException($"RuleCheckVerdictSeverity.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(RuleCheckVerdictVerdictConverter))]
+public enum RuleCheckVerdictVerdict
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("pass")]
+    Pass,
+
+    [JsonStringEnumMemberName("fail")]
+    Fail,
+
+    [JsonStringEnumMemberName("unavailable")]
+    Unavailable,
+}
+
+/// <summary>
+/// Reads and writes <see cref="RuleCheckVerdictVerdict"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="RuleCheckVerdictVerdict.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class RuleCheckVerdictVerdictConverter : JsonConverter<RuleCheckVerdictVerdict>
+{
+    public override RuleCheckVerdictVerdict Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for RuleCheckVerdictVerdict, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, RuleCheckVerdictVerdict value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override RuleCheckVerdictVerdict ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, RuleCheckVerdictVerdict value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static RuleCheckVerdictVerdict FromWire(string? text) => text switch
+    {
+        "pass" => RuleCheckVerdictVerdict.Pass,
+        "fail" => RuleCheckVerdictVerdict.Fail,
+        "unavailable" => RuleCheckVerdictVerdict.Unavailable,
+        _ => RuleCheckVerdictVerdict.Unknown,
+    };
+
+    private static string ToWire(RuleCheckVerdictVerdict value) => value switch
+    {
+        RuleCheckVerdictVerdict.Pass => "pass",
+        RuleCheckVerdictVerdict.Fail => "fail",
+        RuleCheckVerdictVerdict.Unavailable => "unavailable",
+        _ => throw new JsonException($"RuleCheckVerdictVerdict.{value} has no wire spelling, so it cannot be sent."),
     };
 }

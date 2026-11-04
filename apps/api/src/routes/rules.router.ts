@@ -1,7 +1,16 @@
 import { z } from 'zod';
 import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
 import { RulesService } from '#modules/rules/rules.service.js';
-import { CreateRuleRequest, DeleteRuleQuery, PatchRuleRequest, Rule, RuleRevision, RuleRevisionsQuery } from '../generated/rules.js';
+import {
+    CreateRuleRequest,
+    DeleteRuleQuery,
+    PatchRuleRequest,
+    Rule,
+    RuleCheckReport,
+    RuleCheckRequest,
+    RuleRevision,
+    RuleRevisionsQuery,
+} from '../generated/rules.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
@@ -31,6 +40,20 @@ RulesRouter.post('/api/rules', requirePolicy({ policy: 'wilson.step.up' }), body
     const result: Rule = await service.create(body);
 
     ctx.status = 201;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [rules.ck](../../data/contracts/rules.ck) `POST /api/rules/check`
+ */
+RulesRouter.post('/api/rules/check', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const body = await parseAndValidate(ctx.parsedBody, RuleCheckRequest);
+
+    const service = ctx.container.get(RulesService);
+    const result: RuleCheckReport = await service.check(body);
+
+    ctx.status = 200;
     ctx.type = 'application/json';
     ctx.body = result;
 });

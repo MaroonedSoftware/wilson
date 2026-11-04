@@ -42,6 +42,18 @@ public sealed class RulesClient(SdkHttp http)
         return http.ReadJson<Rule>(response);
     }
 
+    /// <summary>Check rules</summary>
+    /// <exception cref="SdkException">On 400.</exception>
+    public async Task<RuleCheckReport> CheckRulesAsync(RuleCheckRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Post,
+            http.Path("api", "rules", "check"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<RuleCheckReport>(response);
+    }
+
     /// <summary>List rule revisions</summary>
     public async Task<List<RuleRevision>> ListRuleRevisionsAsync(RuleRevisionsQuery? query = null, CancellationToken cancellationToken = default)
     {

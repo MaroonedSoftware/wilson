@@ -1,7 +1,26 @@
 import { httpError } from '@maroonedsoftware/errors';
 import { Injectable } from 'injectkit';
-import type { CreateRuleRequest, DeleteRuleQuery, PatchRuleRequest, Rule, RuleRevision, RuleRevisionsQuery } from '../../generated/rules.js';
+import { BoardConfig } from '#modules/board/board.config.js';
+import { git } from '#modules/board/git.js';
+import { localHost } from '#modules/host/local.execution.host.js';
+import type {
+    CreateRuleRequest,
+    DeleteRuleQuery,
+    PatchRuleRequest,
+    Rule,
+    RuleCheckReport,
+    RuleCheckRequest,
+    RuleRevision,
+    RuleRevisionsQuery,
+} from '../../generated/rules.js';
+import { RuleJudge } from './rule.judge.js';
 import { RuleRefusedError, RuleStore } from './rule.store.js';
+
+/**
+ * How long a check may take. A person's client is waiting on the response, and Node's `fetch` gives up
+ * on one with no headers after five minutes, so an answer has to come before that.
+ */
+export const RULE_CHECK_DEADLINE_MS = 4 * 60 * 1000;
 
 /** The most revisions one request returns, and the default: the same numbers `StageConfigService` uses. */
 const DEFAULT_HISTORY_LIMIT = 20;
@@ -20,7 +39,38 @@ const refusal = (err: unknown): unknown => {
  */
 @Injectable()
 export class RulesService {
-    constructor(private readonly rules: RuleStore) {}
+    constructor(
+        private readonly rules: RuleStore,
+        private readonly judge: RuleJudge,
+        private readonly config: BoardConfig,
+    ) {}
+
+    /**
+     * Judge the project's matching rules against a branch's diff from its merge base, as a review would.
+     * It writes verdicts, so a card over the same code gets them for free, and nothing on the board moves.
+     */
+    async check({ branch, base = 'HEAD' }: RuleCheckRequest): Promise<RuleCheckReport> {
+        const cwd = this.config.codeRoot;
+        const branchSha = await this.commitOf(cwd, branch);
+        const baseSha = await this.commitOf(cwd, base);
+        const mergeBase = (await git(cwd, ['merge-base', baseSha, branchSha])).stdout.trim();
+        const { verdicts, usage } = await this.judge.judge({
+            rules: await this.rules.list(),
+            host: localHost,
+            cwd,
+            range: [mergeBase, branchSha],
+            deadlineMs: RULE_CHECK_DEADLINE_MS,
+        });
+        return { branch, mergeBase, verdicts, ...(usage ? { usage } : {}) };
+    }
+
+    private async commitOf(cwd: string, ref: string): Promise<string> {
+        try {
+            return (await git(cwd, ['rev-parse', '--verify', '--quiet', '--end-of-options', `${ref}^{commit}`])).stdout.trim();
+        } catch {
+            throw httpError(400).withDetails({ reason: `there is no branch or commit "${ref}"` });
+        }
+    }
 
     async list(): Promise<Rule[]> {
         return (await this.rules.list()) as Rule[];

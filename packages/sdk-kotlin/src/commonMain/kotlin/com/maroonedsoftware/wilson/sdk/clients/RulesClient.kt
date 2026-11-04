@@ -5,6 +5,8 @@ import com.maroonedsoftware.wilson.sdk.models.CreateRuleRequest
 import com.maroonedsoftware.wilson.sdk.models.DeleteRuleQuery
 import com.maroonedsoftware.wilson.sdk.models.PatchRuleRequest
 import com.maroonedsoftware.wilson.sdk.models.Rule
+import com.maroonedsoftware.wilson.sdk.models.RuleCheckReport
+import com.maroonedsoftware.wilson.sdk.models.RuleCheckRequest
 import com.maroonedsoftware.wilson.sdk.models.RuleRevision
 import com.maroonedsoftware.wilson.sdk.models.RuleRevisionsQuery
 import com.maroonedsoftware.wilson.sdk.runtime.SdkHttp
@@ -27,6 +29,18 @@ class RulesClient(private val http: SdkHttp) {
     suspend fun createRule(body: CreateRuleRequest): Rule {
         val response = http.execute(HttpMethod.Post) {
             path("api", "rules")
+            jsonBody(body, "application/json")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Check rules
+     * @throws SdkError on 400
+     */
+    suspend fun checkRules(body: RuleCheckRequest): RuleCheckReport {
+        val response = http.execute(HttpMethod.Post) {
+            path("api", "rules", "check")
             jsonBody(body, "application/json")
         }
         return http.decodeJson(response)

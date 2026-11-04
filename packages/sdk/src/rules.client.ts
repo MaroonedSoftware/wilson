@@ -1,4 +1,13 @@
-import type { CreateRuleRequest, DeleteRuleQuery, PatchRuleRequest, Rule, RuleRevision, RuleRevisionsQuery } from './types/rules.js';
+import type {
+    CreateRuleRequest,
+    DeleteRuleQuery,
+    PatchRuleRequest,
+    Rule,
+    RuleCheckReport,
+    RuleCheckRequest,
+    RuleRevision,
+    RuleRevisionsQuery,
+} from './types/rules.js';
 import { reviveRule, reviveRuleRevision } from './types/rules.js';
 import type { SdkFetch } from './sdk-options.js';
 import { bigIntReplacer, parseJson, buildQueryString } from './sdk-options.js';
@@ -23,6 +32,16 @@ export class RulesClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return reviveRule(await parseJson<Rule>(result));
+    }
+
+    /** @name Check rules */
+    async checkRules(body: RuleCheckRequest): Promise<RuleCheckReport> {
+        const result = await this.fetch(`/api/rules/check`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<RuleCheckReport>(result);
     }
 
     /** @name List rule revisions */

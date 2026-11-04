@@ -78,3 +78,53 @@ export const RuleRevisionsQuery = z.strictObject({
     limit: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
 });
 export type RuleRevisionsQuery = z.infer<typeof RuleRevisionsQuery>;
+
+/**
+ * What to check: `branch`'s diff from its merge base with `base`, which is what the project's code root
+ * has checked out when left out.
+ * generated from [RuleCheckRequest](../../data/contracts/rules.ck)
+ */
+export const RuleCheckRequest = z.strictObject({
+    branch: z.string(),
+    base: z.string().optional(),
+});
+export type RuleCheckRequest = z.infer<typeof RuleCheckRequest>;
+
+/**
+ * generated from [RuleCheckVerdict](../../data/contracts/rules.ck)
+ */
+export const RuleCheckVerdict = z.strictObject({
+    rule: z.string(),
+    revision: z.string(),
+    statement: z.string(),
+    severity: z.enum(['blocker', 'concern']),
+    paths: z.array(z.string()),
+    verdict: z.enum(['pass', 'fail', 'unavailable']),
+    file: z.string().optional(),
+    line: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
+    evidence: z.string(),
+    reused: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+});
+export type RuleCheckVerdict = z.infer<typeof RuleCheckVerdict>;
+
+/**
+ * generated from [RuleCheckUsage](../../data/contracts/rules.ck)
+ */
+export const RuleCheckUsage = z.strictObject({
+    inputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
+    cachedInputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
+    cacheWriteInputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
+    outputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
+});
+export type RuleCheckUsage = z.infer<typeof RuleCheckUsage>;
+
+/**
+ * generated from [RuleCheckReport](../../data/contracts/rules.ck)
+ */
+export const RuleCheckReport = z.strictObject({
+    branch: z.string(),
+    mergeBase: z.string(),
+    verdicts: z.array(RuleCheckVerdict),
+    usage: RuleCheckUsage.optional(),
+});
+export type RuleCheckReport = z.infer<typeof RuleCheckReport>;
