@@ -67,6 +67,7 @@ export const toCardSummary = (card: Card): CardSummary => ({
     dependsOn: card.frontmatter.dependsOn,
     needsHuman: card.frontmatter.needsHuman ?? false,
     needsHumanReason: card.frontmatter.needsHumanReason,
+    blocked: card.frontmatter.blocked && { ...card.frontmatter.blocked, askedAt: DateTime.fromISO(card.frontmatter.blocked.askedAt) },
     position: card.frontmatter.position,
     splitFrom: card.frontmatter.splitFrom,
 });

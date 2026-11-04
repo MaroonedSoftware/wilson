@@ -50,6 +50,27 @@ export const MergeStatus = z.strictObject({
 export type MergeStatus = z.infer<typeof MergeStatus>;
 
 /**
+ * Card 0091. Orders the parking lot; `list`'s `position, id` ordering (PostgresBoardRepository)
+ * sorts a card with one ahead of every card without. Absent for a card nothing has ever dragged —
+ * including every card that predates this, since there is no migration to back-fill it — and such a
+ * card sorts by `id` among the others like it, not at either end of the column. Meaningless outside
+ * `parking-lot`: no other stage's order is an operator's to set (POST .../reposition refuses it).
+ * The question a stage stopped to ask. Set alongside `needsHuman`, with the question as
+ * `needsHumanReason`, and cleared by an answer, an ack or a move.
+ * generated from [CardBlocked](../../data/contracts/board.ck)
+ */
+export const CardBlocked = z.strictObject({
+    category: z.enum(['decision', 'access', 'requirements', 'environment', 'other']),
+    tried: z.string().describe('What the stage already tried or checked before asking.'),
+    question: z.string(),
+    options: z.array(z.string()).optional().describe('Answers the stage thinks are likely. An operator may answer something else.'),
+    stage: z.string().describe('The stage that asked, so the answer goes back to the run it was meant for.'),
+    askedAt: _ZodDatetime,
+    patchPath: z.string().optional().describe("Where the stopped run's uncommitted work is preserved. Absent when it left none."),
+});
+export type CardBlocked = z.infer<typeof CardBlocked>;
+
+/**
  * One card cut from a split origin, as `CardDetail.pieces` lists it: enough to show how far the split
  * has got without a read per piece.
  * generated from [SplitPieceSummary](../../data/contracts/board.ck)
@@ -461,11 +482,6 @@ export const HumanFinding = z.strictObject({
 export type HumanFinding = z.infer<typeof HumanFinding>;
 
 /**
- * Card 0091. Orders the parking lot; `list`'s `position, id` ordering (PostgresBoardRepository)
- * sorts a card with one ahead of every card without. Absent for a card nothing has ever dragged —
- * including every card that predates this, since there is no migration to back-fill it — and such a
- * card sorts by `id` among the others like it, not at either end of the column. Meaningless outside
- * `parking-lot`: no other stage's order is an operator's to set (POST .../reposition refuses it).
  * generated from [CardSummary](../../data/contracts/board.ck)
  */
 export const CardSummary = z.strictObject({
@@ -497,6 +513,7 @@ export const CardSummary = z.strictObject({
             'Required, unlike the frontmatter\'s optional `needsHuman?`, so the web never has to write\n`?? false` — every card has an answer to "does this need a human", even if that answer is no.',
         ),
     needsHumanReason: z.string().optional(),
+    blocked: CardBlocked.optional().describe('A question waiting for an answer: absent on a card flagged for any other reason.'),
     position: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
     splitFrom: z
         .string()

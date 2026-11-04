@@ -46,10 +46,20 @@ import { toCardDetail } from './board.service.js';
 import { withFindings } from './append.findings.js';
 import { git, gitOn } from './git.js';
 import { rankBetween, renormalizedPositions } from './card.position.js';
-import { filesInScope, PLAN_SECTIONS, planGap, sectionKey, withSection, type Card } from './card.js';
+import { blockedRetryKey, filesInScope, PLAN_SECTIONS, planGap, sectionKey, withSection, type Card } from './card.js';
 import { nextCardId, seedSplitBody, splitProblem } from './split.js';
 import type { ReviewFinding } from '#modules/stages/stage.result.js';
 import { DONE, endedAs } from '#modules/stages/terminal.js';
+
+/**
+ * A card's retries without its current stage's own counters: what clearing a flag gives back, in full,
+ * since the stage is being sent round again on a person's say-so.
+ */
+const withoutStageRetries = (card: Card): Record<string, number> => {
+    const { stage, retries } = card.frontmatter;
+    const { [stage]: _kickbacks, [blockedRetryKey(stage)]: _questions, ...rest } = retries;
+    return rest;
+};
 
 /**
  * What {@link BoardWriteService}'s merge check found. `unproven` means the suite never ran, so the
@@ -207,11 +217,12 @@ export class BoardWriteService {
                     needsHumanReason: _needsHumanReason,
                     planCheck: _planCheck,
                     planCheckReason: _planCheckReason,
+                    blocked: _blocked,
                     ...flagless
                 } = card.frontmatter;
                 // Clearing a flag spends what `ack` spends: the flagged stage's retry key goes, or the
                 // stage's next single failure would land straight back on `maxKickbacks`.
-                const { [card.frontmatter.stage]: _dropped, ...retries } = card.frontmatter.retries;
+                const retries = withoutStageRetries(card);
                 const rest = card.frontmatter.needsHuman ? { ...flagless, retries } : flagless;
                 if (!enteringBacklog) {
                     return { ...card, frontmatter: { ...rest, stage: target } };
@@ -630,11 +641,10 @@ export class BoardWriteService {
                 // and drop the current stage's retry key entirely rather than zeroing it — an absent key
                 // is what "never failed" looks like, and a key present with a falsy value is a second
                 // shape for the same state.
-                const { needsHuman: _needsHuman, needsHumanReason: _needsHumanReason, ...rest } = current.frontmatter;
-                const { [current.frontmatter.stage]: _dropped, ...retries } = current.frontmatter.retries;
+                const { needsHuman: _needsHuman, needsHumanReason: _needsHumanReason, blocked: _blocked, ...rest } = current.frontmatter;
                 return {
                     ...current,
-                    frontmatter: { ...rest, retries },
+                    frontmatter: { ...rest, retries: withoutStageRetries(current) },
                 };
             },
             {

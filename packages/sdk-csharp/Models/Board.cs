@@ -67,6 +67,45 @@ public sealed record MergeStatus
 }
 
 /// <summary>
+/// Card 0091. Orders the parking lot; `list`'s `position, id` ordering (PostgresBoardRepository)
+/// sorts a card with one ahead of every card without. Absent for a card nothing has ever dragged —
+/// including every card that predates this, since there is no migration to back-fill it — and such a
+/// card sorts by `id` among the others like it, not at either end of the column. Meaningless outside
+/// `parking-lot`: no other stage's order is an operator's to set (POST .../reposition refuses it).
+/// The question a stage stopped to ask. Set alongside `needsHuman`, with the question as
+/// `needsHumanReason`, and cleared by an answer, an ack or a move.
+/// </summary>
+public sealed record CardBlocked
+{
+    [JsonPropertyName("category")]
+    public required CardBlockedCategory Category { get; init; }
+
+    /// <summary>What the stage already tried or checked before asking.</summary>
+    [JsonPropertyName("tried")]
+    public required string Tried { get; init; }
+
+    [JsonPropertyName("question")]
+    public required string Question { get; init; }
+
+    /// <summary>Answers the stage thinks are likely. An operator may answer something else.</summary>
+    [JsonPropertyName("options")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Options { get; init; }
+
+    /// <summary>The stage that asked, so the answer goes back to the run it was meant for.</summary>
+    [JsonPropertyName("stage")]
+    public required string Stage { get; init; }
+
+    [JsonPropertyName("askedAt")]
+    public required DateTimeOffset AskedAt { get; init; }
+
+    /// <summary>Where the stopped run's uncommitted work is preserved. Absent when it left none.</summary>
+    [JsonPropertyName("patchPath")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PatchPath { get; init; }
+}
+
+/// <summary>
 /// One card cut from a split origin, as `CardDetail.pieces` lists it: enough to show how far the split
 /// has got without a read per piece.
 /// </summary>
@@ -678,13 +717,6 @@ public sealed record HumanFinding
     public required string Suggestion { get; init; }
 }
 
-/// <summary>
-/// Card 0091. Orders the parking lot; `list`'s `position, id` ordering (PostgresBoardRepository)
-/// sorts a card with one ahead of every card without. Absent for a card nothing has ever dragged —
-/// including every card that predates this, since there is no migration to back-fill it — and such a
-/// card sorts by `id` among the others like it, not at either end of the column. Meaningless outside
-/// `parking-lot`: no other stage's order is an operator's to set (POST .../reposition refuses it).
-/// </summary>
 public sealed record CardSummary
 {
     [JsonPropertyName("id")]
@@ -744,6 +776,11 @@ public sealed record CardSummary
     [JsonPropertyName("needsHumanReason")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? NeedsHumanReason { get; init; }
+
+    /// <summary>A question waiting for an answer: absent on a card flagged for any other reason.</summary>
+    [JsonPropertyName("blocked")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardBlocked? Blocked { get; init; }
 
     [JsonPropertyName("position")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1155,6 +1192,11 @@ public sealed record CardDetail
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? NeedsHumanReason { get; init; }
 
+    /// <summary>A question waiting for an answer: absent on a card flagged for any other reason.</summary>
+    [JsonPropertyName("blocked")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardBlocked? Blocked { get; init; }
+
     [JsonPropertyName("position")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? Position { get; init; }
@@ -1309,6 +1351,11 @@ public sealed record ReleaseResult
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? NeedsHumanReason { get; init; }
 
+    /// <summary>A question waiting for an answer: absent on a card flagged for any other reason.</summary>
+    [JsonPropertyName("blocked")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardBlocked? Blocked { get; init; }
+
     [JsonPropertyName("position")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? Position { get; init; }
@@ -1430,6 +1477,11 @@ public sealed record MergeResult
     [JsonPropertyName("needsHumanReason")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? NeedsHumanReason { get; init; }
+
+    /// <summary>A question waiting for an answer: absent on a card flagged for any other reason.</summary>
+    [JsonPropertyName("blocked")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardBlocked? Blocked { get; init; }
 
     [JsonPropertyName("position")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1582,6 +1634,77 @@ public sealed class MergeStatusStateConverter : JsonConverter<MergeStatusState>
         MergeStatusState.Capped => "capped",
         MergeStatusState.Unknown => "unknown",
         _ => throw new JsonException($"MergeStatusState.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(CardBlockedCategoryConverter))]
+public enum CardBlockedCategory
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("decision")]
+    Decision,
+
+    [JsonStringEnumMemberName("access")]
+    Access,
+
+    [JsonStringEnumMemberName("requirements")]
+    Requirements,
+
+    [JsonStringEnumMemberName("environment")]
+    Environment,
+
+    [JsonStringEnumMemberName("other")]
+    Other,
+}
+
+/// <summary>
+/// Reads and writes <see cref="CardBlockedCategory"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="CardBlockedCategory.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class CardBlockedCategoryConverter : JsonConverter<CardBlockedCategory>
+{
+    public override CardBlockedCategory Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for CardBlockedCategory, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, CardBlockedCategory value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override CardBlockedCategory ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, CardBlockedCategory value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static CardBlockedCategory FromWire(string? text) => text switch
+    {
+        "decision" => CardBlockedCategory.Decision,
+        "access" => CardBlockedCategory.Access,
+        "requirements" => CardBlockedCategory.Requirements,
+        "environment" => CardBlockedCategory.Environment,
+        "other" => CardBlockedCategory.Other,
+        _ => CardBlockedCategory.Unknown,
+    };
+
+    private static string ToWire(CardBlockedCategory value) => value switch
+    {
+        CardBlockedCategory.Decision => "decision",
+        CardBlockedCategory.Access => "access",
+        CardBlockedCategory.Requirements => "requirements",
+        CardBlockedCategory.Environment => "environment",
+        CardBlockedCategory.Other => "other",
+        _ => throw new JsonException($"CardBlockedCategory.{value} has no wire spelling, so it cannot be sent."),
     };
 }
 

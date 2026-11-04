@@ -50,6 +50,22 @@ contract MergeStatus: {
 # including every card that predates this, since there is no migration to back-fill it — and such a
 # card sorts by `id` among the others like it, not at either end of the column. Meaningless outside
 # `parking-lot`: no other stage's order is an operator's to set (POST .../reposition refuses it).
+# The question a stage stopped to ask. Set alongside `needsHuman`, with the question as
+# `needsHumanReason`, and cleared by an answer, an ack or a move.
+contract CardBlocked: {
+    category: enum(decision, access, requirements, environment, other)
+    # What the stage already tried or checked before asking.
+    tried: string
+    question: string
+    # Answers the stage thinks are likely. An operator may answer something else.
+    options?: array(string)
+    # The stage that asked, so the answer goes back to the run it was meant for.
+    stage: string
+    askedAt: datetime
+    # Where the stopped run's uncommitted work is preserved. Absent when it left none.
+    patchPath?: string
+}
+
 contract CardSummary: {
     id: string
     title: string
@@ -75,6 +91,8 @@ contract CardSummary: {
     # `?? false` — every card has an answer to "does this need a human", even if that answer is no.
     needsHuman: boolean
     needsHumanReason?: string
+    # A question waiting for an answer: absent on a card flagged for any other reason.
+    blocked?: CardBlocked
     position?: int
     # The card this one was split out of. Absent on every other card, including pieces split before
     # the field existed, so absence does not prove a card has no origin.
