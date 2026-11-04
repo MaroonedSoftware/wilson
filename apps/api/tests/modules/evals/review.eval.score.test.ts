@@ -3,6 +3,7 @@ import {
     buildReport,
     FINDINGS_CAP,
     formatReport,
+    outputTokensSpent,
     rawView,
     scoreCase,
     verifiedView,
@@ -170,6 +171,15 @@ describe('buildReport', () => {
         expect(text).toContain('Recall, a blocker at the defect: 2/3 (67%)');
         expect(text).toContain('Specificity, a clean diff passed with no blocker: 1/2 (50%)');
         expect(text).toContain('- dead: the engine failed');
+    });
+
+    it('adds up output tokens across runs, counting those with no usage as none', () => {
+        const spent = outputTokensSpent([
+            { caseId: 'a', truth: control, usage: { outputTokens: 5 } },
+            { caseId: 'b', truth: control },
+            { caseId: 'c', truth: control, usage: { outputTokens: 7 } },
+        ]);
+        expect(spent).toBe(12);
     });
 
     it('does not divide by zero on an empty run', () => {

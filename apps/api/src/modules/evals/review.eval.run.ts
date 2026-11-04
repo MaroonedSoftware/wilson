@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { Logger } from '@maroonedsoftware/logger';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
-import type { StageAgent } from '#modules/agent/stage.agent.js';
+import type { AgentRunOutput, StageAgent } from '#modules/agent/stage.agent.js';
 import type { ToolContext } from '#modules/agent/tools/index.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { sectionsOf, type Card } from '#modules/board/card.js';
@@ -136,14 +136,25 @@ export const runCase = async ({ evalCase, seeded, stage, stages, agent, logger }
         logger,
     };
 
-    const run = await agent.run({
-        stage,
-        context,
-        planPath,
-        title: card.frontmatter.title,
-        resultSchema: ReviewResultSchema,
-        baseSha: worktree.baseSha,
-    });
+    let run: AgentRunOutput;
+    try {
+        run = await agent.run({
+            stage,
+            context,
+            planPath,
+            title: card.frontmatter.title,
+            resultSchema: ReviewResultSchema,
+            baseSha: worktree.baseSha,
+        });
+    } catch (err) {
+        // One engine crash says nothing about the review, and must not cost the cases already run.
+        return {
+            caseId: evalCase.id,
+            truth: evalCase.truth,
+            durationMs: Date.now() - startedAt,
+            unscored: `the engine threw: ${(err as Error).message}`,
+        };
+    }
     const base = { caseId: evalCase.id, truth: evalCase.truth, durationMs: Date.now() - startedAt, ...(run.usage && { usage: run.usage }) };
 
     const stopped =
@@ -155,7 +166,7 @@ export const runCase = async ({ evalCase, seeded, stage, stages, agent, logger }
         (run.blocked && `the stage asked a question: ${run.blocked.question}`) ??
         (run.truncated ? 'the stage ran out of steps' : undefined) ??
         (run.result === undefined ? 'the stage never reported a result' : undefined);
-    if (stopped) return { ...base, reported: run.result, unscored: stopped };
+    if (stopped) return { ...base, reported: run.result, unscored: stopped, ...(run.usageLimit && { outOfUsage: true }) };
 
     const verification = await new ReviewVerifier(worktrees, logger).verify({ worktree, scope, stage, cardId, card, result: run.result });
     return {

@@ -60,6 +60,8 @@ export interface ReviewEvalRun {
     verification?: ReviewEvalVerification;
     /** Why this run says nothing about the review: the engine failed, or it hit a budget. */
     unscored?: string;
+    /** The account ran out, so every case after this one would stop the same way. */
+    outOfUsage?: boolean;
     durationMs?: number;
     usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; cacheWriteInputTokens?: number };
 }
@@ -241,6 +243,9 @@ export const buildReport = (label: ReviewEvalLabel, startedAt: string, runs: Rev
         unscored: runs.flatMap(run => (run.unscored === undefined ? [] : [{ caseId: run.caseId, reason: run.unscored }])),
     };
 };
+
+/** Output tokens across runs, which is what the runner's ceiling counts. */
+export const outputTokensSpent = (runs: ReviewEvalRun[]): number => runs.reduce((total, run) => total + (run.usage?.outputTokens ?? 0), 0);
 
 const fraction = (part: number, n: number): string => (n === 0 ? 'no cases' : `${part}/${n} (${Math.round((part / n) * 100)}%)`);
 
