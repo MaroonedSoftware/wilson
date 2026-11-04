@@ -2,7 +2,14 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PASSED_THROUGH, PASSED_THROUGH_PREFIXES, pnpmStoreLock, runConfiguredCommand, scrubbedEnv } from '#modules/stages/run.command.js';
+import {
+    PASSED_THROUGH,
+    PASSED_THROUGH_PREFIXES,
+    pnpmStoreLock,
+    runConfiguredCommand,
+    runConfiguredCommandForOutput,
+    scrubbedEnv,
+} from '#modules/stages/run.command.js';
 
 /**
  * Card 0045: `runConfiguredCommand` used to call `execFile` with no `env`, so a `setupCommand`,
@@ -267,5 +274,68 @@ describe('pnpmStoreLock onWaited callback', () => {
 
         expect(result).toBe('solo-done');
         expect(onWaited).not.toHaveBeenCalled();
+    });
+});
+
+describe('runConfiguredCommandForOutput', () => {
+    const script = (body: string): { dir: string; path: string } => {
+        const dir = mkdtempSync(join(tmpdir(), 'run-for-output-'));
+        const path = join(dir, 'script.sh');
+        writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+        return { dir, path };
+    };
+
+    it('returns the whole output of a failing command, past the 4,000 characters a failure keeps', async () => {
+        const { dir, path } = script(`i=0; while [ $i -lt 2000 ]; do echo "line $i of a long error list"; i=$((i+1)); done; exit 2`);
+        try {
+            const result = await runConfiguredCommandForOutput(dir, path);
+            expect(result.exitCode).toBe(2);
+            expect(result.killed).toBe(false);
+            expect(result.output).toContain('line 0 of a long error list');
+            expect(result.output).toContain('line 1999 of a long error list');
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('returns stdout and stderr from a passing command', async () => {
+        const { dir, path } = script('echo out; echo err >&2');
+        try {
+            expect(await runConfiguredCommandForOutput(dir, path)).toEqual({ exitCode: 0, killed: false, output: 'out\nerr' });
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('uses the same scrubbed environment as runConfiguredCommand', async () => {
+        const { dir, path } = script('echo "secret=[$__FOR_OUTPUT_SECRET__]"');
+        process.env.__FOR_OUTPUT_SECRET__ = 'super-secret-value';
+        try {
+            expect((await runConfiguredCommandForOutput(dir, path)).output).toBe('secret=[]');
+        } finally {
+            delete process.env.__FOR_OUTPUT_SECRET__;
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('reports a timeout as killed rather than rejecting', async () => {
+        const { dir, path } = script('sleep 30');
+        try {
+            const result = await runConfiguredCommandForOutput(dir, path, 50);
+            expect(result.killed).toBe(true);
+            expect(result.exitCode).toBeUndefined();
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('reports a command that never started rather than rejecting', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'run-for-output-'));
+        try {
+            expect((await runConfiguredCommandForOutput(dir, './no-such-command')).exitCode).toBe('ENOENT');
+            expect((await runConfiguredCommandForOutput(dir, '   ')).exitCode).toBe('empty');
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
     });
 });
