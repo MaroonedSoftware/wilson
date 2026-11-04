@@ -253,7 +253,8 @@ export class EventLog {
      * (card 0263's Constraints); these are token counts, and a subscription run's tokens are not a
      * price.
      *
-     * One grouped query over `stage.passed`/`stage.failed`/`stage.interrupted`/`stage.blocked` rows, keyed by `stage`.
+     * One grouped query over `stage.passed`/`stage.failed`/`stage.interrupted`/`stage.blocked` rows, keyed by `stage`,
+     * plus `rule.verdicts`: what the judges spent for a stage counts as that stage's, and as no attempt.
      * `stages` comes back in the order each stage was first run — `min(id)` ascending, since `id` is a
      * `BIGSERIAL` assigned in insertion order (`append`) — not alphabetically. An interrupted or blocked run spent
      * its tokens but ended in no verdict and spends no retry, so it adds to the token sums and not to
@@ -268,7 +269,7 @@ export class EventLog {
             .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
-            .where('type', 'in', ['stage.passed', 'stage.failed', 'stage.interrupted', 'stage.blocked'])
+            .where('type', 'in', ['stage.passed', 'stage.failed', 'stage.interrupted', 'stage.blocked', 'rule.verdicts'])
             .select([
                 'stage',
                 sql<string>`count(*) filter (where type in ('stage.passed', 'stage.failed'))`.as('attempts'),
@@ -321,7 +322,7 @@ export class EventLog {
             .selectFrom('wilson.cardEvents as event')
             .leftJoin('wilson.cards as card', join => join.onRef('card.project', '=', 'event.project').onRef('card.id', '=', 'event.cardId'))
             .where('event.project', '=', project)
-            .where('event.type', 'in', ['stage.passed', 'stage.failed', 'stage.interrupted', 'stage.blocked'])
+            .where('event.type', 'in', ['stage.passed', 'stage.failed', 'stage.interrupted', 'stage.blocked', 'rule.verdicts'])
             .where('event.createdAt', '>=', since)
             .where('event.createdAt', '<', until)
             .select([
@@ -445,7 +446,7 @@ export class EventLog {
     /**
      * What a project has spent in output tokens since a given instant — card 0264's rollup, beside
      * `usageByStage`'s per-card one, that a daily ceiling is checked against. `stage.passed`/
-     * `stage.failed` rows, summed across every card in the project rather than grouped by one card's
+     * `stage.failed` rows, and what rule judges spent, summed across every card in the project rather than grouped by one card's
      * stages, and only `outputTokens`: the ceiling this backs is output-only for the reason
      * `DAILY_OUTPUT_TOKEN_CEILING`'s own doc comment gives, and there is no per-stage grouping to
      * preserve here the way `usageByStage` needs one. An event with no `usage` still coalesces to zero
@@ -462,7 +463,7 @@ export class EventLog {
         const row = await this.db
             .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
-            .where('type', 'in', ['stage.passed', 'stage.failed', 'stage.blocked'])
+            .where('type', 'in', ['stage.passed', 'stage.failed', 'stage.blocked', 'rule.verdicts'])
             .where('createdAt', '>=', since)
             .select(sql<string>`coalesce(sum((payload->'usage'->>'outputTokens')::bigint), 0)`.as('total'))
             .executeTakeFirstOrThrow();

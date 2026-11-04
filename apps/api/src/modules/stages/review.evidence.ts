@@ -18,6 +18,12 @@ import { netNewTypeErrors, parseTypeErrors, type NetNewTypeError, type TypeError
  */
 export const REVIEW_EVIDENCE_DEADLINE_MS = 4 * 60 * 1000;
 
+/**
+ * The most the rule judges may add. They run beside the evidence, so this is also the most the two
+ * together add, for the reason above. Installing dependencies shares the same ten minutes.
+ */
+export const REVIEW_PREPARATION_DEADLINE_MS = 5 * 60 * 1000;
+
 const MAX_LISTED = 40;
 const MAX_LINE_LENGTH = 300;
 const FAILURE_TAIL_LENGTH = 1000;

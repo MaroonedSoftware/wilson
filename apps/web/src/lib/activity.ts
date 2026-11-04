@@ -34,6 +34,7 @@ const SUMMARIES: Record<string, ActivitySummary> = {
     'card.answered': { label: 'Question answered', color: 'green' },
     'stage.blocked': { label: '{stage} asked a question', color: 'orange' },
     'card.over-budget': { label: 'Went over budget', color: 'red' },
+    'rule.verdicts': { label: 'Checked the rules', color: 'blue' },
     'card.auto-split': { label: 'Split automatically', color: 'blue' },
     'card.plan-drafted': { label: 'Drafted a plan', color: 'green' },
     'job.orphaned': { label: 'Recovered an orphaned job', color: 'orange' },
