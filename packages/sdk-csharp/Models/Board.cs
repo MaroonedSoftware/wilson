@@ -435,6 +435,85 @@ public sealed record ProjectConversationStats
 }
 
 /// <summary>
+/// A judgment that sent a card back, by where it came from: a review's or a challenge's `revise`, or a
+/// verifier's own failed check. `step` names the step of `stage` that judged, absent for the lane's own
+/// run. `matched` is how many of `count` are older events placed by matching their text.
+/// </summary>
+public sealed record ProjectGateKickback
+{
+    [JsonPropertyName("stage")]
+    public required string Stage { get; init; }
+
+    [JsonPropertyName("step")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Step { get; init; }
+
+    [JsonPropertyName("reason")]
+    public required ProjectGateKickbackReason Reason { get; init; }
+
+    [JsonPropertyName("count")]
+    public required long Count { get; init; }
+
+    [JsonPropertyName("matched")]
+    public required long Matched { get; init; }
+}
+
+/// <summary>
+/// Every failed attempt by why, including those that retried in place and judged nothing. `matched` is as
+/// on `ProjectGateKickback`, and older failures that match no known message count as `verifier`.
+/// </summary>
+public sealed record ProjectGateFailure
+{
+    [JsonPropertyName("failureClass")]
+    public required ProjectGateFailureFailureClass FailureClass { get; init; }
+
+    [JsonPropertyName("count")]
+    public required long Count { get; init; }
+
+    [JsonPropertyName("matched")]
+    public required long Matched { get; init; }
+}
+
+/// <summary>How many of a stage's passed attempts were a `revise`, which `ProjectStats` counts as passed.</summary>
+public sealed record ProjectGateRevised
+{
+    [JsonPropertyName("stage")]
+    public required string Stage { get; init; }
+
+    [JsonPropertyName("count")]
+    public required long Count { get; init; }
+}
+
+/// <summary>
+/// What the judges fresh in this window said about one rule. A verdict reused from an earlier run is not
+/// counted again.
+/// </summary>
+public sealed record ProjectGateRule
+{
+    [JsonPropertyName("rule")]
+    public required string Rule { get; init; }
+
+    [JsonPropertyName("statement")]
+    public required string Statement { get; init; }
+
+    [JsonPropertyName("failed")]
+    public required long Failed { get; init; }
+
+    [JsonPropertyName("unavailable")]
+    public required long Unavailable { get; init; }
+}
+
+/// <summary>A card flagged for a person by what flagged it. A flag on a card still flagged counts once.</summary>
+public sealed record ProjectGateTouchpoint
+{
+    [JsonPropertyName("cause")]
+    public required ProjectGateTouchpointCause Cause { get; init; }
+
+    [JsonPropertyName("count")]
+    public required long Count { get; init; }
+}
+
+/// <summary>
 /// Card 0265. One file changed in a card's branch since it forked from `main` —
 /// `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
 /// `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
@@ -1063,6 +1142,55 @@ public sealed record ProjectStatsTotal
 
     [JsonPropertyName("cards")]
     public required long Cards { get; init; }
+}
+
+/// <summary>
+/// `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
+/// person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
+/// with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
+/// re-review keep. `matched` is every older event in these figures placed by matching its text, since
+/// those events do not say why they failed.
+/// </summary>
+public sealed record ProjectGateStats
+{
+    [JsonPropertyName("since")]
+    public required DateTimeOffset Since { get; init; }
+
+    [JsonPropertyName("until")]
+    public required DateTimeOffset Until { get; init; }
+
+    [JsonPropertyName("zone")]
+    public required string Zone { get; init; }
+
+    [JsonPropertyName("kickbacks")]
+    public required List<ProjectGateKickback> Kickbacks { get; init; }
+
+    [JsonPropertyName("failures")]
+    public required List<ProjectGateFailure> Failures { get; init; }
+
+    [JsonPropertyName("revised")]
+    public required List<ProjectGateRevised> Revised { get; init; }
+
+    [JsonPropertyName("challenge")]
+    public required ProjectGateStatsChallenge Challenge { get; init; }
+
+    [JsonPropertyName("questions")]
+    public required ProjectGateStatsQuestions Questions { get; init; }
+
+    [JsonPropertyName("rules")]
+    public required List<ProjectGateRule> Rules { get; init; }
+
+    [JsonPropertyName("loopStops")]
+    public required long LoopStops { get; init; }
+
+    [JsonPropertyName("touchpoints")]
+    public required List<ProjectGateTouchpoint> Touchpoints { get; init; }
+
+    [JsonPropertyName("firstPass")]
+    public required ProjectGateStatsFirstPass FirstPass { get; init; }
+
+    [JsonPropertyName("matched")]
+    public required long Matched { get; init; }
 }
 
 /// <summary>
@@ -2152,6 +2280,266 @@ public sealed class ProjectConversationStatsKindConverter : JsonConverter<Projec
         ProjectConversationStatsKind.Review => "review",
         _ => throw new JsonException($"ProjectConversationStatsKind.{value} has no wire spelling, so it cannot be sent."),
     };
+}
+
+[JsonConverter(typeof(ProjectGateKickbackReasonConverter))]
+public enum ProjectGateKickbackReason
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("revise")]
+    Revise,
+
+    [JsonStringEnumMemberName("verifier")]
+    Verifier,
+}
+
+/// <summary>
+/// Reads and writes <see cref="ProjectGateKickbackReason"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="ProjectGateKickbackReason.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class ProjectGateKickbackReasonConverter : JsonConverter<ProjectGateKickbackReason>
+{
+    public override ProjectGateKickbackReason Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for ProjectGateKickbackReason, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, ProjectGateKickbackReason value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override ProjectGateKickbackReason ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, ProjectGateKickbackReason value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static ProjectGateKickbackReason FromWire(string? text) => text switch
+    {
+        "revise" => ProjectGateKickbackReason.Revise,
+        "verifier" => ProjectGateKickbackReason.Verifier,
+        _ => ProjectGateKickbackReason.Unknown,
+    };
+
+    private static string ToWire(ProjectGateKickbackReason value) => value switch
+    {
+        ProjectGateKickbackReason.Revise => "revise",
+        ProjectGateKickbackReason.Verifier => "verifier",
+        _ => throw new JsonException($"ProjectGateKickbackReason.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(ProjectGateFailureFailureClassConverter))]
+public enum ProjectGateFailureFailureClass
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("verifier")]
+    Verifier,
+
+    [JsonStringEnumMemberName("reportRejected")]
+    ReportRejected,
+
+    [JsonStringEnumMemberName("schemaInvalid")]
+    SchemaInvalid,
+
+    [JsonStringEnumMemberName("noReport")]
+    NoReport,
+
+    [JsonStringEnumMemberName("resultDropped")]
+    ResultDropped,
+
+    [JsonStringEnumMemberName("budget")]
+    Budget,
+
+    [JsonStringEnumMemberName("engine")]
+    Engine,
+
+    [JsonStringEnumMemberName("loop")]
+    Loop,
+
+    [JsonStringEnumMemberName("error")]
+    Error,
+}
+
+/// <summary>
+/// Reads and writes <see cref="ProjectGateFailureFailureClass"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="ProjectGateFailureFailureClass.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class ProjectGateFailureFailureClassConverter : JsonConverter<ProjectGateFailureFailureClass>
+{
+    public override ProjectGateFailureFailureClass Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for ProjectGateFailureFailureClass, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, ProjectGateFailureFailureClass value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override ProjectGateFailureFailureClass ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, ProjectGateFailureFailureClass value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static ProjectGateFailureFailureClass FromWire(string? text) => text switch
+    {
+        "verifier" => ProjectGateFailureFailureClass.Verifier,
+        "reportRejected" => ProjectGateFailureFailureClass.ReportRejected,
+        "schemaInvalid" => ProjectGateFailureFailureClass.SchemaInvalid,
+        "noReport" => ProjectGateFailureFailureClass.NoReport,
+        "resultDropped" => ProjectGateFailureFailureClass.ResultDropped,
+        "budget" => ProjectGateFailureFailureClass.Budget,
+        "engine" => ProjectGateFailureFailureClass.Engine,
+        "loop" => ProjectGateFailureFailureClass.Loop,
+        "error" => ProjectGateFailureFailureClass.Error,
+        _ => ProjectGateFailureFailureClass.Unknown,
+    };
+
+    private static string ToWire(ProjectGateFailureFailureClass value) => value switch
+    {
+        ProjectGateFailureFailureClass.Verifier => "verifier",
+        ProjectGateFailureFailureClass.ReportRejected => "reportRejected",
+        ProjectGateFailureFailureClass.SchemaInvalid => "schemaInvalid",
+        ProjectGateFailureFailureClass.NoReport => "noReport",
+        ProjectGateFailureFailureClass.ResultDropped => "resultDropped",
+        ProjectGateFailureFailureClass.Budget => "budget",
+        ProjectGateFailureFailureClass.Engine => "engine",
+        ProjectGateFailureFailureClass.Loop => "loop",
+        ProjectGateFailureFailureClass.Error => "error",
+        _ => throw new JsonException($"ProjectGateFailureFailureClass.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(ProjectGateTouchpointCauseConverter))]
+public enum ProjectGateTouchpointCause
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("question")]
+    Question,
+
+    [JsonStringEnumMemberName("kickbackLimit")]
+    KickbackLimit,
+
+    [JsonStringEnumMemberName("overBudget")]
+    OverBudget,
+
+    [JsonStringEnumMemberName("contextOverflow")]
+    ContextOverflow,
+
+    [JsonStringEnumMemberName("rebaseConflict")]
+    RebaseConflict,
+
+    [JsonStringEnumMemberName("poisoned")]
+    Poisoned,
+
+    [JsonStringEnumMemberName("dead")]
+    Dead,
+
+    [JsonStringEnumMemberName("sourceClosed")]
+    SourceClosed,
+}
+
+/// <summary>
+/// Reads and writes <see cref="ProjectGateTouchpointCause"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="ProjectGateTouchpointCause.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class ProjectGateTouchpointCauseConverter : JsonConverter<ProjectGateTouchpointCause>
+{
+    public override ProjectGateTouchpointCause Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for ProjectGateTouchpointCause, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, ProjectGateTouchpointCause value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override ProjectGateTouchpointCause ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, ProjectGateTouchpointCause value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static ProjectGateTouchpointCause FromWire(string? text) => text switch
+    {
+        "question" => ProjectGateTouchpointCause.Question,
+        "kickbackLimit" => ProjectGateTouchpointCause.KickbackLimit,
+        "overBudget" => ProjectGateTouchpointCause.OverBudget,
+        "contextOverflow" => ProjectGateTouchpointCause.ContextOverflow,
+        "rebaseConflict" => ProjectGateTouchpointCause.RebaseConflict,
+        "poisoned" => ProjectGateTouchpointCause.Poisoned,
+        "dead" => ProjectGateTouchpointCause.Dead,
+        "sourceClosed" => ProjectGateTouchpointCause.SourceClosed,
+        _ => ProjectGateTouchpointCause.Unknown,
+    };
+
+    private static string ToWire(ProjectGateTouchpointCause value) => value switch
+    {
+        ProjectGateTouchpointCause.Question => "question",
+        ProjectGateTouchpointCause.KickbackLimit => "kickbackLimit",
+        ProjectGateTouchpointCause.OverBudget => "overBudget",
+        ProjectGateTouchpointCause.ContextOverflow => "contextOverflow",
+        ProjectGateTouchpointCause.RebaseConflict => "rebaseConflict",
+        ProjectGateTouchpointCause.Poisoned => "poisoned",
+        ProjectGateTouchpointCause.Dead => "dead",
+        ProjectGateTouchpointCause.SourceClosed => "sourceClosed",
+        _ => throw new JsonException($"ProjectGateTouchpointCause.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+public sealed record ProjectGateStatsChallenge
+{
+    [JsonPropertyName("upheld")]
+    public required long Upheld { get; init; }
+
+    [JsonPropertyName("overturned")]
+    public required long Overturned { get; init; }
+}
+
+public sealed record ProjectGateStatsQuestions
+{
+    [JsonPropertyName("asked")]
+    public required long Asked { get; init; }
+
+    [JsonPropertyName("answered")]
+    public required long Answered { get; init; }
+}
+
+public sealed record ProjectGateStatsFirstPass
+{
+    [JsonPropertyName("reached")]
+    public required long Reached { get; init; }
+
+    [JsonPropertyName("firstPass")]
+    public required long FirstPass { get; init; }
 }
 
 [JsonConverter(typeof(CardDiffFileStatusConverter))]

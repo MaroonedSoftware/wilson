@@ -45,7 +45,8 @@ const contextGuardBeatsCompaction = (autoCompactWindow: number, maxContextWindow
  * `revise` when the lane's run reports `verdict: revise`, `approve` when a person approves a plan.
  *
  * Anything it does not name is the lane's. There are no defaults here, on purpose: a default would
- * silently replace the value the lane chose.
+ * silently replace the value the lane chose. The lane's `depths` do not reach a step: it runs on the
+ * model the lane names, whatever a card's diff comes to.
  */
 export const LaneStepSchema = z.object({
     name: z.string(),
@@ -71,6 +72,22 @@ export const LaneStepSchema = z.object({
 });
 
 export type LaneStep = z.infer<typeof LaneStepSchema>;
+
+/**
+ * What a lane runs on once a card's diff reaches `minChangedLines` (`withDepth`). Anything it does not
+ * name is the lane's, and the provider and adapter always are, so a tier's model has to be one the
+ * lane's engine can run. Strict, since a misspelt field here would otherwise quietly keep the lane's value.
+ */
+export const LaneDepthSchema = z
+    .object({
+        minChangedLines: z.number().int().min(0),
+        model: z.string().min(1).optional(),
+        maxSteps: z.number().int().min(1).optional(),
+        maxInputTokens: z.number().int().min(1000).optional(),
+    })
+    .strict();
+
+export type LaneDepth = z.infer<typeof LaneDepthSchema>;
 
 /** The step a lane runs on `on`, if it has one. */
 export const stepOn = (stages: ProjectStages, lane: string, on: LaneStep['on']): LaneStep | undefined =>
@@ -361,6 +378,13 @@ export const StageConfigSchema = z
         steps: z.array(LaneStepSchema).optional(),
         /** Which of `steps` this is, set only by `findStage` when it resolves one. */
         step: z.string().optional(),
+        /**
+         * Tiers that scale this lane by the size of a card's diff, smallest first: the highest one the
+         * diff reaches applies, and a diff below them all runs the lane as written. Unset is off.
+         */
+        depths: z.array(LaneDepthSchema).optional(),
+        /** Which of `depths` this run is on, set only by `withDepth` when one applies. */
+        depth: LaneDepthSchema.optional(),
     })
     .superRefine((stage, ctx) => {
         if (runsModel(stage) && !stage.model) {
@@ -391,6 +415,19 @@ export const StageConfigSchema = z
                 message: `maxIdleMs (${stage.maxIdleMs}) must be below maxWallClockMs (${stage.maxWallClockMs}), or the idle guard can never fire`,
             });
         }
+        if (stage.depths?.length && stage.mode !== 'agent') {
+            ctx.addIssue({ code: 'custom', path: ['depths'], message: `${stage.name} is ${stage.mode}, so no diff can scale it` });
+        }
+        stage.depths?.forEach((depth, index) => {
+            const previous = stage.depths?.[index - 1];
+            if (previous && depth.minChangedLines <= previous.minChangedLines) {
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['depths', index, 'minChangedLines'],
+                    message: `depths must go up: ${depth.minChangedLines} follows ${previous.minChangedLines}`,
+                });
+            }
+        });
         const windows = [
             { path: ['autoCompactWindow'], label: stage.name, window: stage.autoCompactWindow },
             ...(stage.steps ?? []).map((step, index) => ({

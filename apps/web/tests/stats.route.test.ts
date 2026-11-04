@@ -10,7 +10,7 @@ import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/rea
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BoardClient, HealthClient } from '@wilson/sdk';
-import type { Health, ProjectStats } from '@wilson/sdk';
+import type { Health, ProjectGateStats, ProjectStats } from '@wilson/sdk';
 import { routeTree } from '../src/routeTree.gen.js';
 
 const counts = (overrides: Partial<ProjectStats['total']> = {}) => ({
@@ -52,6 +52,22 @@ const stats: ProjectStats = {
         { kind: 'planning', turns: 4, cards: 2, inputTokens: 60_000, cachedInputTokens: 50_000, outputTokens: 3_000 },
         { kind: 'review', turns: 1, cards: 1, inputTokens: 7_000, cachedInputTokens: 6_000, outputTokens: 500 },
     ],
+};
+
+const noGates: ProjectGateStats = {
+    since: stats.since,
+    until: stats.until,
+    zone: stats.zone,
+    kickbacks: [],
+    failures: [],
+    revised: [],
+    challenge: { upheld: 0, overturned: 0 },
+    questions: { asked: 0, answered: 0 },
+    rules: [],
+    loopStops: 0,
+    touchpoints: [],
+    firstPass: { reached: 0, firstPass: 0 },
+    matched: 0,
 };
 
 class FakeEventSource {
@@ -107,6 +123,7 @@ beforeEach(() => {
     );
     vi.spyOn(HealthClient.prototype, 'getHealth').mockResolvedValue({ ok: true, project: 'demo' } as unknown as Health);
     vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([]);
+    vi.spyOn(BoardClient.prototype, 'getProjectGateStats').mockResolvedValue(noGates);
 });
 
 afterEach(() => {
@@ -131,6 +148,52 @@ describe('the stats page', () => {
         expect(screen.getByText('0002 (no longer on the board)')).toBeTruthy();
         expect(screen.getByText(/America\/New_York/)).toBeTruthy();
         expect(screen.getByRole('link', { name: 'Stats' }).getAttribute('href')).toBe('/projects/demo/stats');
+    });
+
+    it('does not count a revise as a passed attempt, in the tile or in its stage', async () => {
+        vi.spyOn(BoardClient.prototype, 'getProjectStats').mockResolvedValue(stats);
+        vi.spyOn(BoardClient.prototype, 'getProjectGateStats').mockResolvedValue({ ...noGates, revised: [{ stage: 'review', count: 1 }] });
+
+        renderApp();
+
+        expect(await screen.findByText('2 of 4 attempts, 1 asked for changes')).toBeTruthy();
+        expect(screen.getAllByText('50%')).toHaveLength(1);
+        expect(screen.getByText('0%')).toBeTruthy();
+    });
+
+    it('shows what the gates caught, labelling what older events were matched by text', async () => {
+        vi.spyOn(BoardClient.prototype, 'getProjectStats').mockResolvedValue(stats);
+        vi.spyOn(BoardClient.prototype, 'getProjectGateStats').mockResolvedValue({
+            ...noGates,
+            kickbacks: [
+                { stage: 'review', reason: 'revise', count: 2, matched: 0 },
+                { stage: 'review', step: 'challenge', reason: 'revise', count: 1, matched: 0 },
+                { stage: 'testing', reason: 'verifier', count: 3, matched: 1 },
+            ],
+            failures: [{ failureClass: 'budget', count: 4, matched: 2 }],
+            challenge: { upheld: 1, overturned: 2 },
+            questions: { asked: 3, answered: 1 },
+            rules: [{ rule: 'r1', statement: 'No secrets in logs', failed: 2, unavailable: 1 }],
+            loopStops: 5,
+            touchpoints: [{ cause: 'question', count: 3 }],
+            firstPass: { reached: 5, firstPass: 3 },
+            matched: 3,
+        });
+
+        renderApp();
+
+        expect(await screen.findByText('3 of 5 cards reaching ready, no retries spent')).toBeTruthy();
+        expect(screen.getByText('60%')).toBeTruthy();
+        expect(screen.getByText('challenge upheld 1, overturned 2')).toBeTruthy();
+        expect(screen.getByText('3 questions, 1 answered')).toBeTruthy();
+        expect(screen.getByText('Asked for changes')).toBeTruthy();
+        expect(screen.getByText('Challenge upheld a revise')).toBeTruthy();
+        expect(screen.getByText('3 (1 matched)')).toBeTruthy();
+        expect(screen.getByText('Ran out of budget')).toBeTruthy();
+        expect(screen.getByText('4 (2 matched)')).toBeTruthy();
+        expect(screen.getByText('Asked a question')).toBeTruthy();
+        expect(screen.getByText('No secrets in logs')).toBeTruthy();
+        expect(screen.getByText(/3 older failed attempts do not say why/)).toBeTruthy();
     });
 
     it('keeps planning and review in a table of their own, beside the stage total', async () => {

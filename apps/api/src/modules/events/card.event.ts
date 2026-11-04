@@ -48,6 +48,9 @@ export type CardEventType =
     // `describeEngineStop`). Never present on `stage.passed`. A dead engine process is a different
     // signal entirely, carried on its own `errorClass`/`exitCode`/`signal` shape by `engine.failed`
     // below, not by this field.
+    //
+    // Also carries `failureClass` (`stage.result.ts`) and `reason`, the failure it leads with, cut to
+    // `REASON_LIMIT`. Rows from before those were added have neither: `gate.stats.ts` matches their text.
     | 'stage.failed'
     | 'stage.poisoned'
     | 'stage.dead'
@@ -178,6 +181,9 @@ export type CardEventType =
     | 'review.evidence'
     | 'work.committed'
     | 'worktree.reclaimed'
+    // Carries `from`, `to` and `by`. A runner transition that sent a card back also carries
+    // `failureClass`, which is `revise` for a review that asked for changes, and `reason`. So does one
+    // that flagged a card, whose `reason` is the flag's. Rows from before those were added have neither.
     | 'transition.written'
     // A person approved a card's branch at one commit (`ReviewService.approve`). Carries `head`. A record
     // of the judgment and nothing more: it moves no stage and merging does not read it.

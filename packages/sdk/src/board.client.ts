@@ -26,6 +26,7 @@ import type {
     PlanSession,
     PlanTurn,
     PlanTurnRequest,
+    ProjectGateStats,
     ProjectStats,
     ProjectStatsQuery,
     RecordFindingsRequest,
@@ -46,6 +47,7 @@ import {
     reviveMergeResult,
     revivePlanComment,
     revivePlanTurn,
+    reviveProjectGateStats,
     reviveProjectStats,
     reviveReleaseResult,
     reviveSplitResult,
@@ -465,6 +467,19 @@ export class BoardClient {
             method: 'GET',
         });
         return reviveProjectStats(await parseJson<ProjectStats>(result));
+    }
+
+    /**
+     * @name Get project gate stats
+     * @description What the gates caught and how often a person was pulled in. Separate from `/api/stats` because it reads
+     * different events, from the same window in the same time zone.
+     */
+    async getProjectGateStats(query?: ProjectStatsQuery): Promise<ProjectGateStats> {
+        const qs = buildQueryString(query);
+        const result = await this.fetch(`/api/stats/gates${qs}`, {
+            method: 'GET',
+        });
+        return reviveProjectGateStats(await parseJson<ProjectGateStats>(result));
     }
 
     /**

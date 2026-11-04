@@ -532,6 +532,21 @@ public sealed class BoardClient(SdkHttp http)
     }
 
     /// <summary>
+    /// Get project gate stats
+    /// What the gates caught and how often a person was pulled in. Separate from `/api/stats` because it reads
+    /// different events, from the same window in the same time zone.
+    /// </summary>
+    public async Task<ProjectGateStats> GetProjectGateStatsAsync(ProjectStatsQuery? query = null, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "stats", "gates"),
+            query: http.Params(query),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<ProjectGateStats>(response);
+    }
+
+    /// <summary>
     /// Get card usage
     /// Card 0263. Read-only, like `division`/`lint` above: nothing here recomputes or stores anything,
     /// it only sums what `EventLog` already has. A card with no `stage.passed`/`stage.failed` events on

@@ -11,6 +11,12 @@ import type { RemotePlacement } from '#modules/host/placement.js';
 import { LeaseService } from '#modules/lease/lease.service.js';
 import { codeRootLock } from './code.root.lock.js';
 
+/** The size of a diff, in lines. */
+export interface Diffstat {
+    added: number;
+    removed: number;
+}
+
 export interface Worktree {
     /** Absolute path to the worktree root. Every agent tool is confined to this. */
     path: string;
@@ -565,6 +571,38 @@ export class WorktreeManager {
             .split('\n')
             .map(line => line.trim())
             .filter(Boolean);
+    }
+
+    /**
+     * How many lines `branch` changed since it forked from what `codeRoot` has checked out, or
+     * undefined for a branch that does not exist yet. The fork point is the one
+     * {@link rebaseOntoHead} replays from, read before any rebase, and nothing here touches a working
+     * tree or index.
+     */
+    async diffstatSinceFork(branch: string): Promise<Diffstat | undefined> {
+        const exists = await git(this.config.codeRoot, ['rev-parse', '--verify', '--quiet', branch]).then(
+            () => true,
+            () => false,
+        );
+        if (!exists) return undefined;
+
+        const base = (await git(this.config.codeRoot, ['merge-base', branch, 'HEAD'])).stdout.trim();
+        return this.numstatSince(base, branch);
+    }
+
+    /**
+     * Lines added and removed between `base` and `ref`. `--no-renames`, as {@link patchSinceFork} has
+     * it: a rename reads as a delete and an add. A binary file has no lines, so it counts for nothing.
+     */
+    private async numstatSince(base: string, ref: string): Promise<Diffstat> {
+        const { stdout } = await git(this.config.codeRoot, ['diff', '--numstat', '--no-renames', base, ref, '--']);
+        const diffstat = { added: 0, removed: 0 };
+        for (const line of stdout.split('\n').filter(Boolean)) {
+            const [added, removed] = line.split('\t');
+            diffstat.added += Number(added) || 0;
+            diffstat.removed += Number(removed) || 0;
+        }
+        return diffstat;
     }
 
     /**
