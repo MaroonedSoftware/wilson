@@ -1,0 +1,118 @@
+diff --git a/apps/api/src/modules/notify/notifier.ts b/apps/api/src/modules/notify/notifier.ts
+index 2994f9f3..41501551 100644
+--- a/apps/api/src/modules/notify/notifier.ts
++++ b/apps/api/src/modules/notify/notifier.ts
+@@ -2,6 +2,29 @@ import { ConsoleLogger, type Logger } from '@maroonedsoftware/logger';
+ import type { CardNotification } from './notification.js';
+ import { checkWebhookDestination, warnOnceInvalidWebhook } from './webhook.destination.js';
+ 
++/**
++ * Somewhere else a notification can go besides the webhook. `send` may throw: `Notifier` catches it,
++ * so a channel need not repeat the rule that a notification never fails a stage.
++ */
++export interface NotificationChannel {
++    readonly name: string;
++    send(notification: CardNotification): Promise<void>;
++}
++
++/**
++ * The extra channels, registered once at boot. Module-level for the reason `cardFeed` is, and because
++ * six call sites construct `Notifier` by hand: this way none of them has to learn about any channel.
++ */
++const channels: NotificationChannel[] = [];
++
++/** Adds a channel, and hands back how to take it off again. */
++export const registerNotificationChannel = (channel: NotificationChannel): (() => void) => {
++    channels.push(channel);
++    return () => {
++        channels.splice(channels.indexOf(channel), 1);
++    };
++};
++
+ /** How long the notifier waits for the webhook before giving up on it. */
+ const NOTIFY_TIMEOUT_MS = 5_000;
+ 
+@@ -36,9 +59,21 @@ export class Notifier {
+      * Never throws. A webhook that times out, 500s, or points at nothing is logged and swallowed —
+      * the transition this reports on has already committed, and a notification able to unwind it is
+      * worse than no notification at all (Constraints: "Never fail a stage because a notification
+-     * failed").
++     * failed"). The same goes for every registered channel, and one failing never stops another.
+      */
+     async notify(notification: CardNotification): Promise<void> {
++        await Promise.all([this.postWebhook(notification), ...channels.map(channel => this.sendTo(channel, notification))]);
++    }
++
++    private async sendTo(channel: NotificationChannel, notification: CardNotification): Promise<void> {
++        try {
++            await channel.send(notification);
++        } catch (error) {
++            this.logger.warn(`notify ${channel.name} for ${notification.cardId} (${notification.moment}) failed: ${(error as Error).message}`);
++        }
++    }
++
++    private async postWebhook(notification: CardNotification): Promise<void> {
+         if (!this.webhookUrl) return;
+ 
+         // Card 0107: re-checked on every call, not trusted from whatever validated it at write
+diff --git a/apps/api/tests/modules/notify/notifier.test.ts b/apps/api/tests/modules/notify/notifier.test.ts
+index 5424eab4..794db357 100644
+--- a/apps/api/tests/modules/notify/notifier.test.ts
++++ b/apps/api/tests/modules/notify/notifier.test.ts
+@@ -1,5 +1,5 @@
+ import { afterEach, describe, expect, it, vi } from 'vitest';
+-import { Notifier } from '#modules/notify/notifier.js';
++import { Notifier, registerNotificationChannel } from '#modules/notify/notifier.js';
+ import type { CardNotification } from '#modules/notify/notification.js';
+ import type { Logger } from '@maroonedsoftware/logger';
+ 
+@@ -38,6 +38,49 @@ describe('Notifier', () => {
+         vi.useRealTimers();
+     });
+ 
++    describe('registered channels', () => {
++        it('sends to a channel with no webhook configured', async () => {
++            const send = vi.fn(async () => undefined);
++            const remove = registerNotificationChannel({ name: 'test', send });
++
++            await new Notifier(undefined, undefined, fakeLogger()).notify(notification());
++            remove();
++
++            expect(send).toHaveBeenCalledWith(notification());
++        });
++
++        it('keeps a failing channel from reaching the caller, the webhook or the next channel', async () => {
++            const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
++            vi.stubGlobal('fetch', fetchMock);
++            const logger = fakeLogger();
++            const next = vi.fn(async () => undefined);
++            const removeBroken = registerNotificationChannel({
++                name: 'broken',
++                send: async () => {
++                    throw new Error('no route');
++                },
++            });
++            const removeNext = registerNotificationChannel({ name: 'next', send: next });
++
++            await expect(new Notifier('https://hooks.example/notify', undefined, logger).notify(notification())).resolves.toBeUndefined();
++            removeBroken();
++            removeNext();
++
++            expect(next).toHaveBeenCalledOnce();
++            expect(fetchMock).toHaveBeenCalledOnce();
++            expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('notify broken for 0050 (manual) failed: no route'));
++        });
++
++        it('stops sending once a channel is removed', async () => {
++            const send = vi.fn(async () => undefined);
++            registerNotificationChannel({ name: 'test', send })();
++
++            await new Notifier(undefined, undefined, fakeLogger()).notify(notification());
++
++            expect(send).not.toHaveBeenCalled();
++        });
++    });
++
+     describe('off by default', () => {
+         it('makes no HTTP call and logs nothing when no webhook URL is configured', async () => {
+             const fetchMock = vi.fn();

@@ -1,0 +1,8 @@
+{
+    "kind": "defect",
+    "class": "integration",
+    "file": "packages/cli/src/commands/card/start.command.ts",
+    "lines": [17, 29],
+    "about": "The queue is never opened in this process, since the CLI bootstrap runs each module's setup and not its start, so the first send is refused.",
+    "fixedBy": "08166ba70eda599fa7ac66cbfc6cc3ca7ae08979"
+}

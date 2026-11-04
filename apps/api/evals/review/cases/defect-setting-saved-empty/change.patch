@@ -1,0 +1,802 @@
+diff --git a/apps/api/data/contracts/settings.ck b/apps/api/data/contracts/settings.ck
+index dfe5f93e..de488cb9 100644
+--- a/apps/api/data/contracts/settings.ck
++++ b/apps/api/data/contracts/settings.ck
+@@ -4,6 +4,7 @@ options {
+         PollerIntervalSettingService: "#modules/settings/poller.interval.setting.service.js"
+         CardStageConcurrencySettingService: "#modules/settings/card.stage.concurrency.setting.service.js"
+         NotifyWebhookSettingService: "#modules/settings/notify.webhook.setting.service.js"
++        ClaudeConfigDirSettingService: "#modules/settings/claude.config.dir.setting.service.js"
+     }
+     security: none
+ }
+@@ -168,3 +169,45 @@ operation /api/settings/notify-webhook: {
+         }
+     }
+ }
++
++# `null` means unset — the engine falls back to whatever Claude Code credentials live in the
++# daemon user's own home directory, exactly as it does today (card 0141). Set, it points the `cli`
++# adapter's engine (`CliStageAgent`) and the planning session's engine (`PlanSessionAgent`) at this
++# directory instead via `CLAUDE_CONFIG_DIR` — see `subscriptionEnv` (cli.stage.agent.ts) for where
++# that environment variable is actually set.
++#
++# Only an absolute path is checked here, by `ClaudeConfigDirSettingService.set` — whether the
++# directory exists, is writable, or holds working credentials is deliberately not this card's
++# business (its Out of scope): a wrong-but-absolute value is discovered by every `cli`-adapter
++# stage failing at the model call, not by a check here guessing at what "working" means.
++contract ClaudeConfigDirSetting: {
++    configDir: string | null
++}
++
++contract SetClaudeConfigDirSettingRequest: {
++    configDir: string | null
++}
++
++operation /api/settings/claude-config-dir: {
++    get: {
++        name: Get claude config dir setting
++        service: ClaudeConfigDirSettingService.get
++        response: {
++            200: { application/json: ClaudeConfigDirSetting }
++        }
++    }
++    put: {
++        name: Set claude config dir setting
++        service: ClaudeConfigDirSettingService.set
++        request: {
++            application/json: SetClaudeConfigDirSettingRequest
++        }
++        response: {
++            200: { application/json: ClaudeConfigDirSetting }
++            # configDir is not an absolute path (`ClaudeConfigDirSettingService.set`'s own reason
++            # string) — carried via `details`, the same convention every other refusal on this
++            # contract uses.
++            400:
++        }
++    }
++}
+diff --git a/apps/api/src/generated/settings.ts b/apps/api/src/generated/settings.ts
+index 216db895..8f0ed3d8 100644
+--- a/apps/api/src/generated/settings.ts
++++ b/apps/api/src/generated/settings.ts
+@@ -29,7 +29,7 @@ import { z } from 'zod';
+  * pointed, not *whether* an unauthenticated caller can point it somewhere the check still allows.
+  * Authenticating this API (card 0019) is the actual answer; this is mitigation on top of its
+  * absence, not a substitute for it.
+- * generated from [PollerSetting](file://./../../data/contracts/settings.ck#L39)
++ * generated from [PollerSetting](file://./../../data/contracts/settings.ck#L40)
+  */
+ export const PollerSetting = z.strictObject({
+     enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+@@ -37,7 +37,7 @@ export const PollerSetting = z.strictObject({
+ export type PollerSetting = z.infer<typeof PollerSetting>;
+ 
+ /**
+- * generated from [SetPollerSettingRequest](file://./../../data/contracts/settings.ck#L43)
++ * generated from [SetPollerSettingRequest](file://./../../data/contracts/settings.ck#L44)
+  */
+ export const SetPollerSettingRequest = z.strictObject({
+     enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+@@ -47,7 +47,7 @@ export type SetPollerSettingRequest = z.infer<typeof SetPollerSettingRequest>;
+ /**
+  * Bounds enforced server-side by `PollerIntervalSettingService.set` (job.runner.config.ts carries
+  * the numbers and the reasoning) — `curl` gets the same refusal the page does.
+- * generated from [PollerInterval](file://./../../data/contracts/settings.ck#L49)
++ * generated from [PollerInterval](file://./../../data/contracts/settings.ck#L50)
+  */
+ export const PollerInterval = z.strictObject({
+     intervalMs: z.coerce.number().int(),
+@@ -55,7 +55,7 @@ export const PollerInterval = z.strictObject({
+ export type PollerInterval = z.infer<typeof PollerInterval>;
+ 
+ /**
+- * generated from [SetPollerIntervalRequest](file://./../../data/contracts/settings.ck#L53)
++ * generated from [SetPollerIntervalRequest](file://./../../data/contracts/settings.ck#L54)
+  */
+ export const SetPollerIntervalRequest = z.strictObject({
+     intervalMs: z.coerce.number().int(),
+@@ -65,7 +65,7 @@ export type SetPollerIntervalRequest = z.infer<typeof SetPollerIntervalRequest>;
+ /**
+  * Bounds enforced server-side by `CardStageConcurrencySettingService.set` (job.runner.config.ts
+  * carries the numbers and the reasoning) — `curl` gets the same refusal the page does.
+- * generated from [CardStageConcurrency](file://./../../data/contracts/settings.ck#L59)
++ * generated from [CardStageConcurrency](file://./../../data/contracts/settings.ck#L60)
+  */
+ export const CardStageConcurrency = z.strictObject({
+     concurrency: z.coerce.number().int(),
+@@ -73,7 +73,7 @@ export const CardStageConcurrency = z.strictObject({
+ export type CardStageConcurrency = z.infer<typeof CardStageConcurrency>;
+ 
+ /**
+- * generated from [SetCardStageConcurrencyRequest](file://./../../data/contracts/settings.ck#L63)
++ * generated from [SetCardStageConcurrencyRequest](file://./../../data/contracts/settings.ck#L64)
+  */
+ export const SetCardStageConcurrencyRequest = z.strictObject({
+     concurrency: z.coerce.number().int(),
+@@ -85,7 +85,7 @@ export type SetCardStageConcurrencyRequest = z.infer<typeof SetCardStageConcurre
+  * absent. One resource for both fields, not two: `Notifier.notify` always reads them together, and
+  * a base URL with nothing to post it to is exactly as useless as a webhook with no way to name the
+  * card in its payload (`board.config.ts`'s own comment on the pair).
+- * generated from [NotifyWebhookSetting](file://./../../data/contracts/settings.ck#L137)
++ * generated from [NotifyWebhookSetting](file://./../../data/contracts/settings.ck#L138)
+  */
+ export const NotifyWebhookSetting = z.strictObject({
+     webhookUrl: z.string().nullable(),
+@@ -94,10 +94,36 @@ export const NotifyWebhookSetting = z.strictObject({
+ export type NotifyWebhookSetting = z.infer<typeof NotifyWebhookSetting>;
+ 
+ /**
+- * generated from [SetNotifyWebhookSettingRequest](file://./../../data/contracts/settings.ck#L142)
++ * generated from [SetNotifyWebhookSettingRequest](file://./../../data/contracts/settings.ck#L143)
+  */
+ export const SetNotifyWebhookSettingRequest = z.strictObject({
+     webhookUrl: z.string().nullable(),
+     baseUrl: z.string().nullable(),
+ });
+ export type SetNotifyWebhookSettingRequest = z.infer<typeof SetNotifyWebhookSettingRequest>;
++
++/**
++ * `null` means unset — the engine falls back to whatever Claude Code credentials live in the
++ * daemon user's own home directory, exactly as it does today (card 0141). Set, it points the `cli`
++ * adapter's engine (`CliStageAgent`) and the planning session's engine (`PlanSessionAgent`) at this
++ * directory instead via `CLAUDE_CONFIG_DIR` — see `subscriptionEnv` (cli.stage.agent.ts) for where
++ * that environment variable is actually set.
++ *
++ * Only an absolute path is checked here, by `ClaudeConfigDirSettingService.set` — whether the
++ * directory exists, is writable, or holds working credentials is deliberately not this card's
++ * business (its Out of scope): a wrong-but-absolute value is discovered by every `cli`-adapter
++ * stage failing at the model call, not by a check here guessing at what "working" means.
++ * generated from [ClaudeConfigDirSetting](file://./../../data/contracts/settings.ck#L183)
++ */
++export const ClaudeConfigDirSetting = z.strictObject({
++    configDir: z.string().nullable(),
++});
++export type ClaudeConfigDirSetting = z.infer<typeof ClaudeConfigDirSetting>;
++
++/**
++ * generated from [SetClaudeConfigDirSettingRequest](file://./../../data/contracts/settings.ck#L187)
++ */
++export const SetClaudeConfigDirSettingRequest = z.strictObject({
++    configDir: z.string().nullable(),
++});
++export type SetClaudeConfigDirSettingRequest = z.infer<typeof SetClaudeConfigDirSettingRequest>;
+diff --git a/apps/api/src/modules/agent/cli.stage.agent.ts b/apps/api/src/modules/agent/cli.stage.agent.ts
+index 7be15158..ce52a108 100644
+--- a/apps/api/src/modules/agent/cli.stage.agent.ts
++++ b/apps/api/src/modules/agent/cli.stage.agent.ts
+@@ -4,6 +4,8 @@ import { Injectable } from 'injectkit';
+ import { Logger } from '@maroonedsoftware/logger';
+ import { createSdkMcpServer, query, tool, type CanUseTool, type PermissionResult } from '@anthropic-ai/claude-agent-sdk';
+ import { z } from 'zod';
++import { SettingsStore } from '#modules/settings/settings.store.js';
++import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
+ import { contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
+ import { REPORT_RESULT_PATH } from './scope.guard.js';
+ import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
+@@ -20,11 +22,22 @@ import type { ToolContext } from './tools/index.js';
+  * silently routes this adapter back through per-token API billing, which is the exact thing it
+  * exists to avoid: the first run of it failed on "Credit balance is too low" while a perfectly good
+  * subscription sat unused.
++ *
++ * `configDir`, when given, is set as `CLAUDE_CONFIG_DIR` — the directory the engine reads its own
++ * Claude Code credentials from (card 0141: an operator's choice, via the `claude-config-dir`
++ * setting, rather than whatever the daemon user's own `~/.claude` happens to hold). Left `undefined`
++ * — the setting unset — the environment is exactly what it always was, with no `CLAUDE_CONFIG_DIR`
++ * key at all: a fresh install behaves identically to before this card. Resolving that setting is
++ * async and needs the container, which this function deliberately stays free of (this card's
++ * Constraints: "`subscriptionEnv()` stays synchronous and dependency-free") — both callers resolve
++ * it themselves and pass the result in, the same way they already resolve everything else this
++ * function does not know about on its own.
+  */
+-export const subscriptionEnv = (): NodeJS.ProcessEnv => {
++export const subscriptionEnv = (configDir?: string): NodeJS.ProcessEnv => {
+     const env = { ...process.env };
+     delete env.ANTHROPIC_API_KEY;
+     delete env.ANTHROPIC_AUTH_TOKEN;
++    if (configDir !== undefined) env.CLAUDE_CONFIG_DIR = configDir;
+     return env;
+ };
+ 
+@@ -102,11 +115,25 @@ const EXEC_TOOLS = ['Bash'];
+  */
+ @Injectable()
+ export class CliStageAgent extends StageAgent {
+-    constructor(private readonly logger: Logger) {
++    // `settings` is optional so a test that constructs this class directly — bypassing DI, the way
++    // every existing test in `tests/modules/agent/cli.*.test.ts` already does — keeps working
++    // unchanged: no store means no row to read, which resolves `configDir` below to `undefined`,
++    // the same "unset means unchanged" behaviour this card's Constraints require anyway. Production
++    // wiring (`agent.module.ts`'s `useClass(CliStageAgent)`) always supplies the real one.
++    constructor(
++        private readonly logger: Logger,
++        private readonly settings?: SettingsStore,
++    ) {
+         super();
+     }
+ 
+     async run({ stage, context, planPath, title, resultSchema, baseSha }: AgentRunInput): Promise<AgentRunOutput> {
++        // Resolved once, up front — a setting read while a card is in flight must not change what
++        // this run uses partway through (this card's Constraints: "a change applies to stages
++        // started afterwards"), and `subscriptionEnv` below stays synchronous, so the read has to
++        // happen out here rather than inline where it is used.
++        const configDir = await this.settings?.get(CLAUDE_CONFIG_DIR);
++
+         // The engine has no equivalent of the api adapter's report tool, so one is supplied as an
+         // in-process MCP server. It takes only a path, not this stage's own result schema — see the
+         // tool's own definition below for why crossing that transport as tool arguments is exactly
+@@ -387,7 +414,7 @@ export class CliStageAgent extends StageAgent {
+                     },
+                     beat,
+                 ),
+-                env: subscriptionEnv(),
++                env: subscriptionEnv(configDir),
+                 // Captured independent of how the read loop ends — the only way to see what the
+                 // engine wrote to stderr when it dies before producing a `result` message at all.
+                 stderr: (data: string) => {
+diff --git a/apps/api/src/modules/agent/plan.session.agent.ts b/apps/api/src/modules/agent/plan.session.agent.ts
+index 7993ebbb..aacfbaad 100644
+--- a/apps/api/src/modules/agent/plan.session.agent.ts
++++ b/apps/api/src/modules/agent/plan.session.agent.ts
+@@ -51,6 +51,11 @@ export interface PlanSessionOptions {
+     /** The engine's own session id to resume — set only when this agent is rehydrating a
+      * conversation `runner.plan_turns` already has turns for, never for a brand-new one. */
+     resume?: string;
++    /** The resolved `claude-config-dir` setting (card 0141), or `undefined` when unset — passed
++     * straight to `subscriptionEnv` below. This class has no DI and no store of its own, so the
++     * caller resolves it the same way it already resolves `model`, and hands it in alongside the
++     * rest of this session's config. */
++    configDir?: string;
+ }
+ 
+ /**
+@@ -93,7 +98,7 @@ export class PlanSessionAgent {
+                 // `~/.claude` (settings, MCP servers) at the moment it runs.
+                 settingSources: [],
+                 strictMcpConfig: true,
+-                env: subscriptionEnv(),
++                env: subscriptionEnv(options.configDir),
+                 ...(options.resume ? { resume: options.resume } : {}),
+             },
+         });
+diff --git a/apps/api/src/modules/plan/plan.service.ts b/apps/api/src/modules/plan/plan.service.ts
+index fcb89e56..c14b2f7d 100644
+--- a/apps/api/src/modules/plan/plan.service.ts
++++ b/apps/api/src/modules/plan/plan.service.ts
+@@ -11,6 +11,8 @@ import { PLAN_SECTIONS, completeSections, filesInScope, sectionsOf, type Card }
+ import { git } from '#modules/board/git.js';
+ import { findStage, loadStages, type StageConfig } from '#modules/stages/stage.config.js';
+ import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
++import { SettingsStore } from '#modules/settings/settings.store.js';
++import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
+ import type { DB } from '#modules/data/db.js';
+ import { planFeed } from './plan.session.feed.js';
+ import { planSessions } from './plan.session.registry.js';
+@@ -50,11 +52,17 @@ export class PlanService {
+      * simpler than adding one. */
+     private readonly planTurns: PlanTurnRepository;
+ 
++    // `settings` is optional so a test that constructs this class directly — bypassing DI, the way
++    // `tests/modules/plan/plan.service.test.ts`'s own helper already does — keeps working
++    // unchanged: no store means `configDir` resolves to `undefined` in `appendTurn` below, the same
++    // "unset means unchanged" behaviour this card's Constraints require anyway. Production wiring
++    // always supplies the real one via DI.
+     constructor(
+         private readonly boardRepository: BoardRepository,
+         private readonly boardConfig: BoardConfig,
+         private readonly worktrees: WorktreeManager,
+         private readonly db: Kysely<DB>,
++        private readonly settings?: SettingsStore,
+     ) {
+         this.planTurns = new PlanTurnRepository(this.boardConfig, this.db);
+     }
+@@ -153,11 +161,19 @@ export class PlanService {
+ 
+         await this.planTurns.append(id, 'user', text);
+ 
++        // Resolved fresh on every turn, not cached on this transient instance: a card's planning
++        // session can span many `PlanService.turn` calls, and this reads the same way `subscriptionEnv`
++        // itself is deliberately not allowed to (card 0141's Constraints) — via the store, by the one
++        // caller that actually has it. Only reaches the engine on a `planSessions.session` miss (a
++        // brand-new conversation, or a rehydration after a restart); an already-live session ignores
++        // it, the same way it ignores `model` on every call after the first.
++        const configDir = await this.settings?.get(CLAUDE_CONFIG_DIR);
++
+         // `planSessions.session` resolves `resume` itself, from `runner.plan_turns`'s last
+         // `engine_session_id`, on a miss — never passed here, so a process restart rehydrates the
+         // engine's own conversation regardless of what `isFirstTurn` says about this card's stored
+         // transcript.
+-        const agent = await planSessions.session(id, { worktreeRoot: worktreePath, model }, this.planTurns);
++        const agent = await planSessions.session(id, { worktreeRoot: worktreePath, model, configDir }, this.planTurns);
+ 
+         let assistantText = '';
+         for await (const chunk of agent.turn(prompt)) {
+diff --git a/apps/api/src/modules/settings/claude.config.dir.setting.service.ts b/apps/api/src/modules/settings/claude.config.dir.setting.service.ts
+new file mode 100644
+index 00000000..3d35dcc5
+--- /dev/null
++++ b/apps/api/src/modules/settings/claude.config.dir.setting.service.ts
+@@ -0,0 +1,43 @@
++import { isAbsolute } from 'node:path';
++import { Injectable } from 'injectkit';
++import { httpError } from '@maroonedsoftware/errors';
++import type { ClaudeConfigDirSetting, SetClaudeConfigDirSettingRequest } from '#src/generated/settings.js';
++import { SettingsStore } from './settings.store.js';
++import { CLAUDE_CONFIG_DIR } from './claude.config.dir.setting.js';
++
++/**
++ * Where the engine's Claude Code credentials come from (card 0141) — an operator's choice now,
++ * instead of whatever the daemon user's own `~/.claude` happens to hold.
++ *
++ * `set` only validates and persists, the same as `CardStageConcurrencySettingService`: there is
++ * nothing running to push this into. `subscriptionEnv` (`modules/agent/cli.stage.agent.ts`) reads
++ * the setting fresh for every stage it starts, so a write here takes effect for the next stage a
++ * card starts, never one already running — the field's own description in the app says so.
++ */
++@Injectable()
++export class ClaudeConfigDirSettingService {
++    constructor(private readonly settings: SettingsStore) {}
++
++    /** The contract-facing read: the setting's current effective value, `null` where unset. */
++    async get(): Promise<ClaudeConfigDirSetting> {
++        const configDir = await this.settings.get(CLAUDE_CONFIG_DIR);
++        return { configDir: configDir ?? null };
++    }
++
++    /**
++     * The contract-facing write: refuse a relative path with a sentence naming what was wrong (the
++     * same refusal `curl` and the settings page both see), otherwise persist it. Whether the
++     * directory exists, is writable, or holds working credentials is deliberately not checked here
++     * (this card's Out of scope) — that only ever surfaces as every `cli`-adapter stage failing at
++     * the model call.
++     */
++    async set(body: SetClaudeConfigDirSettingRequest): Promise<ClaudeConfigDirSetting> {
++        if (body.configDir !== null && !isAbsolute(body.configDir)) {
++            throw httpError(400).withDetails({
++                reason: `claude config directory must be an absolute path, got "${body.configDir}"`,
++            });
++        }
++        await this.settings.set(CLAUDE_CONFIG_DIR, body.configDir ?? undefined);
++        return { configDir: body.configDir };
++    }
++}
+diff --git a/apps/api/src/modules/settings/claude.config.dir.setting.ts b/apps/api/src/modules/settings/claude.config.dir.setting.ts
+new file mode 100644
+index 00000000..09d79d44
+--- /dev/null
++++ b/apps/api/src/modules/settings/claude.config.dir.setting.ts
+@@ -0,0 +1,27 @@
++import type { SettingDefinition } from './setting.definition.js';
++
++/**
++ * The Claude config directory (`~/.claude` by convention) the engine authenticates from — card
++ * 0141's answer to "whose credentials does the engine use": a database row overriding the
++ * `CLAUDE_CONFIG_DIR` environment variable overriding "unset", the same precedence every other
++ * setting in this table follows (`SettingsStore.get`).
++ *
++ * Before this card nothing in the repo named `CLAUDE_CONFIG_DIR` at all, so the engine always fell
++ * back to whatever lives in the home directory of the user the daemon happens to run as —
++ * `subscriptionEnv` (`modules/agent/cli.stage.agent.ts`) is where a resolved value here actually
++ * reaches the engine's environment. Unset (`defaultValue: undefined`) means exactly that unchanged
++ * behaviour, not an invented default like `~/.claude` (this card's Constraints: "no default path, no
++ * inventing `~/.claude` in code").
++ *
++ * `parseEnv` is the identity function, the same posture `NOTIFY_WEBHOOK_URL` takes and for the same
++ * reason: an environment-configured value was never write-validated, so staying lenient here keeps a
++ * deployment that sets `CLAUDE_CONFIG_DIR` directly booting exactly as it did before this card.
++ * Judging the value — must be an absolute path — is `ClaudeConfigDirSettingService.set`'s job, run
++ * only at write, never here.
++ */
++export const CLAUDE_CONFIG_DIR: SettingDefinition<string | undefined> = {
++    key: 'claude-config-dir',
++    envVar: 'CLAUDE_CONFIG_DIR',
++    parseEnv: raw => raw,
++    defaultValue: undefined,
++};
+diff --git a/apps/api/src/modules/settings/settings.module.ts b/apps/api/src/modules/settings/settings.module.ts
+index 1ffff7d0..a31a4dcf 100644
+--- a/apps/api/src/modules/settings/settings.module.ts
++++ b/apps/api/src/modules/settings/settings.module.ts
+@@ -9,10 +9,12 @@ import { PollerSettingService } from './poller.setting.service.js';
+ import { PollerIntervalSettingService } from './poller.interval.setting.service.js';
+ import { CardStageConcurrencySettingService } from './card.stage.concurrency.setting.service.js';
+ import { NotifyWebhookSettingService } from './notify.webhook.setting.service.js';
++import { ClaudeConfigDirSettingService } from './claude.config.dir.setting.service.js';
+ 
+ /**
+  * Operational settings backed by `runner.settings` — the poller's on/off switch, its interval,
+- * `card.stage`'s concurrency (card 0115), and the notify webhook and base URL (card 0107).
++ * `card.stage`'s concurrency (card 0115), the notify webhook and base URL (card 0107), and the
++ * engine's Claude config directory (card 0141).
+  *
+  * Listed before Jobs in `modules.ts` so a reader sees `PollerSettingService` (which needs `Poller`)
+  * exist before the module that consumes it — `setup` only registers tokens, though, so the actual
+@@ -36,6 +38,7 @@ export const SettingsModule: ServerKitModule = {
+         registry.register(PollerIntervalSettingService).useClass(PollerIntervalSettingService).asTransient();
+         registry.register(CardStageConcurrencySettingService).useClass(CardStageConcurrencySettingService).asTransient();
+         registry.register(NotifyWebhookSettingService).useClass(NotifyWebhookSettingService).asTransient();
++        registry.register(ClaudeConfigDirSettingService).useClass(ClaudeConfigDirSettingService).asTransient();
+     },
+     // A `runner.settings` row already present before this boot must take effect immediately, the
+     // same as `BoundedCardStageJobRunner.start()` applying `POLLER_ENABLED` at startup
+diff --git a/apps/api/src/routes/settings.router.ts b/apps/api/src/routes/settings.router.ts
+index 4d7825ce..8f9bb6d0 100644
+--- a/apps/api/src/routes/settings.router.ts
++++ b/apps/api/src/routes/settings.router.ts
+@@ -1,14 +1,17 @@
+ import { ServerKitRouter, bodyParserMiddleware } from '@maroonedsoftware/koa';
+ import { CardStageConcurrencySettingService } from '#modules/settings/card.stage.concurrency.setting.service.js';
++import { ClaudeConfigDirSettingService } from '#modules/settings/claude.config.dir.setting.service.js';
+ import { NotifyWebhookSettingService } from '#modules/settings/notify.webhook.setting.service.js';
+ import { PollerIntervalSettingService } from '#modules/settings/poller.interval.setting.service.js';
+ import { PollerSettingService } from '#modules/settings/poller.setting.service.js';
+ import {
+     CardStageConcurrency,
++    ClaudeConfigDirSetting,
+     NotifyWebhookSetting,
+     PollerInterval,
+     PollerSetting,
+     SetCardStageConcurrencyRequest,
++    SetClaudeConfigDirSettingRequest,
+     SetNotifyWebhookSettingRequest,
+     SetPollerIntervalRequest,
+     SetPollerSettingRequest,
+@@ -21,7 +24,7 @@ import { parseAndValidate } from '@maroonedsoftware/zod';
+ export const SettingsRouter = ServerKitRouter();
+ 
+ /**
+- * from [settings.ck](file://./../../data/contracts/settings.ck#L68)
++ * from [settings.ck](file://./../../data/contracts/settings.ck#L69)
+  * anonymous access, no security required
+  */
+ SettingsRouter.get('/api/settings/poller-enabled', async ctx => {
+@@ -34,7 +37,7 @@ SettingsRouter.get('/api/settings/poller-enabled', async ctx => {
+ });
+ 
+ /**
+- * from [settings.ck](file://./../../data/contracts/settings.ck#L75)
++ * from [settings.ck](file://./../../data/contracts/settings.ck#L76)
+  * anonymous access, no security required
+  */
+ SettingsRouter.put('/api/settings/poller-enabled', bodyParserMiddleware(['json']), async ctx => {
+@@ -49,7 +52,7 @@ SettingsRouter.put('/api/settings/poller-enabled', bodyParserMiddleware(['json']
+ });
+ 
+ /**
+- * from [settings.ck](file://./../../data/contracts/settings.ck#L88)
++ * from [settings.ck](file://./../../data/contracts/settings.ck#L89)
+  * anonymous access, no security required
+  */
+ SettingsRouter.get('/api/settings/poller-interval-ms', async ctx => {
+@@ -62,7 +65,7 @@ SettingsRouter.get('/api/settings/poller-interval-ms', async ctx => {
+ });
+ 
+ /**
+- * from [settings.ck](file://./../../data/contracts/settings.ck#L95)
++ * from [settings.ck](file://./../../data/contracts/settings.ck#L96)
+  * anonymous access, no security required
+  */
+ SettingsRouter.put('/api/settings/poller-interval-ms', bodyParserMiddleware(['json']), async ctx => {
+@@ -77,7 +80,7 @@ SettingsRouter.put('/api/settings/poller-interval-ms', bodyParserMiddleware(['js
+ });
+ 
+ /**
+- * from [settings.ck](file://./../../data/contracts/settings.ck#L111)
++ * from [settings.ck](file://./../../data/contracts/settings.ck#L112)
+  * anonymous access, no security required
+  */
+ SettingsRouter.get('/api/settings/card-stage-concurrency', async ctx => {
+@@ -90,7 +93,7 @@ SettingsRouter.get('/api/settings/card-stage-concurrency', async ctx => {
+ });
+ 
+ /**
+- * from [settings.ck](file://./../../data/contracts/settings.ck#L118)
++ * from [settings.ck](file://./../../data/contracts/settings.ck#L119)
+  * anonymous access, no security required
+  */
+ SettingsRouter.put('/api/settings/card-stage-concurrency', bodyParserMiddleware(['json']), async ctx => {
+@@ -105,7 +108,7 @@ SettingsRouter.put('/api/settings/card-stage-concurrency', bodyParserMiddleware(
+ });
+ 
+ /**
+- * from [settings.ck](file://./../../data/contracts/settings.ck#L148)
++ * from [settings.ck](file://./../../data/contracts/settings.ck#L149)
+  * anonymous access, no security required
+  */
+ SettingsRouter.get('/api/settings/notify-webhook', async ctx => {
+@@ -118,7 +121,7 @@ SettingsRouter.get('/api/settings/notify-webhook', async ctx => {
+ });
+ 
+ /**
+- * from [settings.ck](file://./../../data/contracts/settings.ck#L155)
++ * from [settings.ck](file://./../../data/contracts/settings.ck#L156)
+  * anonymous access, no security required
+  */
+ SettingsRouter.put('/api/settings/notify-webhook', bodyParserMiddleware(['json']), async ctx => {
+@@ -131,3 +134,31 @@ SettingsRouter.put('/api/settings/notify-webhook', bodyParserMiddleware(['json']
+     ctx.type = 'application/json';
+     ctx.body = result;
+ });
++
++/**
++ * from [settings.ck](file://./../../data/contracts/settings.ck#L192)
++ * anonymous access, no security required
++ */
++SettingsRouter.get('/api/settings/claude-config-dir', async ctx => {
++    const service = ctx.container.get(ClaudeConfigDirSettingService);
++    const result: ClaudeConfigDirSetting = await service.get();
++
++    ctx.status = 200;
++    ctx.type = 'application/json';
++    ctx.body = result;
++});
++
++/**
++ * from [settings.ck](file://./../../data/contracts/settings.ck#L199)
++ * anonymous access, no security required
++ */
++SettingsRouter.put('/api/settings/claude-config-dir', bodyParserMiddleware(['json']), async ctx => {
++    const body = await parseAndValidate(ctx.parsedBody, SetClaudeConfigDirSettingRequest);
++
++    const service = ctx.container.get(ClaudeConfigDirSettingService);
++    const result: ClaudeConfigDirSetting = await service.set(body);
++
++    ctx.status = 200;
++    ctx.type = 'application/json';
++    ctx.body = result;
++});
+diff --git a/apps/web/src/routes/settings.tsx b/apps/web/src/routes/settings.tsx
+index 33f9404a..f1f27fad 100644
+--- a/apps/web/src/routes/settings.tsx
++++ b/apps/web/src/routes/settings.tsx
+@@ -11,6 +11,7 @@ const POLLER_QUERY_KEY = ['settings', 'poller'];
+ const POLLER_INTERVAL_QUERY_KEY = ['settings', 'poller-interval'];
+ const CARD_STAGE_CONCURRENCY_QUERY_KEY = ['settings', 'card-stage-concurrency'];
+ const NOTIFY_WEBHOOK_QUERY_KEY = ['settings', 'notify-webhook'];
++const CLAUDE_CONFIG_DIR_QUERY_KEY = ['settings', 'claude-config-dir'];
+ 
+ // Display-only hints for the `NumberInput`s below — clamping here is a convenience, not
+ // enforcement. The API refuses out of range regardless of what these let a user type up to
+@@ -331,6 +332,83 @@ function NotifyWebhookControl() {
+     );
+ }
+ 
++/**
++ * The engine's Claude config directory (card 0141) — which Claude Code credentials the `cli`
++ * adapter's engine (`scope-check`, `implementing`, `testing`, `review`, and the planning session)
++ * authenticates with, instead of silently inheriting whatever lives in the daemon user's own
++ * `~/.claude`.
++ *
++ * This is the one setting on this page whose wrong value stops the runner dead: point it somewhere
++ * unauthenticated and every `cli`-adapter model call fails. The description below says so plainly,
++ * and says a change only reaches stages started after the save — the concurrency control
++ * (`CardStageConcurrencyControl` above) is the wording this borrows.
++ *
++ * A refusal does not revert the typed draft, the same choice `NotifyWebhookControl` makes and for
++ * the same reason: an absolute path typo is easy to mistype twice in a row, and discarding the
++ * attempt would force retyping it blind.
++ */
++function ClaudeConfigDirControl() {
++    const queryClient = useQueryClient();
++    const setting = useQuery({ queryKey: CLAUDE_CONFIG_DIR_QUERY_KEY, queryFn: () => wilson.settings.getClaudeConfigDirSetting() });
++    const [draft, setDraft] = useState('');
++
++    useEffect(() => {
++        if (setting.data) setDraft(setting.data.configDir ?? '');
++    }, [setting.data]);
++
++    const mutation = useMutation({
++        mutationFn: (configDir: string | null) => wilson.settings.setClaudeConfigDirSetting({ configDir }),
++        onSuccess: result => {
++            queryClient.setQueryData(CLAUDE_CONFIG_DIR_QUERY_KEY, result);
++            setDraft(result.configDir ?? '');
++        },
++        // Deliberately no onError revert here — see the component doc above.
++    });
++
++    if (setting.error) {
++        return (
++            <Alert color="red" title="Cannot load claude config directory">
++                {apiErrorMessage(setting.error)}
++            </Alert>
++        );
++    }
++    if (!setting.data) return <Loader size="sm" />;
++
++    const dirty = draft !== (setting.data.configDir ?? '');
++
++    return (
++        <Stack gap="xs">
++            <TextInput
++                label="Claude config directory"
++                description="Where the engine reads its Claude Code credentials from. Must already be authenticated — pointing this at an unauthenticated directory fails every cli-adapter stage at the model call. Leave empty to use the daemon's own default. A change applies to stages started afterwards, never one already running."
++                placeholder="/home/operator/.claude-wilson"
++                value={draft}
++                onChange={event => setDraft(event.currentTarget.value)}
++                disabled={mutation.isPending}
++            />
++            <Group gap="xs">
++                <Button
++                    size="xs"
++                    disabled={!dirty || mutation.isPending}
++                    onClick={() => dirty && mutation.mutate(draft.trim() === '' ? null : draft.trim())}
++                >
++                    Save
++                </Button>
++            </Group>
++            {mutation.isError && (
++                <Stack gap={2}>
++                    <Text size="sm" c="red">
++                        {apiErrorMessage(mutation.error)}
++                    </Text>
++                    <Text size="xs" c="dimmed">
++                        Still saved: {setting.data.configDir ?? 'not set'}
++                    </Text>
++                </Stack>
++            )}
++        </Stack>
++    );
++}
++
+ /** A `project`/`head`/`startedAt`/root row: a label column and a value, greyed for the read-only roots. */
+ function Fact({ label, children, muted }: { label: string; children: ReactNode; muted?: boolean }) {
+     return (
+@@ -386,7 +464,7 @@ function DeploymentFacts() {
+ /**
+  * Settings: card 0114's slice of what card 0106 put behind the API — the page itself, the
+  * auto-mode toggle, and the read-only deployment facts above — plus card 0115's two numeric
+- * controls and card 0116's webhook/base-URL fields.
++ * controls, card 0116's webhook/base-URL fields, and card 0141's claude config directory field.
+  */
+ function SettingsRoute() {
+     return (
+@@ -424,6 +502,13 @@ function SettingsRoute() {
+                 </Stack>
+             </Paper>
+ 
++            <Paper withBorder p="md" radius="sm">
++                <Stack gap="sm">
++                    <Title order={4}>Engine credentials</Title>
++                    <ClaudeConfigDirControl />
++                </Stack>
++            </Paper>
++
+             <Paper withBorder p="md" radius="sm">
+                 <Stack gap="sm">
+                     <Title order={4}>Deployment</Title>
+diff --git a/packages/sdk/src/settings.client.ts b/packages/sdk/src/settings.client.ts
+index 67a0969d..b89c7419 100644
+--- a/packages/sdk/src/settings.client.ts
++++ b/packages/sdk/src/settings.client.ts
+@@ -1,9 +1,11 @@
+ import type {
+     CardStageConcurrency,
++    ClaudeConfigDirSetting,
+     NotifyWebhookSetting,
+     PollerInterval,
+     PollerSetting,
+     SetCardStageConcurrencyRequest,
++    SetClaudeConfigDirSettingRequest,
+     SetNotifyWebhookSettingRequest,
+     SetPollerIntervalRequest,
+     SetPollerSettingRequest,
+@@ -80,4 +82,20 @@ export class SettingsClient {
+         });
+         return await parseJson<NotifyWebhookSetting>(result);
+     }
++
++    /** @name Get claude config dir setting */
++    async getClaudeConfigDirSetting(): Promise<ClaudeConfigDirSetting> {
++        const result = await this.fetch(`/api/settings/claude-config-dir`, { method: 'GET' });
++        return await parseJson<ClaudeConfigDirSetting>(result);
++    }
++
++    /** @name Set claude config dir setting */
++    async setClaudeConfigDirSetting(body: SetClaudeConfigDirSettingRequest): Promise<ClaudeConfigDirSetting> {
++        const result = await this.fetch(`/api/settings/claude-config-dir`, {
++            method: 'PUT',
++            headers: { 'Content-Type': 'application/json' },
++            body: JSON.stringify(body, bigIntReplacer),
++        });
++        return await parseJson<ClaudeConfigDirSetting>(result);
++    }
+ }
+diff --git a/packages/sdk/src/types/settings.ts b/packages/sdk/src/types/settings.ts
+index a19a2db5..8f4de60f 100644
+--- a/packages/sdk/src/types/settings.ts
++++ b/packages/sdk/src/types/settings.ts
+@@ -27,14 +27,14 @@
+  * pointed, not *whether* an unauthenticated caller can point it somewhere the check still allows.
+  * Authenticating this API (card 0019) is the actual answer; this is mitigation on top of its
+  * absence, not a substitute for it.
+- * generated from [PollerSetting](file://./../../../../apps/api/data/contracts/settings.ck#L39)
++ * generated from [PollerSetting](file://./../../../../apps/api/data/contracts/settings.ck#L40)
+  */
+ export interface PollerSetting {
+     enabled: boolean;
+ }
+ 
+ /**
+- * generated from [SetPollerSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L43)
++ * generated from [SetPollerSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L44)
+  */
+ export interface SetPollerSettingRequest {
+     enabled: boolean;
+@@ -43,14 +43,14 @@ export interface SetPollerSettingRequest {
+ /**
+  * Bounds enforced server-side by `PollerIntervalSettingService.set` (job.runner.config.ts carries
+  * the numbers and the reasoning) — `curl` gets the same refusal the page does.
+- * generated from [PollerInterval](file://./../../../../apps/api/data/contracts/settings.ck#L49)
++ * generated from [PollerInterval](file://./../../../../apps/api/data/contracts/settings.ck#L50)
+  */
+ export interface PollerInterval {
+     intervalMs: number;
+ }
+ 
+ /**
+- * generated from [SetPollerIntervalRequest](file://./../../../../apps/api/data/contracts/settings.ck#L53)
++ * generated from [SetPollerIntervalRequest](file://./../../../../apps/api/data/contracts/settings.ck#L54)
+  */
+ export interface SetPollerIntervalRequest {
+     intervalMs: number;
+@@ -59,14 +59,14 @@ export interface SetPollerIntervalRequest {
+ /**
+  * Bounds enforced server-side by `CardStageConcurrencySettingService.set` (job.runner.config.ts
+  * carries the numbers and the reasoning) — `curl` gets the same refusal the page does.
+- * generated from [CardStageConcurrency](file://./../../../../apps/api/data/contracts/settings.ck#L59)
++ * generated from [CardStageConcurrency](file://./../../../../apps/api/data/contracts/settings.ck#L60)
+  */
+ export interface CardStageConcurrency {
+     concurrency: number;
+ }
+ 
+ /**
+- * generated from [SetCardStageConcurrencyRequest](file://./../../../../apps/api/data/contracts/settings.ck#L63)
++ * generated from [SetCardStageConcurrencyRequest](file://./../../../../apps/api/data/contracts/settings.ck#L64)
+  */
+ export interface SetCardStageConcurrencyRequest {
+     concurrency: number;
+@@ -77,7 +77,7 @@ export interface SetCardStageConcurrencyRequest {
+  * absent. One resource for both fields, not two: `Notifier.notify` always reads them together, and
+  * a base URL with nothing to post it to is exactly as useless as a webhook with no way to name the
+  * card in its payload (`board.config.ts`'s own comment on the pair).
+- * generated from [NotifyWebhookSetting](file://./../../../../apps/api/data/contracts/settings.ck#L137)
++ * generated from [NotifyWebhookSetting](file://./../../../../apps/api/data/contracts/settings.ck#L138)
+  */
+ export interface NotifyWebhookSetting {
+     webhookUrl: string | null;
+@@ -85,9 +85,33 @@ export interface NotifyWebhookSetting {
+ }
+ 
+ /**
+- * generated from [SetNotifyWebhookSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L142)
++ * generated from [SetNotifyWebhookSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L143)
+  */
+ export interface SetNotifyWebhookSettingRequest {
+     webhookUrl: string | null;
+     baseUrl: string | null;
+ }
++
++/**
++ * `null` means unset — the engine falls back to whatever Claude Code credentials live in the
++ * daemon user's own home directory, exactly as it does today (card 0141). Set, it points the `cli`
++ * adapter's engine (`CliStageAgent`) and the planning session's engine (`PlanSessionAgent`) at this
++ * directory instead via `CLAUDE_CONFIG_DIR` — see `subscriptionEnv` (cli.stage.agent.ts) for where
++ * that environment variable is actually set.
++ *
++ * Only an absolute path is checked here, by `ClaudeConfigDirSettingService.set` — whether the
++ * directory exists, is writable, or holds working credentials is deliberately not this card's
++ * business (its Out of scope): a wrong-but-absolute value is discovered by every `cli`-adapter
++ * stage failing at the model call, not by a check here guessing at what "working" means.
++ * generated from [ClaudeConfigDirSetting](file://./../../../../apps/api/data/contracts/settings.ck#L183)
++ */
++export interface ClaudeConfigDirSetting {
++    configDir: string | null;
++}
++
++/**
++ * generated from [SetClaudeConfigDirSettingRequest](file://./../../../../apps/api/data/contracts/settings.ck#L187)
++ */
++export interface SetClaudeConfigDirSettingRequest {
++    configDir: string | null;
++}

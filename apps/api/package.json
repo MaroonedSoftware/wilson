@@ -10,6 +10,7 @@
         "build": "tsc",
         "build:datatypes": "pnpm sync:enum-overrides && kysely-codegen",
         "sync:enum-overrides": "node --no-warnings --import @swc-node/register/esm-register scripts/sync.enum.overrides.ts",
+        "eval:review": "node --no-warnings --import @swc-node/register/esm-register scripts/review.eval.ts",
         "codegen": "contractkit",
         "dev": "node --watch --import @swc-node/register/esm-register ./src/index.ts",
         "start": "node --import @swc-node/register/esm-register ./src/index.ts",

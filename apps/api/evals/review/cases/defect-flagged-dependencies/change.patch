@@ -1,0 +1,210 @@
+diff --git a/apps/web/src/components/FlaggedIndicator.tsx b/apps/web/src/components/FlaggedIndicator.tsx
+new file mode 100644
+index 00000000..9414f21f
+--- /dev/null
++++ b/apps/web/src/components/FlaggedIndicator.tsx
+@@ -0,0 +1,37 @@
++import { Badge } from '@mantine/core';
++import { Link } from '@tanstack/react-router';
++import { useQuery } from '@tanstack/react-query';
++import { wilson } from '#src/lib/sdk.js';
++
++/**
++ * How many cards need a human, wherever they sit on the board (card 0119).
++ *
++ * Card 0057's red border and badge are the right treatment once you're looking at the right
++ * column — this is the thing that tells you to look. It reads the same `['cards']` query the feed
++ * (`lib/feed.ts`) already keeps fresh by invalidating on every SSE event, so a card flagged, acked,
++ * or moved while this is on screen updates the count with no poll and no second subscription: this
++ * is just another consumer of the one cache entry the feed already drives.
++ *
++ * Renders nothing at zero. This sits in the header on every page, permanently — a badge reading
++ * "0" would be noise an operator has to learn to ignore, which is the exact failure mode an
++ * always-on indicator has to avoid.
++ */
++export function FlaggedIndicator() {
++    const cards = useQuery({ queryKey: ['cards'], queryFn: () => wilson.board.listCards() });
++    const count = cards.data?.filter(card => card.needsHuman).length ?? 0;
++
++    if (count === 0) return null;
++
++    return (
++        <Badge
++            component={Link}
++            to="/flagged"
++            color="red"
++            variant="filled"
++            size="sm"
++            style={{ cursor: 'pointer', textDecoration: 'none' }}
++        >
++            {count} needs human
++        </Badge>
++    );
++}
+diff --git a/apps/web/src/routeTree.gen.ts b/apps/web/src/routeTree.gen.ts
+index ea34f438..bc4da322 100644
+--- a/apps/web/src/routeTree.gen.ts
++++ b/apps/web/src/routeTree.gen.ts
+@@ -10,6 +10,7 @@
+ 
+ import { Route as rootRouteImport } from './routes/__root'
+ import { Route as IndexRouteImport } from './routes/index'
++import { Route as FlaggedRouteImport } from './routes/flagged'
+ import { Route as SettingsRouteImport } from './routes/settings'
+ import { Route as CardsCardIdRouteImport } from './routes/cards.$cardId'
+ 
+@@ -18,6 +19,11 @@ const IndexRoute = IndexRouteImport.update({
+   path: '/',
+   getParentRoute: () => rootRouteImport,
+ } as any)
++const FlaggedRoute = FlaggedRouteImport.update({
++  id: '/flagged',
++  path: '/flagged',
++  getParentRoute: () => rootRouteImport,
++} as any)
+ const SettingsRoute = SettingsRouteImport.update({
+   id: '/settings',
+   path: '/settings',
+@@ -31,30 +37,34 @@ const CardsCardIdRoute = CardsCardIdRouteImport.update({
+ 
+ export interface FileRoutesByFullPath {
+   '/': typeof IndexRoute
++  '/flagged': typeof FlaggedRoute
+   '/settings': typeof SettingsRoute
+   '/cards/$cardId': typeof CardsCardIdRoute
+ }
+ export interface FileRoutesByTo {
+   '/': typeof IndexRoute
++  '/flagged': typeof FlaggedRoute
+   '/settings': typeof SettingsRoute
+   '/cards/$cardId': typeof CardsCardIdRoute
+ }
+ export interface FileRoutesById {
+   __root__: typeof rootRouteImport
+   '/': typeof IndexRoute
++  '/flagged': typeof FlaggedRoute
+   '/settings': typeof SettingsRoute
+   '/cards/$cardId': typeof CardsCardIdRoute
+ }
+ export interface FileRouteTypes {
+   fileRoutesByFullPath: FileRoutesByFullPath
+-  fullPaths: '/' | '/settings' | '/cards/$cardId'
++  fullPaths: '/' | '/flagged' | '/settings' | '/cards/$cardId'
+   fileRoutesByTo: FileRoutesByTo
+-  to: '/' | '/settings' | '/cards/$cardId'
+-  id: '__root__' | '/' | '/settings' | '/cards/$cardId'
++  to: '/' | '/flagged' | '/settings' | '/cards/$cardId'
++  id: '__root__' | '/' | '/flagged' | '/settings' | '/cards/$cardId'
+   fileRoutesById: FileRoutesById
+ }
+ export interface RootRouteChildren {
+   IndexRoute: typeof IndexRoute
++  FlaggedRoute: typeof FlaggedRoute
+   SettingsRoute: typeof SettingsRoute
+   CardsCardIdRoute: typeof CardsCardIdRoute
+ }
+@@ -68,6 +78,13 @@ declare module '@tanstack/react-router' {
+       preLoaderRoute: typeof IndexRouteImport
+       parentRoute: typeof rootRouteImport
+     }
++    '/flagged': {
++      id: '/flagged'
++      path: '/flagged'
++      fullPath: '/flagged'
++      preLoaderRoute: typeof FlaggedRouteImport
++      parentRoute: typeof rootRouteImport
++    }
+     '/settings': {
+       id: '/settings'
+       path: '/settings'
+@@ -87,6 +104,7 @@ declare module '@tanstack/react-router' {
+ 
+ const rootRouteChildren: RootRouteChildren = {
+   IndexRoute: IndexRoute,
++  FlaggedRoute: FlaggedRoute,
+   SettingsRoute: SettingsRoute,
+   CardsCardIdRoute: CardsCardIdRoute,
+ }
+diff --git a/apps/web/src/routes/__root.tsx b/apps/web/src/routes/__root.tsx
+index 3e9778b1..ae9f0751 100644
+--- a/apps/web/src/routes/__root.tsx
++++ b/apps/web/src/routes/__root.tsx
+@@ -1,6 +1,7 @@
+ import { Link, Outlet, createRootRoute } from '@tanstack/react-router';
+ import { ActionIcon, AppShell, Badge, Group, Title, Tooltip } from '@mantine/core';
+ import { IconSettings } from '@tabler/icons-react';
++import { FlaggedIndicator } from '#src/components/FlaggedIndicator.js';
+ import { useCardFeed } from '#src/lib/feed.js';
+ 
+ /**
+@@ -20,6 +21,7 @@ function Root() {
+                 <Group h="100%" px="md" justify="space-between">
+                     <Title order={4}>wilson</Title>
+                     <Group gap="xs">
++                        <FlaggedIndicator />
+                         <Tooltip label={feedStatus === 'live' ? 'Updates as cards move' : 'Not connected — use refresh'}>
+                             <Badge color={feedStatus === 'live' ? 'green' : 'gray'} variant="light" size="sm">
+                                 {feedStatus === 'live' ? 'live' : 'snapshot'}
+diff --git a/apps/web/src/routes/flagged.tsx b/apps/web/src/routes/flagged.tsx
+new file mode 100644
+index 00000000..92c8ae5f
+--- /dev/null
++++ b/apps/web/src/routes/flagged.tsx
+@@ -0,0 +1,57 @@
++import { createFileRoute, Link } from '@tanstack/react-router';
++import { useQuery } from '@tanstack/react-query';
++import { Alert, Anchor, Loader, Stack, Text, Title } from '@mantine/core';
++import { Board } from '#src/components/Board.js';
++import { wilson } from '#src/lib/sdk.js';
++
++/**
++ * Where the header's flagged count (card 0119, `FlaggedIndicator`) sends you: every card needing a
++ * human, not a page that just repeats the number.
++ *
++ * Renders through `Board` itself rather than a second list of cards — the red border, the reason
++ * badge and the flagged-first sort are card 0057's, and reusing the same component means this view
++ * can only ever narrow *which* cards reach that treatment, never redraw it differently. `columns`
++ * is filtered down to the stages a flagged card is actually sitting in, so this reads as "every
++ * flagged card, grouped by where it is" rather than the full board with most columns empty.
++ */
++function FlaggedRoute() {
++    const columns = useQuery({ queryKey: ['columns'], queryFn: () => wilson.board.listBoardColumns() });
++    const cards = useQuery({ queryKey: ['cards'], queryFn: () => wilson.board.listCards() });
++
++    const error = columns.error ?? cards.error;
++    if (error) {
++        return (
++            <Alert color="red" title="Cannot reach the API">
++                {error.message}
++            </Alert>
++        );
++    }
++    if (!columns.data || !cards.data) return <Loader size="sm" />;
++
++    const flagged = cards.data.filter(card => card.needsHuman);
++    const flaggedStages = new Set(flagged.map(card => card.stage));
++    const stagesWithFlagged = {
++        stages: columns.data.stages.filter(stage => flaggedStages.has(stage)),
++        nonStages: columns.data.nonStages.filter(stage => flaggedStages.has(stage)),
++    };
++
++    return (
++        <Stack gap="md">
++            <Anchor component={Link} to="/" size="sm">
++                ← Back to the board
++            </Anchor>
++            <Title order={4} fw={500}>
++                Cards needing a human
++            </Title>
++            {flagged.length === 0 ? (
++                <Text c="dimmed" size="sm">
++                    Nothing is flagged right now.
++                </Text>
++            ) : (
++                <Board columns={stagesWithFlagged} cards={flagged} />
++            )}
++        </Stack>
++    );
++}
++
++export const Route = createFileRoute('/flagged')({ component: FlaggedRoute });

@@ -1,0 +1,8 @@
+{
+    "kind": "defect",
+    "class": "state",
+    "file": "apps/api/src/modules/sources/inbound.card.writer.ts",
+    "lines": [100, 112],
+    "about": "Nothing stops a ticket closing after its card has finished, so a merged card gets moved to dropped and loses how it ended.",
+    "fixedBy": "1eea3c092caab40e39d326883833845ee8bc0c76"
+}

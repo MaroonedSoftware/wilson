@@ -1,0 +1,265 @@
+diff --git a/apps/api/package.json b/apps/api/package.json
+index 2caec4e1..a71777e0 100644
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -30,6 +30,7 @@
+         "@maroonedsoftware/koa": "^3.0.8",
+         "@maroonedsoftware/kysely": "^0.7.8",
+         "@maroonedsoftware/logger": "^1.1.8",
++        "@maroonedsoftware/serverfeed": "^0.1.5",
+         "@maroonedsoftware/utilities": "^1.11.5",
+         "@maroonedsoftware/zod": "^0.5.5",
+         "ai": "^7.0.77",
+diff --git a/apps/api/src/modules/events/event.log.ts b/apps/api/src/modules/events/event.log.ts
+index e559229f..93e120b3 100644
+--- a/apps/api/src/modules/events/event.log.ts
++++ b/apps/api/src/modules/events/event.log.ts
+@@ -2,6 +2,7 @@ import { Injectable } from 'injectkit';
+ import { Kysely, sql, type Transaction } from 'kysely';
+ import type { DateTime } from 'luxon';
+ import type { DB } from '#modules/data/db.js';
++import { CARD_FEED_CHANNEL } from '#modules/feed/card.feed.js';
+ import type { CardEvent, CardEventType } from './card.event.js';
+ 
+ export interface CardEventRow {
+@@ -55,6 +56,20 @@ export class EventLog {
+                 payload: JSON.stringify(event.payload ?? {}),
+             })
+             .execute();
++
++        // Publish on the same executor that did the insert. Postgres queues a `NOTIFY` issued
++        // inside a transaction and only delivers it once that transaction commits, discarding it
++        // on rollback — exactly "publish after commit, not inside it" for `writeWithEvent`'s open
++        // transaction, with no in-process commit tracking needed. For a standalone event (the
++        // pool default) the insert already commits on its own, so the notify goes out right away.
++        // See `modules/feed/card.feed.listener.ts` for the subscriber on the other end.
++        await sql`select pg_notify(${CARD_FEED_CHANNEL}, ${JSON.stringify({
++            project: event.project,
++            cardId: event.cardId,
++            stage: event.stage ?? null,
++            type: event.type,
++            payload: event.payload ?? {},
++        })})`.execute(executor);
+     }
+ 
+     /**
+diff --git a/apps/api/src/modules/feed/card.feed.listener.ts b/apps/api/src/modules/feed/card.feed.listener.ts
+new file mode 100644
+index 00000000..7316a69d
+--- /dev/null
++++ b/apps/api/src/modules/feed/card.feed.listener.ts
+@@ -0,0 +1,49 @@
++import type { PoolClient } from 'pg';
++import type { KyselyPool } from '@maroonedsoftware/kysely';
++import type { Logger } from '@maroonedsoftware/logger';
++import { CARD_FEED_CHANNEL, cardFeed } from './card.feed.js';
++
++/** The shape `EventLog.append` notifies with — see its `pg_notify` call. */
++interface CardFeedNotification {
++    project: string;
++    cardId: string;
++    stage: string | null;
++    type: string;
++    payload: Record<string, unknown>;
++}
++
++/**
++ * Bridges Postgres `NOTIFY` on {@link CARD_FEED_CHANNEL} into the in-process {@link cardFeed} bus.
++ *
++ * `EventLog.append` runs in every process that touches a card — this API server's own job runner,
++ * and a separate `wilson` CLI invocation moving a card by hand — but `ServerFeed` is an in-process
++ * bus (its own docs: not for "cross-process fan-out"). Postgres is the one thing every process
++ * already shares, so `LISTEN`/`NOTIFY` is the bridge: whichever process appends an event notifies
++ * this channel, and this server, listening on it, republishes onto `cardFeed` for its SSE
++ * subscribers.
++ *
++ * Holds one connection checked out of `pool` for as long as `signal` stays unaborted. That
++ * connection must never be returned to the pool afterwards — a later query borrowing it would run
++ * against a connection still subscribed to `card_events` — so teardown discards it
++ * (`client.release(true)`) instead of releasing it for reuse.
++ */
++export const startCardFeedListener = async (pool: KyselyPool, logger: Logger, signal: AbortSignal): Promise<void> => {
++    const client: PoolClient = await pool.connect();
++
++    client.on('notification', message => {
++        if (message.channel !== CARD_FEED_CHANNEL || !message.payload) {
++            return;
++        }
++        try {
++            const event = JSON.parse(message.payload) as CardFeedNotification;
++            cardFeed.status(event.project, event.cardId, event.type, { stage: event.stage, payload: event.payload });
++        } catch (err) {
++            logger.error(err);
++        }
++    });
++    client.on('error', err => logger.error(err));
++
++    await client.query(`LISTEN ${CARD_FEED_CHANNEL}`);
++
++    signal.addEventListener('abort', () => client.release(true), { once: true });
++};
+diff --git a/apps/api/src/modules/feed/card.feed.route.ts b/apps/api/src/modules/feed/card.feed.route.ts
+new file mode 100644
+index 00000000..1eac2be9
+--- /dev/null
++++ b/apps/api/src/modules/feed/card.feed.route.ts
+@@ -0,0 +1,26 @@
++import { openSseStream, type SseContext } from '@maroonedsoftware/koa';
++import type { ServerFeed } from '@maroonedsoftware/serverfeed';
++
++/**
++ * Serve one `/api/feed` subscriber: the latest known state of every card (`feed.snapshot()`) up
++ * front, then every event as it is published.
++ *
++ * Deliberately not `@maroonedsoftware/koa/serverfeed`'s `handleServerFeed`: that helper replays
++ * the buffered ring since the client's `Last-Event-ID`, which for a fresh connection — the only
++ * case this route needs, since reconnection and `Last-Event-ID` resume are out of scope — means
++ * replaying everything still buffered. That is exactly the "replay it has to fold" this feed
++ * exists to avoid; a board wants current state, not history. `feed.snapshot()` gives the latest
++ * event per card instead, so a subscriber is caught up in one shot with nothing to fold.
++ *
++ * `openSseStream` is the same transport primitive `handleServerFeed` is built on, so this is still
++ * the library's mechanism, just composed for latest-per-key rather than replay.
++ */
++export const openCardFeedStream = (ctx: SseContext, feed: ServerFeed): void => {
++    const stream = openSseStream(ctx);
++
++    for (const event of feed.snapshot()) {
++        stream.event({ event: 'card', data: event });
++    }
++
++    stream.onClose(feed.onEvent({}, event => stream.event({ event: 'card', data: event })));
++};
+diff --git a/apps/api/src/modules/feed/card.feed.ts b/apps/api/src/modules/feed/card.feed.ts
+new file mode 100644
+index 00000000..84bb39b0
+--- /dev/null
++++ b/apps/api/src/modules/feed/card.feed.ts
+@@ -0,0 +1,20 @@
++import { ServerFeed } from '@maroonedsoftware/serverfeed';
++
++/**
++ * The Postgres `NOTIFY`/`LISTEN` channel the card feed rides. See `card.feed.listener.ts` for the
++ * subscriber and `event.log.ts` for the publisher.
++ */
++export const CARD_FEED_CHANNEL = 'card_events';
++
++/**
++ * The card feed: current stage and most recent event, keyed by card
++ * (`ServerFeed`'s `${source}:${correlationId}` snapshot key, with `source` the project and
++ * `correlationId` the card id).
++ *
++ * A plain module-level singleton rather than a DI registration. `data.module.ts` and
++ * `events.module.ts` — where this app's other cross-cutting singletons (the Kysely pool,
++ * `EventLog`) are wired into the container — are outside this card's files in scope. That is no
++ * loss: `ServerFeed` has no `@Injectable()` decorator (its own docs say to register it as a value,
++ * not a class), so a plain singleton is exactly how it is meant to be held.
++ */
++export const cardFeed = new ServerFeed();
+diff --git a/apps/api/src/routes/routes.setup.ts b/apps/api/src/routes/routes.setup.ts
+index 8a9b79db..36eb6441 100644
+--- a/apps/api/src/routes/routes.setup.ts
++++ b/apps/api/src/routes/routes.setup.ts
+@@ -1,17 +1,39 @@
++import { ServerKitRouter, type SseContext } from '@maroonedsoftware/koa';
++import { cardFeed } from '#modules/feed/card.feed.js';
++import { openCardFeedStream } from '#modules/feed/card.feed.route.js';
+ import { BoardRouter } from './board.router.js';
+ import { HealthRouter } from './health.router.js';
+ 
++/**
++ * The live card feed: current stage and latest event per card, over SSE at `/api/feed`.
++ *
++ * Not `@maroonedsoftware/koa/serverfeed`'s `serverFeedRouter`: it guards its route with
++ * `requirePolicy`, defaulting to an MFA gate, and even `{ policy: false }` still requires a valid
++ * session per its own doc comment. This server has no authentication and no sessions at all (card
++ * 0019), so no policy option that factory offers is satisfiable here. `openCardFeedStream` (see
++ * `modules/feed/card.feed.route.ts`) takes the response over directly instead, the same way
++ * `serverfeed`'s lower-level `handleServerFeed` does, and imposes no policy.
++ */
++export const FeedRouter = ServerKitRouter();
++FeedRouter.get('/api/feed', async ctx => {
++    openCardFeedStream(ctx as unknown as SseContext, cardFeed);
++});
++
+ /**
+  * Every router the server mounts, in one place — adding a router later is one line here.
+  *
+  * The `*.router.ts` files beside this one are generated from `data/contracts/*.ck` and must not be
+  * edited; regenerate with `pnpm codegen`. This file is the only hand-written thing in the directory.
+  *
+- * Every route is generated. Card 0019 wrote the health route by hand and said why that was
+- * temporary: a hand-written route is the only place the API can drift from the contract that
+- * documents it, and the SDK the web app consumes would not know it exists.
++ * Every route is generated, with one deliberate exception: `FeedRouter` above. Card 0019 wrote the
++ * health route by hand and said why that was temporary — the health and board routes are
++ * generated now, so that rule holds. An SSE stream is different in kind, not just unfinished
++ * codegen: ContractKit emits JSON handlers, and there is no JSON handler to generate for a
++ * response that never resolves. `FeedRouter` is built here, in this hand-written file, rather than
++ * as a new file beside it, so the "every file here but this one is generated" invariant the tests
++ * enforce stays true.
+  *
+  * Left untyped as `ServerKitRouterType[]`: that type is the erased, invariant `Router<unknown,
+  * unknown>`, so callers cast at the point they hand this to `setupRoutes` instead.
+  */
+-export const routers = [HealthRouter, BoardRouter];
++export const routers = [HealthRouter, BoardRouter, FeedRouter];
+diff --git a/apps/api/src/server/setup.server.ts b/apps/api/src/server/setup.server.ts
+index dea311f0..27f6b756 100644
+--- a/apps/api/src/server/setup.server.ts
++++ b/apps/api/src/server/setup.server.ts
+@@ -2,6 +2,8 @@ import type { Server } from 'node:http';
+ import { Settings } from 'luxon';
+ import { ServerKitServerBuilder, type ServerKitRouterType } from '@maroonedsoftware/koa';
+ import { ConsoleLogger } from '@maroonedsoftware/logger';
++import { KyselyPool } from '@maroonedsoftware/kysely';
++import { startCardFeedListener } from '#modules/feed/card.feed.listener.js';
+ import { configNumber, requireConfigString } from '#shared/require.config.js';
+ import { buildConfig, modules } from '../cli-bootstrap.js';
+ import { routers } from '../routes/routes.setup.js';
+@@ -25,7 +27,11 @@ export const setupServer = async (): Promise<Server> => {
+     // Taken at boot, before anything can serve a request: read later it would report the repo's
+     // current HEAD rather than the commit this process is running.
+     await captureBuildHead(requireConfigString(config, 'PROJECT_CODE_ROOT'));
+-    await serverBuilder.setup(config, new ConsoleLogger(), modules);
++    const logger = new ConsoleLogger();
++    const container = await serverBuilder.setup(config, logger, modules);
++    // Bridges Postgres NOTIFY (issued by `EventLog.append`, from this process's own job runner or
++    // a separate `wilson` CLI invocation) onto the in-process card feed `/api/feed` streams from.
++    await startCardFeedListener(container.get(KyselyPool), logger, serverBuilder.lifecycleSignal);
+     serverBuilder.setupMiddleware(setupMiddleware).setupRoutes(routers as ServerKitRouterType[]);
+     return await serverBuilder.start(configNumber(config, 'PORT', 13100));
+ };
+diff --git a/apps/api/tests/routes/routes.setup.test.ts b/apps/api/tests/routes/routes.setup.test.ts
+index cd4620d0..c11181b0 100644
+--- a/apps/api/tests/routes/routes.setup.test.ts
++++ b/apps/api/tests/routes/routes.setup.test.ts
+@@ -2,20 +2,22 @@ import { readdir, readFile } from 'node:fs/promises';
+ import { join } from 'node:path';
+ import { fileURLToPath } from 'node:url';
+ import { describe, expect, it } from 'vitest';
+-import { routers } from '#src/routes/routes.setup.js';
++import { FeedRouter, routers } from '#src/routes/routes.setup.js';
+ import { BoardRouter } from '#src/routes/board.router.js';
+ import { HealthRouter } from '#src/routes/health.router.js';
+ 
+ /**
+- * Every router the server mounts is generated from a contract.
++ * Every router the server mounts is either generated from a contract, or — for the one route that
++ * cannot be, the SSE feed — built by hand in `routes.setup.ts` itself rather than a new file.
+  *
+  * Card 0019 wrote the health route by hand and said why that was temporary: a hand-written route is
+- * the only place the API can drift from the contract that documents it. It is now generated too, so
+- * the rule has no exceptions — and a rule with no exceptions is worth asserting rather than trusting.
++ * the only place the API can drift from the contract that documents it. The health and board
++ * routes are generated now; `FeedRouter` (card 0034) is the deliberate, permanent exception —
++ * ContractKit emits JSON handlers, and an SSE stream isn't one.
+  */
+ describe('routers', () => {
+-    it('mounts the generated health and board routers, and nothing else', () => {
+-        expect(routers).toEqual([HealthRouter, BoardRouter]);
++    it('mounts the generated health and board routers plus the hand-written feed router, and nothing else', () => {
++        expect(routers).toEqual([HealthRouter, BoardRouter, FeedRouter]);
+     });
+ 
+     /**

@@ -1,0 +1,8 @@
+{
+    "kind": "defect",
+    "class": "validation",
+    "file": "apps/api/src/modules/stages/scope.check.verifier.ts",
+    "lines": [81, 93],
+    "about": "Each piece of a proposed division has its tasks checked against the report, but its dependsOn is never checked, so a piece can depend on itself or on a piece that does not exist.",
+    "fixedBy": "e0f4c83c2c399ed2393e47c271e9afddcb2592b7"
+}

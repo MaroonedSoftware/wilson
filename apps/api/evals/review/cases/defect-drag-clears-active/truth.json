@@ -1,0 +1,8 @@
+{
+    "kind": "defect",
+    "class": "concurrency",
+    "file": "apps/web/src/components/Board.tsx",
+    "lines": [190, 205],
+    "about": "Clearing activeId before the mutation forces a render, and the observer reads the mutationFn current at that point, so the request carries an empty id rather than the card moved.",
+    "fixedBy": "2609d68d7a45fd94232773bf17a33742166931ec"
+}

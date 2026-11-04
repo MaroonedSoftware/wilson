@@ -1,0 +1,318 @@
+diff --git a/apps/api/package.json b/apps/api/package.json
+index c179914d..ff6da94f 100644
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -22,6 +22,7 @@
+         "@ai-sdk/xai": "^4.0.43",
+         "@maroonedsoftware/appconfig": "^2.4.6",
+         "@maroonedsoftware/errors": "^1.8.5",
++        "@maroonedsoftware/jobbroker": "^1.11.5",
+         "@maroonedsoftware/koa": "^3.0.8",
+         "@maroonedsoftware/kysely": "^0.7.8",
+         "@maroonedsoftware/logger": "^1.1.8",
+@@ -31,6 +32,7 @@
+         "kysely": "^0.29.5",
+         "luxon": "^3.7.2",
+         "pg": "^8.23.0",
++        "pg-boss": "^12.27.0",
+         "picomatch": "^4.0.5",
+         "reflect-metadata": "^0.2.2",
+         "yaml": "^2.9.0",
+diff --git a/apps/api/src/cli-bootstrap.ts b/apps/api/src/cli-bootstrap.ts
+index 0b25efad..6f359eec 100644
+--- a/apps/api/src/cli-bootstrap.ts
++++ b/apps/api/src/cli-bootstrap.ts
+@@ -22,6 +22,7 @@ export const buildConfig = async (options: { envFile?: string } = {}): Promise<A
+ };
+ 
+ export { modules };
++export { JobBroker } from '@maroonedsoftware/jobbroker';
+ export { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
+ export { BoardRepository } from '#modules/board/board.repository.js';
+ export { BoardConfig } from '#modules/board/board.config.js';
+diff --git a/apps/api/src/modules/events/card.event.ts b/apps/api/src/modules/events/card.event.ts
+index 41cc8f4a..949e0fa8 100644
+--- a/apps/api/src/modules/events/card.event.ts
++++ b/apps/api/src/modules/events/card.event.ts
+@@ -19,7 +19,8 @@ export type CardEventType =
+     | 'worktree.reclaimed'
+     | 'transition.written'
+     | 'transition.failed'
+-    | 'external.transition';
++    | 'external.transition'
++    | 'chain.stopped';
+ 
+ export interface CardEvent {
+     project: string;
+diff --git a/apps/api/src/modules/jobs/card.stage.job.ts b/apps/api/src/modules/jobs/card.stage.job.ts
+new file mode 100644
+index 00000000..2b061345
+--- /dev/null
++++ b/apps/api/src/modules/jobs/card.stage.job.ts
+@@ -0,0 +1,61 @@
++import { Injectable } from 'injectkit';
++import { Job, JobBroker } from '@maroonedsoftware/jobbroker';
++import { BoardConfig } from '#modules/board/board.config.js';
++import { EventLog } from '#modules/events/event.log.js';
++import { loadStages } from '#modules/stages/stage.config.js';
++import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
++import { decideChain } from './chain.decision.js';
++
++export interface CardStagePayload {
++    cardId: string;
++    stageName: string;
++}
++
++/**
++ * Runs one stage for one card, then decides whether the chain keeps going.
++ *
++ * `StageDispatcher.run` only ever reports where a card landed (`transitionedTo`), forward on a pass
++ * or backward on a kickback, and leaves it unset for a `manual` stage it deliberately does not
++ * touch. Turning "landed here" into "keep going" or "stop" is this job's decision, kept out of the
++ * dispatcher so it stays queue-agnostic — `wilson card run` calls the same dispatcher without ever
++ * enqueuing anything.
++ */
++@Injectable()
++export class CardStageJob extends Job<CardStagePayload> {
++    constructor(
++        private readonly dispatcher: StageDispatcher,
++        private readonly broker: JobBroker,
++        private readonly board: BoardConfig,
++        private readonly events: EventLog,
++    ) {
++        super();
++    }
++
++    async run({ cardId, stageName }: CardStagePayload): Promise<void> {
++        const outcome = await this.dispatcher.run(cardId, stageName);
++
++        // Unset means the stage just run was a `manual` gate the dispatcher left alone — nothing
++        // for the chain to do until a human moves the card.
++        if (!outcome.transitionedTo) {
++            return;
++        }
++
++        const stages = await loadStages(this.board.boardRoot);
++        const decision = decideChain(outcome.transitionedTo, stages);
++
++        if (decision.continue) {
++            await this.broker.send('card.stage', { cardId, stageName: outcome.transitionedTo });
++            return;
++        }
++
++        // Recorded rather than silently dropped: an operator watching the card's history needs to
++        // know the chain stopped here, and why, without having to reconstruct it from stage config.
++        await this.events.append({
++            project: this.board.project,
++            cardId,
++            stage: stageName,
++            type: 'chain.stopped',
++            payload: { target: outcome.transitionedTo, reason: decision.reason },
++        });
++    }
++}
+diff --git a/apps/api/src/modules/jobs/chain.decision.ts b/apps/api/src/modules/jobs/chain.decision.ts
+new file mode 100644
+index 00000000..2822a7c6
+--- /dev/null
++++ b/apps/api/src/modules/jobs/chain.decision.ts
+@@ -0,0 +1,32 @@
++import { NON_STAGE_STATES, type ProjectStages } from '#modules/stages/stage.config.js';
++
++export interface ChainDecision {
++    /** Whether `target` should be enqueued as the card's next stage. */
++    continue: boolean;
++    /** Why the chain stops here. Present only when `continue` is false. */
++    reason?: string;
++}
++
++/**
++ * Whether a card that just transitioned to `target` should be re-enqueued.
++ *
++ * Kept pure and separate from `CardStageJob` on purpose: the dispatcher only ever reports where a
++ * card landed, never whether the queue should keep going, and this is the one place that turns
++ * "landed here" into "keep going" or "stop" — a decision worth testing without a live pg-boss.
++ */
++export const decideChain = (target: string, stages: ProjectStages): ChainDecision => {
++    if ((NON_STAGE_STATES as readonly string[]).includes(target)) {
++        return { continue: false, reason: `${target} is a terminal state` };
++    }
++
++    const stage = stages.stages.find(s => s.name === target);
++    if (!stage) {
++        return { continue: false, reason: `${target} is not a configured stage` };
++    }
++
++    if (stage.mode !== 'agent') {
++        return { continue: false, reason: `${target} is a "${stage.mode}" stage, which needs a human or a command runner, not the queue` };
++    }
++
++    return { continue: true };
++};
+diff --git a/apps/api/src/modules/jobs/jobs.module.ts b/apps/api/src/modules/jobs/jobs.module.ts
+new file mode 100644
+index 00000000..4912867c
+--- /dev/null
++++ b/apps/api/src/modules/jobs/jobs.module.ts
+@@ -0,0 +1,81 @@
++import { Container, Registry } from 'injectkit';
++import { AppConfig } from '@maroonedsoftware/appconfig';
++import { ServerKitModule } from '@maroonedsoftware/koa';
++import { Logger } from '@maroonedsoftware/logger';
++import { JobBroker, JobRunner, type JobQueuePolicy } from '@maroonedsoftware/jobbroker';
++import { PgBossConnectionProvider, PgBossJobBroker, PgBossJobRegistryMap, PgBossJobRunner } from '@maroonedsoftware/jobbroker/pgboss';
++import { PgBoss } from 'pg-boss';
++import { Duration } from 'luxon';
++import { configNumber, requireConfigString } from '#shared/require.config.js';
++import { CardStageJob } from './card.stage.job.js';
++
++/**
++ * Retry policy for `card.stage`: a couple of quick retries for a transient failure (a dropped
++ * connection, a flaky provider call), then dead-letter rather than retry forever — a stage that
++ * keeps failing needs a human, not an infinite queue.
++ */
++export const CARD_STAGE_POLICY: JobQueuePolicy = {
++    retryLimit: 2,
++    retryDelay: Duration.fromObject({ seconds: 30 }),
++    retryBackoff: true,
++    deadLetter: 'card.stage.dead',
++};
++
++/**
++ * The job queue.
++ *
++ * pg-boss on the same Postgres database as everything else — no separate broker to run or operate.
++ * One queue for now, `card.stage`, which `CardStageJob` re-enqueues onto itself to walk a card
++ * through consecutive `agent` stages without a human re-triggering each one.
++ */
++export const JobsModule: ServerKitModule = {
++    name: 'Jobs',
++    setup: async (registry: Registry, config: AppConfig) => {
++        const dbConfig = {
++            host: requireConfigString(config, 'DATABASE_HOST'),
++            port: configNumber(config, 'DATABASE_PORT', 5432),
++            user: requireConfigString(config, 'DATABASE_USER'),
++            password: requireConfigString(config, 'DATABASE_PASSWORD'),
++            database: requireConfigString(config, 'DATABASE_NAME'),
++        };
++
++        registry
++            .register(PgBoss)
++            .useFactory(container => {
++                const pgboss = new PgBoss(dbConfig);
++                // Mirrors DataModule's pool: an error with no in-flight caller has nowhere else to
++                // go and would otherwise take the process down as an unhandled 'error' event.
++                pgboss.on('error', err => container.get(Logger).error(err));
++                return pgboss;
++            })
++            .asSingleton();
++
++        registry.register(CardStageJob).useClass(CardStageJob).asTransient();
++
++        registry
++            .register(PgBossJobRegistryMap)
++            .useFactory(() => {
++                const registrations = new PgBossJobRegistryMap();
++                registrations.set('card.stage', { job: CardStageJob, policy: CARD_STAGE_POLICY });
++                return registrations;
++            })
++            .asSingleton();
++
++        // Default executor (pg-boss's own pool): enqueues here are not part of a surrounding
++        // database transaction, so there is nothing to override.
++        registry.register(PgBossConnectionProvider).useClass(PgBossConnectionProvider).asSingleton();
++
++        registry.register(JobBroker).useClass(PgBossJobBroker).asSingleton();
++        registry.register(JobRunner).useClass(PgBossJobRunner).asSingleton();
++    },
++    // Started after Data (the pool `card.stage` reads/writes against) and Stages (what
++    // `CardStageJob` dispatches into) — module order in modules.ts controls that.
++    start: async (container: Container) => {
++        await container.get(JobRunner).start();
++    },
++    // Stops accepting new jobs and waits for in-flight ones to finish before Data tears down the
++    // pool underneath them.
++    shutdown: async (container: Container) => {
++        await container.get(JobRunner).stop();
++    },
++};
+diff --git a/apps/api/src/modules/modules.ts b/apps/api/src/modules/modules.ts
+index 41aadf8b..e98fdcaa 100644
+--- a/apps/api/src/modules/modules.ts
++++ b/apps/api/src/modules/modules.ts
+@@ -3,6 +3,7 @@ import { AgentModule } from './agent/agent.module.js';
+ import { BoardModule } from './board/board.module.js';
+ import { DataModule } from './data/data.module.js';
+ import { EventsModule } from './events/events.module.js';
++import { JobsModule } from './jobs/jobs.module.js';
+ import { StagesModule } from './stages/stages.module.js';
+ import { WorktreeModule } from './worktree/worktree.module.js';
+ 
+@@ -11,6 +12,8 @@ import { WorktreeModule } from './worktree/worktree.module.js';
+  *
+  * `setup` / `start` / `ready` walk it forwards and `shutdown` walks it backwards, so a module tears
+  * down before the modules it depends on — which is why Data is first: it owns the pool, and
+- * everything that might still be writing an event has stopped by the time it closes.
++ * everything that might still be writing an event has stopped by the time it closes. Jobs is last
++ * to start (after Stages, what `CardStageJob` dispatches into) and first to shut down (before
++ * anything it might still be running against tears down underneath it).
+  */
+-export const modules: ServerKitModule[] = [DataModule, EventsModule, BoardModule, WorktreeModule, AgentModule, StagesModule];
++export const modules: ServerKitModule[] = [DataModule, EventsModule, BoardModule, WorktreeModule, AgentModule, StagesModule, JobsModule];
+diff --git a/packages/cli/src/commands/card/start.command.ts b/packages/cli/src/commands/card/start.command.ts
+new file mode 100644
+index 00000000..dfc9d169
+--- /dev/null
++++ b/packages/cli/src/commands/card/start.command.ts
+@@ -0,0 +1,31 @@
++import type { CommandModule } from '@maroonedsoftware/johnny5';
++import { requireContainer } from '@maroonedsoftware/johnny5/serverkit';
++import { BoardRepository, JobBroker } from '@wilson/api/cli-bootstrap';
++
++/**
++ * Enqueue a card's current stage on the job queue.
++ *
++ * Enqueues and returns — it does not run the stage itself, and this process does not have to stay
++ * alive for that to happen. Whatever process holds the `JobRunner` (a server that ran the Jobs
++ * module's `start`) picks the job up and runs it; that process is the one that has to stay running.
++ */
++const command: CommandModule = {
++    description: "Enqueue a card's current stage on the job queue",
++    args: [{ name: 'cardId', description: 'The card id, e.g. 0001', required: true }],
++    run: requireContainer(async (_opts, ctx, args) => {
++        const cardId = String(args[0]);
++        const board = ctx.container.get(BoardRepository);
++        const broker = ctx.container.get(JobBroker);
++
++        const card = await board.read(cardId);
++        const stageName = card.frontmatter.stage;
++
++        const jobId = await broker.send('card.stage', { cardId, stageName });
++
++        ctx.logger.info(`enqueued ${cardId} · ${stageName} (job ${jobId})`);
++        ctx.logger.info('the job runs in whatever process holds the JobRunner — that process must stay running for it to happen.');
++        return 0;
++    }),
++};
++
++export default command;
+diff --git a/packages/cli/src/index.ts b/packages/cli/src/index.ts
+index fd4f6bc4..ba3d3828 100755
+--- a/packages/cli/src/index.ts
++++ b/packages/cli/src/index.ts
+@@ -12,6 +12,7 @@ import cardMoveCommand from './commands/card/move.command.js';
+ import cardNextCommand from './commands/card/next.command.js';
+ import cardRunCommand from './commands/card/run.command.js';
+ import cardShowCommand from './commands/card/show.command.js';
++import cardStartCommand from './commands/card/start.command.js';
+ 
+ import { boardRepoReady } from './checks/board.repo.js';
+ import { codeRepoReady } from './checks/code.repo.js';
+@@ -41,6 +42,7 @@ const app = await createCliApp({
+         reg(['card', 'move'], cardMoveCommand),
+         reg(['card', 'next'], cardNextCommand),
+         reg(['card', 'run'], cardRunCommand),
++        reg(['card', 'start'], cardStartCommand),
+     ],
+     checks: [
+         nodeVersion({ min: 22 }),

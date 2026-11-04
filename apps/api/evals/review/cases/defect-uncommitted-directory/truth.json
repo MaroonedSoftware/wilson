@@ -1,0 +1,8 @@
+{
+    "kind": "defect",
+    "class": "integration",
+    "file": "apps/api/src/modules/worktree/worktree.manager.ts",
+    "lines": [129, 141],
+    "about": "Without --untracked-files=all, git status collapses a new directory into one entry, so a caller comparing these paths with file globs sees a directory rather than its files.",
+    "fixedBy": "8a057537671944917feafdb0d7d561092f58537b"
+}

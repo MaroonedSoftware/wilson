@@ -1,0 +1,1114 @@
+diff --git a/apps/api/data/contracts/board.ck b/apps/api/data/contracts/board.ck
+index ec80ebd8..9cae087f 100644
+--- a/apps/api/data/contracts/board.ck
++++ b/apps/api/data/contracts/board.ck
+@@ -57,6 +57,20 @@ contract ReleaseResult: CardDetail & {
+     releasedAs: enum(queued, orphan)
+ }
+ 
++# Card 0143. `POST /api/cards/{id}/merge`'s response: the card, plus what the attempt actually did.
++# A conflict and a suite failure are not bad input — they are two of the three honest outcomes an
++# attempt can have, the same way `ReleaseResult.releasedAs` names which safe-to-cancel case a
++# release was, so both come back as `merged: false` with `reason` in a 200, not a 400. The only
++# thing this operation refuses outright is a card that is not in `ready` (see its 400 below).
++contract MergeResult: CardDetail & {
++    merged: boolean
++    # The commit `main` now points at, present only when `merged` is true.
++    commit?: string
++    # Why the attempt did not land — a conflict naming the paths, or the suite's own failure —
++    # present only when `merged` is false.
++    reason?: string
++}
++
+ # The write surface. Each request body is its own named contract rather than inlined on the
+ # operation, for the same reason `ListQuery` is one: contractkit only honours a field's `?` down
+ # the schema path a named type takes, and every one of card 0080's five mutations copies this shape.
+@@ -513,6 +527,31 @@ operation /api/cards/{id}/release: {
+     }
+ }
+ 
++# Card 0143. The merge the pipeline could never do by hand: compute the card's branch merged into
++# `main` without a checkout, prove it against the project's suite, and land it — or refuse and say
++# why. Reachable from the app rather than automatic on reaching `ready` (see this card's own
++# Constraints): the trigger stays an explicit operator action, the same human gate `ready` always
++# was, this endpoint just performs what a human used to type by hand.
++operation /api/cards/{id}/merge: {
++    params: {
++        id: string
++    }
++    post: {
++        name: Merge card
++        service: BoardWriteService.merge
++        response: {
++            200: {
++                application/json: MergeResult
++            }
++            # Only "this card is not in `ready`" refuses outright — carried via `details`, as every
++            # other refusal on this surface is. A conflict or a failing suite is not this: both are
++            # `MergeResult`s with `merged: false`, in the 200 above.
++            400:
++            404:
++        }
++    }
++}
++
+ # Card 0113. Reads without writing: renders the division a client would confirm, before anything is
+ # created from it. Refuses, naming why, when there is nothing to act on rather than handing back an
+ # empty confirmation prompt.
+diff --git a/apps/api/src/generated/board.ts b/apps/api/src/generated/board.ts
+index 918b9d57..93206f58 100644
+--- a/apps/api/src/generated/board.ts
++++ b/apps/api/src/generated/board.ts
+@@ -54,7 +54,7 @@ export type CardSummary = z.infer<typeof CardSummary>;
+  * `id` never appears in a request body — it is either a path param (move, edit act on a card that
+  * already exists) or, for create, assigned by the service the same way `wilson card create` assigns
+  * it: the next sequential id over the current board. A client cannot pick one.
+- * generated from [CreateCardRequest](file://./../../data/contracts/board.ck#L67)
++ * generated from [CreateCardRequest](file://./../../data/contracts/board.ck#L81)
+  */
+ export const CreateCardRequest = z.strictObject({
+     title: z.string(),
+@@ -68,7 +68,7 @@ export const CreateCardRequest = z.strictObject({
+ export type CreateCardRequest = z.infer<typeof CreateCardRequest>;
+ 
+ /**
+- * generated from [MoveCardRequest](file://./../../data/contracts/board.ck#L77)
++ * generated from [MoveCardRequest](file://./../../data/contracts/board.ck#L91)
+  */
+ export const MoveCardRequest = z.strictObject({
+     stage: z
+@@ -85,7 +85,7 @@ export type MoveCardRequest = z.infer<typeof MoveCardRequest>;
+  * where a client would have no way to compute one that is still valid by the time this request
+  * lands. Either may be absent — both absent together means "the only card in the column" — since a
+  * drop can land at either end, where there is nothing on that side to name.
+- * generated from [RepositionCardRequest](file://./../../data/contracts/board.ck#L89)
++ * generated from [RepositionCardRequest](file://./../../data/contracts/board.ck#L103)
+  */
+ export const RepositionCardRequest = z.strictObject({
+     beforeId: z.string().optional().describe('The card `id` should sit immediately after, or absent for the top of the column.'),
+@@ -94,7 +94,7 @@ export const RepositionCardRequest = z.strictObject({
+ export type RepositionCardRequest = z.infer<typeof RepositionCardRequest>;
+ 
+ /**
+- * generated from [EditCardRequest](file://./../../data/contracts/board.ck#L96)
++ * generated from [EditCardRequest](file://./../../data/contracts/board.ck#L110)
+  */
+ export const EditCardRequest = z.strictObject({
+     body: z.string(),
+@@ -105,7 +105,7 @@ export type EditCardRequest = z.infer<typeof EditCardRequest>;
+  * Card 0094. Its own request shape rather than a `title` field on `EditCardRequest`: adding one there
+  * would rename the generated SDK method `editCardBody` (and its caller and the test that names it)
+  * for no behavioural gain, where `POST .../rename` is purely additive.
+- * generated from [RenameCardRequest](file://./../../data/contracts/board.ck#L103)
++ * generated from [RenameCardRequest](file://./../../data/contracts/board.ck#L117)
+  */
+ export const RenameCardRequest = z.strictObject({
+     title: z.string(),
+@@ -113,7 +113,7 @@ export const RenameCardRequest = z.strictObject({
+ export type RenameCardRequest = z.infer<typeof RenameCardRequest>;
+ 
+ /**
+- * generated from [DependCardRequest](file://./../../data/contracts/board.ck#L107)
++ * generated from [DependCardRequest](file://./../../data/contracts/board.ck#L121)
+  */
+ export const DependCardRequest = z.strictObject({
+     dependsOnId: z.string(),
+@@ -125,7 +125,7 @@ export const DependCardRequest = z.strictObject({
+ export type DependCardRequest = z.infer<typeof DependCardRequest>;
+ 
+ /**
+- * generated from [CardEvent](file://./../../data/contracts/board.ck#L114)
++ * generated from [CardEvent](file://./../../data/contracts/board.ck#L128)
+  */
+ export const CardEvent = z.strictObject({
+     id: z.string(),
+@@ -137,7 +137,7 @@ export const CardEvent = z.strictObject({
+ export type CardEvent = z.infer<typeof CardEvent>;
+ 
+ /**
+- * generated from [CardVersion](file://./../../data/contracts/board.ck#L122)
++ * generated from [CardVersion](file://./../../data/contracts/board.ck#L136)
+  */
+ export const CardVersion = z.strictObject({
+     id: z.string(),
+@@ -149,7 +149,7 @@ export type CardVersion = z.infer<typeof CardVersion>;
+ /**
+  * Shared by both history endpoints — a named contract so the generator takes the schema path
+  * that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
+- * generated from [ListQuery](file://./../../data/contracts/board.ck#L130)
++ * generated from [ListQuery](file://./../../data/contracts/board.ck#L144)
+  */
+ export const ListQuery = z.strictObject({
+     limit: z.coerce.number().int().optional(),
+@@ -160,7 +160,7 @@ export type ListQuery = z.infer<typeof ListQuery>;
+  * Bootstrap: scaffolding and importing the board itself, not a card. Both operate on
+  * `BoardConfig.boardRoot` — the path is server configuration, never a request field, so an endpoint
+  * here is not a remote write-anywhere-on-disk primitive (card 0076).
+- * generated from [ImportBoardRequest](file://./../../data/contracts/board.ck#L137)
++ * generated from [ImportBoardRequest](file://./../../data/contracts/board.ck#L151)
+  */
+ export const ImportBoardRequest = z.strictObject({
+     dryRun: z
+@@ -173,7 +173,7 @@ export const ImportBoardRequest = z.strictObject({
+ export type ImportBoardRequest = z.infer<typeof ImportBoardRequest>;
+ 
+ /**
+- * generated from [ImportReport](file://./../../data/contracts/board.ck#L143)
++ * generated from [ImportReport](file://./../../data/contracts/board.ck#L157)
+  */
+ export const ImportReport = z.strictObject({
+     cards: z.coerce.number().int(),
+@@ -196,7 +196,7 @@ export type ImportReport = z.infer<typeof ImportReport>;
+  * finished draft, writing it as a new card version, and tearing the worktree down. This contract is
+  * the second half. The API owns the session; the CLI (unchanged until card 0074) will own spawning
+  * `claude` with the operator's stdio against what this returns.
+- * generated from [PlanSession](file://./../../data/contracts/board.ck#L159)
++ * generated from [PlanSession](file://./../../data/contracts/board.ck#L173)
+  */
+ export const PlanSession = z.strictObject({
+     sessionId: z
+@@ -220,7 +220,7 @@ export const PlanSession = z.strictObject({
+ export type PlanSession = z.infer<typeof PlanSession>;
+ 
+ /**
+- * generated from [SaveDraftRequest](file://./../../data/contracts/board.ck#L182)
++ * generated from [SaveDraftRequest](file://./../../data/contracts/board.ck#L196)
+  */
+ export const SaveDraftRequest = z.strictObject({
+     body: z
+@@ -234,7 +234,7 @@ export type SaveDraftRequest = z.infer<typeof SaveDraftRequest>;
+ /**
+  * Card 0133: the daemon can hold a planning conversation for a card itself. `POST .../plan/turn`'s
+  * request — one message in that conversation.
+- * generated from [PlanTurnRequest](file://./../../data/contracts/board.ck#L191)
++ * generated from [PlanTurnRequest](file://./../../data/contracts/board.ck#L205)
+  */
+ export const PlanTurnRequest = z.strictObject({
+     text: z.string(),
+@@ -245,7 +245,7 @@ export type PlanTurnRequest = z.infer<typeof PlanTurnRequest>;
+  * One row of `runner.plan_turns` — a turn in a card's planning conversation, whether this is
+  * `POST .../plan/turn`'s response (the just-appended assistant turn) or one of the entries
+  * `GET .../plan/stream` replays after a client's `Last-Event-ID`.
+- * generated from [PlanTurn](file://./../../data/contracts/board.ck#L198)
++ * generated from [PlanTurn](file://./../../data/contracts/board.ck#L212)
+  */
+ export const PlanTurn = z.strictObject({
+     seq: z.coerce
+@@ -266,7 +266,7 @@ export type PlanTurn = z.infer<typeof PlanTurn>;
+  * is the content a client reads instead: exactly what is on disk, whether that is the seed `open`
+  * wrote, a draft the agent is partway through, or the last thing `save` wrote before the session
+  * closed. See `PlanService.draft` for what an id with no draft yet gets instead of this.
+- * generated from [PlanDraft](file://./../../data/contracts/board.ck#L212)
++ * generated from [PlanDraft](file://./../../data/contracts/board.ck#L226)
+  */
+ export const PlanDraft = z.strictObject({
+     body: z.string(),
+@@ -279,7 +279,7 @@ export type PlanDraft = z.infer<typeof PlanDraft>;
+  * `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
+  * One shape for both directions so a client can round-trip a piece it only meant to touch one field
+  * of.
+- * generated from [DivisionPiece](file://./../../data/contracts/board.ck#L221)
++ * generated from [DivisionPiece](file://./../../data/contracts/board.ck#L235)
+  */
+ export const DivisionPiece = z.strictObject({
+     title: z.string(),
+@@ -307,7 +307,7 @@ export type CardDetail = z.infer<typeof CardDetail>;
+  * card. Read from the event log, not a fresh run — `scope-check` already happened, and re-running it
+  * could return a different division for the cost of a whole pass, which is `scope-check`'s job to
+  * spend, not this endpoint's.
+- * generated from [CardDivision](file://./../../data/contracts/board.ck#L237)
++ * generated from [CardDivision](file://./../../data/contracts/board.ck#L251)
+  */
+ export const CardDivision = z.strictObject({
+     reason: z
+@@ -325,7 +325,7 @@ export type CardDivision = z.infer<typeof CardDivision>;
+  * after being shown what was reported and given the chance to add to it. The endpoint does not go
+  * back to the event log to re-read the division itself; the confirmed pieces are the only truth it
+  * acts on.
+- * generated from [SplitCardsRequest](file://./../../data/contracts/board.ck#L249)
++ * generated from [SplitCardsRequest](file://./../../data/contracts/board.ck#L263)
+  */
+ export const SplitCardsRequest = z.strictObject({
+     pieces: z.array(DivisionPiece),
+@@ -346,12 +346,30 @@ export const ReleaseResult = CardDetail.extend({
+ });
+ export type ReleaseResult = z.infer<typeof ReleaseResult>;
+ 
++/**
++ * Card 0143. `POST /api/cards/{id}/merge`'s response: the card, plus what the attempt actually did.
++ * A conflict and a suite failure are not bad input — they are two of the three honest outcomes an
++ * attempt can have, the same way `ReleaseResult.releasedAs` names which safe-to-cancel case a
++ * release was, so both come back as `merged: false` with `reason` in a 200, not a 400. The only
++ * thing this operation refuses outright is a card that is not in `ready` (see its 400 below).
++ * generated from [MergeResult](file://./../../data/contracts/board.ck#L65)
++ */
++export const MergeResult = CardDetail.extend({
++    merged: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
++    commit: z.string().optional().describe('The commit `main` now points at, present only when `merged` is true.'),
++    reason: z
++        .string()
++        .optional()
++        .describe("Why the attempt did not land — a conflict naming the paths, or the suite's own failure —\npresent only when `merged` is false."),
++});
++export type MergeResult = z.infer<typeof MergeResult>;
++
+ /**
+  * `POST /api/cards/{id}/split`'s response: the origin card, re-read after being annotated with the
+  * ids it produced, and the cards created from each piece, in the order `pieces` was sent. Every
+  * created card lands in `planning`, never `backlog` — a piece is a title, a task list and a
+  * sentence, not a plan with all six headings filled in.
+- * generated from [SplitResult](file://./../../data/contracts/board.ck#L257)
++ * generated from [SplitResult](file://./../../data/contracts/board.ck#L271)
+  */
+ export const SplitResult = z.strictObject({
+     origin: CardDetail,
+diff --git a/apps/api/src/modules/board/board.write.service.ts b/apps/api/src/modules/board/board.write.service.ts
+index 2d695f5b..5ef4d187 100644
+--- a/apps/api/src/modules/board/board.write.service.ts
++++ b/apps/api/src/modules/board/board.write.service.ts
+@@ -4,7 +4,8 @@ import { Logger } from '@maroonedsoftware/logger';
+ import { JobBroker } from '@maroonedsoftware/jobbroker';
+ import { EventLog } from '#modules/events/event.log.js';
+ import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+-import { loadStages, validTargets } from '#modules/stages/stage.config.js';
++import { findStage, loadStages, validTargets } from '#modules/stages/stage.config.js';
++import { pnpmStoreLock, runConfiguredCommand } from '#modules/stages/run.command.js';
+ import { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
+ import { CardJobs } from '#modules/jobs/card.jobs.js';
+ import { RunningCards } from '#modules/jobs/running.cards.js';
+@@ -13,6 +14,7 @@ import type {
+     CardDetail,
+     CardDivision,
+     CreateCardRequest,
++    MergeResult,
+     MoveCardRequest,
+     EditCardRequest,
+     DependCardRequest,
+@@ -510,6 +512,115 @@ export class BoardWriteService {
+         return { ...toCardDetail(await this.readOrThrow(id)), releasedAs };
+     }
+ 
++    /**
++     * Card 0143. Merge a card's branch into `main` — the step every card on this board has always
++     * needed a human with a shell for: verify clean, `git merge --no-ff`, run the suite, `wilson
++     * card move <id> merged`. This is that, minus the shell: no checkout of `codeRoot` ([[0025]]'s
++     * warning, this card's own Constraints), and the card does not move until the ref move is
++     * verified, not merely reported.
++     *
++     * Only "this card is not in `ready`" is refused outright. A conflict and a suite failure are not
++     * bad input — they are the other two honest outcomes an attempt can have — so both come back as
++     * `{ merged: false, reason }` in a 200, exactly as `MergeResult`'s doc comment in the contract
++     * says, and both flag the card for a human the same way [[0103]]'s rebase-conflict handling does:
++     * `needsHuman` set, the card left exactly where it was, no retry touched (`ready` is a `manual`
++     * stage; nothing here is a kickback to consume one from).
++     */
++    async merge(id: string): Promise<MergeResult> {
++        const card = await this.readOrThrow(id);
++        if (card.frontmatter.stage !== 'ready') {
++            throw httpError(400).withDetails({ reason: `cannot merge ${id}: it is in "${card.frontmatter.stage}", not "ready"` });
++        }
++
++        const branch = this.worktrees.resolveBranch(card);
++        const computed = await this.worktrees.computeMerge(branch);
++        if (!computed.ok) {
++            const reason = `${branch} conflicts with main: ${computed.conflicts.length > 0 ? computed.conflicts.join(', ') : computed.raw.slice(0, 2000)}`;
++            await this.flagMergeFailure(id, card.frontmatter.stage, reason);
++            return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason };
++        }
++
++        const message = `Merge card ${id}: ${card.frontmatter.title}`;
++        const mergeCommit = await this.worktrees.commitMerge(computed.mainSha, computed.branchSha, computed.treeSha, message);
++
++        const proof = await this.proveMerge(id, mergeCommit);
++        if (!proof.ok) {
++            const reason = `merge of ${branch} into main fails the suite: ${proof.reason}`;
++            await this.flagMergeFailure(id, card.frontmatter.stage, reason);
++            return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason };
++        }
++
++        const landed = await this.worktrees.landMerge(computed.mainSha, mergeCommit);
++        if (!landed.ok) {
++            await this.flagMergeFailure(id, card.frontmatter.stage, landed.reason);
++            return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason: landed.reason };
++        }
++
++        // The existing write path, not a bespoke one: `move` is what pins runner state to a
++        // transition, reclaims the worktree on a terminal target, and clears a stale flag — every
++        // reason `[[0143]]`'s Constraints give for landing through the same door every other
++        // terminal transition uses.
++        await this.move(id, { stage: 'merged' });
++        return { ...toCardDetail(await this.boardRepository.read(id)), merged: true, commit: mergeCommit };
++    }
++
++    /**
++     * Flag a card for a human without moving it or touching a retry — [[0103]]'s shape
++     * (`flagRebaseConflict`, `modules/jobs/flag.rebase.conflict.ts`) reproduced here rather than
++     * imported: that function takes a `RebaseConflictError`, which a merge conflict or a failed
++     * suite is not, and `writeWithEvent`ing the same two fields directly is the smaller cost. `from`
++     * and `to` both name the card's current stage because this never moves it — `ready` is exactly
++     * where a human decides what happens next.
++     */
++    private async flagMergeFailure(id: string, stage: string, reason: string): Promise<void> {
++        await this.boardRepository.writeWithEvent(
++            id,
++            `Flag ${id}: merge failed`,
++            current => ({ ...current, frontmatter: { ...current.frontmatter, needsHuman: true, needsHumanReason: reason } }),
++            {
++                project: this.boardConfig.project,
++                cardId: id,
++                stage,
++                type: 'transition.written',
++                payload: { from: stage, to: stage, by: 'human', needsHuman: true, reason },
++            },
++        );
++    }
++
++    /**
++     * Card 0143. Prove the computed merge before it lands: cut a throwaway worktree at
++     * `mergeCommit` — unreferenced by any branch until {@link WorktreeManager.landMerge} says so —
++     * and run the `testing` stage's own configured suite against it, the same command the testing
++     * stage already treats as "green". Reclaimed unconditionally, pass or fail, so it never lingers
++     * the way the card's own worktree (left alone throughout this method — see Constraints) must.
++     */
++    private async proveMerge(id: string, mergeCommit: string): Promise<{ ok: true } | { ok: false; reason: string }> {
++        const stages = await loadStages(this.boardConfig.boardRoot);
++        const stage = findStage(stages, 'testing');
++
++        const scratchId = `${id}-merge-check`;
++        const worktree = await this.worktrees.create(scratchId, `card/${id}-merge-check`, mergeCommit);
++
++        try {
++            if (stage.setupCommand) {
++                const setupCommand = stage.setupCommand;
++                const setup = await pnpmStoreLock.run(`${id} merge-check setup`, message => this.logger.info(message), () =>
++                    runConfiguredCommand(worktree.path, setupCommand),
++                );
++                if (setup) return { ok: false, reason: `setup failed: ${setup.reason}` };
++            }
++
++            if (!stage.testCommand) return { ok: false, reason: 'no testCommand configured: the suite could not be proven' };
++
++            const run = await runConfiguredCommand(worktree.path, stage.testCommand);
++            if (run) return { ok: false, reason: run.reason };
++
++            return { ok: true };
++        } finally {
++            await this.worktrees.reclaim(scratchId);
++        }
++    }
++
+     /**
+      * The most recent scope-check refusal on record for a card, read from its event log rather than
+      * a fresh run: `scope-check` already happened, and re-running it (card 0105's job, not this
+diff --git a/apps/api/src/modules/board/git.ts b/apps/api/src/modules/board/git.ts
+index a5bf31fa..9e82a92c 100644
+--- a/apps/api/src/modules/board/git.ts
++++ b/apps/api/src/modules/board/git.ts
+@@ -32,3 +32,45 @@ export const isClean = async (cwd: string): Promise<boolean> => {
+     const { stdout } = await git(cwd, ['status', '--porcelain']);
+     return stdout.trim().length === 0;
+ };
++
++/**
++ * Compute `git merge-tree --write-tree`, the merge of `theirs` into `ours` done entirely in the
++ * object database — no checkout, no index, nothing in `cwd`'s working tree moves (card 0143,
++ * [[0025]]'s warning about merging in `codeRoot`).
++ *
++ * Unlike {@link git} above, a conflicting merge is not treated as a command failure: `merge-tree`
++ * exits 1 and still writes a machine-readable report to stdout, which `git()`'s generic error
++ * handling would discard (it keeps only `stderr`). This is the one caller that needs that stdout, so
++ * it runs `exec` itself rather than going through `git()`, and still throws for every other kind of
++ * failure — a bad ref, or `merge-tree` erroring before it could even attempt the merge.
++ */
++export const mergeTree = async (cwd: string, ours: string, theirs: string): Promise<{ ok: true; treeSha: string } | { ok: false; output: string }> => {
++    try {
++        const { stdout } = await exec('git', ['merge-tree', '--write-tree', ours, theirs], { cwd, maxBuffer: 32 * 1024 * 1024 });
++        return { ok: true, treeSha: stdout.trim() };
++    } catch (err) {
++        const e = err as { code?: number; stdout?: string; message: string };
++        if (e.code === 1 && typeof e.stdout === 'string') {
++            return { ok: false, output: e.stdout };
++        }
++        throw new Error(`git merge-tree --write-tree ${ours} ${theirs} failed in ${cwd}: ${e.message}`, { cause: err });
++    }
++};
++
++/**
++ * The paths a conflicting {@link mergeTree} could not resolve.
++ *
++ * `merge-tree --write-tree`'s conflict report has two parts: a block of `ls-files --stage`-shaped
++ * lines (`<mode> <object> <stage>\t<path>`, one per stage present for each conflicted path) meant to
++ * be read by a machine, and free-text messages around it meant to be read by a person. This reads
++ * only the first part — the messages vary by conflict type (content, add/add, rename/delete, ...) in
++ * ways not worth pattern-matching when the structured lines already name every path directly.
++ */
++export const conflictingPaths = (mergeTreeOutput: string): string[] => {
++    const paths = new Set<string>();
++    for (const line of mergeTreeOutput.split('\n')) {
++        const match = /^\d{6} [0-9a-f]{4,64} [1-3]\t(.+)$/.exec(line);
++        if (match) paths.add(match[1]!);
++    }
++    return [...paths].sort();
++};
+diff --git a/apps/api/src/modules/worktree/worktree.manager.ts b/apps/api/src/modules/worktree/worktree.manager.ts
+index 287ea168..7f249d93 100644
+--- a/apps/api/src/modules/worktree/worktree.manager.ts
++++ b/apps/api/src/modules/worktree/worktree.manager.ts
+@@ -4,7 +4,7 @@ import { Injectable } from 'injectkit';
+ import { Logger } from '@maroonedsoftware/logger';
+ import { BoardConfig } from '#modules/board/board.config.js';
+ import type { Card } from '#modules/board/card.js';
+-import { git, isClean } from '#modules/board/git.js';
++import { conflictingPaths, git, isClean, mergeTree } from '#modules/board/git.js';
+ import { codeRootLock } from './code.root.lock.js';
+ 
+ export interface Worktree {
+@@ -300,6 +300,67 @@ export class WorktreeManager {
+         return (await git(this.config.codeRoot, ['rev-parse', 'HEAD'])).stdout.trim();
+     }
+ 
++    /**
++     * Card 0143. Compute the merge of `branch` into `main`, entirely in the object database —
++     * `codeRoot`'s working tree and index never move (its own HEAD, checked out at `main`, is read
++     * with `rev-parse` and nothing else touches it). A clean merge hands back the resulting tree and
++     * the two shas {@link commitMerge} needs as parents; a conflicting one hands back the paths it
++     * could not resolve — a flag, not a poison, the same shape card 0103 established for a rebase
++     * conflict.
++     */
++    async computeMerge(
++        branch: string,
++    ): Promise<{ ok: true; treeSha: string; mainSha: string; branchSha: string } | { ok: false; conflicts: string[]; raw: string }> {
++        const mainSha = (await git(this.config.codeRoot, ['rev-parse', 'HEAD'])).stdout.trim();
++        const branchSha = (await git(this.config.codeRoot, ['rev-parse', branch])).stdout.trim();
++
++        const result = await mergeTree(this.config.codeRoot, mainSha, branchSha);
++        if (!result.ok) {
++            return { ok: false, conflicts: conflictingPaths(result.output), raw: result.output };
++        }
++        return { ok: true, treeSha: result.treeSha, mainSha, branchSha };
++    }
++
++    /**
++     * Create the merge commit object from {@link computeMerge}'s result. This alone does not move
++     * `main` — the commit is unreferenced until {@link landMerge} points the branch at it, which is
++     * deliberate: the caller runs the suite against this commit first and only lands it if that
++     * passes (card 0143's own Constraints, *the suite runs against the merged result before the ref
++     * moves*).
++     */
++    async commitMerge(mainSha: string, branchSha: string, treeSha: string, message: string): Promise<string> {
++        const { stdout } = await git(this.config.codeRoot, ['commit-tree', treeSha, '-p', mainSha, '-p', branchSha, '-m', message]);
++        return stdout.trim();
++    }
++
++    /**
++     * Move `main` onto `mergeCommit`, compare-and-swap against the `main` {@link computeMerge} last
++     * saw, then read the ref back to confirm it actually moved.
++     *
++     * Both halves matter. The CAS (`update-ref`'s optional third argument) refuses rather than
++     * clobbers if `main` moved while the suite was running against the computed merge — landing on
++     * top of a `main` this card never proved anything against would be worse than refusing. The
++     * read-back matters separately: [[0025]]'s prior art
++     * (an earlier report) failed *silently* — the symptom was a card stuck at `ready` with no error —
++     * and an exit code is not evidence that the ref actually moved.
++     */
++    async landMerge(mainSha: string, mergeCommit: string): Promise<{ ok: true } | { ok: false; reason: string }> {
++        try {
++            await git(this.config.codeRoot, ['update-ref', 'refs/heads/main', mergeCommit, mainSha]);
++        } catch (err) {
++            return { ok: false, reason: `main did not move: ${(err as Error).message}` };
++        }
++
++        const after = (await git(this.config.codeRoot, ['rev-parse', 'refs/heads/main'])).stdout.trim();
++        if (after !== mergeCommit) {
++            return {
++                ok: false,
++                reason: `update-ref reported success but main points at ${after.slice(0, 8)}, not ${mergeCommit.slice(0, 8)} — the ref did not move`,
++            };
++        }
++        return { ok: true };
++    }
++
+     /**
+      * Paths this stage has touched but not committed, relative to the worktree root.
+      *
+diff --git a/apps/api/src/routes/board.router.ts b/apps/api/src/routes/board.router.ts
+index e324ccc1..a3535021 100644
+--- a/apps/api/src/routes/board.router.ts
++++ b/apps/api/src/routes/board.router.ts
+@@ -18,6 +18,7 @@ import {
+     ImportBoardRequest,
+     ImportReport,
+     ListQuery,
++    MergeResult,
+     MoveCardRequest,
+     PlanDraft,
+     PlanSession,
+@@ -38,7 +39,7 @@ import { parseAndValidate } from '@maroonedsoftware/zod';
+ export const BoardRouter = ServerKitRouter();
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L263)
++ * from [board.ck](file://./../../data/contracts/board.ck#L277)
+  * anonymous access, no security required
+  */
+ BoardRouter.get('/api/cards', async ctx => {
+@@ -51,7 +52,7 @@ BoardRouter.get('/api/cards', async ctx => {
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L272)
++ * from [board.ck](file://./../../data/contracts/board.ck#L286)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards', bodyParserMiddleware(['json']), async ctx => {
+@@ -66,7 +67,7 @@ BoardRouter.post('/api/cards', bodyParserMiddleware(['json']), async ctx => {
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L290)
++ * from [board.ck](file://./../../data/contracts/board.ck#L304)
+  * anonymous access, no security required
+  */
+ BoardRouter.get('/api/cards/:id', async ctx => {
+@@ -89,7 +90,7 @@ BoardRouter.get('/api/cards/:id', async ctx => {
+  * Not `put`. This is a partial update — only the body changes, frontmatter is not editable here
+  * (decision 5: stage, branch, retries are runner state; `move` is the recorded way to override
+  * stage) — which is exactly what `patch` means and `put`, a full replace, does not.
+- * from [board.ck](file://./../../data/contracts/board.ck#L303)
++ * from [board.ck](file://./../../data/contracts/board.ck#L317)
+  * anonymous access, no security required
+  */
+ BoardRouter.patch('/api/cards/:id', bodyParserMiddleware(['json']), async ctx => {
+@@ -123,7 +124,7 @@ BoardRouter.patch('/api/cards/:id', bodyParserMiddleware(['json']), async ctx =>
+  * recomputed or read by the runner itself, and `move`/`ack`/etc. are the recorded ways to override
+  * them. A title is authored prose nothing downstream depends on as input — the same reason `edit`
+  * above is allowed to touch `body` freely.
+- * from [board.ck](file://./../../data/contracts/board.ck#L334)
++ * from [board.ck](file://./../../data/contracts/board.ck#L348)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/rename', bodyParserMiddleware(['json']), async ctx => {
+@@ -150,7 +151,7 @@ BoardRouter.post('/api/cards/:id/rename', bodyParserMiddleware(['json']), async
+  * 0080's other five mutations — depend, ack, approve, start, release — are transitions of exactly
+  * this shape. `POST .../move` establishes that convention once so five more operations can copy it
+  * rather than each inventing its own.
+- * from [board.ck](file://./../../data/contracts/board.ck#L365)
++ * from [board.ck](file://./../../data/contracts/board.ck#L379)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/move', bodyParserMiddleware(['json']), async ctx => {
+@@ -179,7 +180,7 @@ BoardRouter.post('/api/cards/:id/move', bodyParserMiddleware(['json']), async ct
+  * reposition mints no card version and writes no `transition.written` event, on purpose — dragging a
+  * card three rows down did not change what the runner will do with it. Follows the same sub-resource
+  * shape `move` established above.
+- * from [board.ck](file://./../../data/contracts/board.ck#L394)
++ * from [board.ck](file://./../../data/contracts/board.ck#L408)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/reposition', bodyParserMiddleware(['json']), async ctx => {
+@@ -205,7 +206,7 @@ BoardRouter.post('/api/cards/:id/reposition', bodyParserMiddleware(['json']), as
+  * field (`dependsOn`) the way `PATCH .../id` edits `body` — it is still a POST action rather than a
+  * PATCH because the edit is additive/subtractive (`remove`), not a full replace of the field the way
+  * `EditCardRequest` replaces `body`.
+- * from [board.ck](file://./../../data/contracts/board.ck#L421)
++ * from [board.ck](file://./../../data/contracts/board.ck#L435)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/depend', bodyParserMiddleware(['json']), async ctx => {
+@@ -227,7 +228,7 @@ BoardRouter.post('/api/cards/:id/depend', bodyParserMiddleware(['json']), async
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L444)
++ * from [board.ck](file://./../../data/contracts/board.ck#L458)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/ack', async ctx => {
+@@ -247,7 +248,7 @@ BoardRouter.post('/api/cards/:id/ack', async ctx => {
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L463)
++ * from [board.ck](file://./../../data/contracts/board.ck#L477)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/approve', async ctx => {
+@@ -267,7 +268,7 @@ BoardRouter.post('/api/cards/:id/approve', async ctx => {
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L482)
++ * from [board.ck](file://./../../data/contracts/board.ck#L496)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/start', async ctx => {
+@@ -287,7 +288,7 @@ BoardRouter.post('/api/cards/:id/start', async ctx => {
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L501)
++ * from [board.ck](file://./../../data/contracts/board.ck#L515)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/release', async ctx => {
+@@ -306,11 +307,36 @@ BoardRouter.post('/api/cards/:id/release', async ctx => {
+     ctx.body = result;
+ });
+ 
++/**
++ * Card 0143. The merge the pipeline could never do by hand: compute the card's branch merged into
++ * `main` without a checkout, prove it against the project's suite, and land it — or refuse and say
++ * why. Reachable from the app rather than automatic on reaching `ready` (see this card's own
++ * Constraints): the trigger stays an explicit operator action, the same human gate `ready` always
++ * was, this endpoint just performs what a human used to type by hand.
++ * from [board.ck](file://./../../data/contracts/board.ck#L539)
++ * anonymous access, no security required
++ */
++BoardRouter.post('/api/cards/:id/merge', async ctx => {
++    const { id } = await parseAndValidate(
++        ctx.params,
++        z.strictObject({
++            id: z.string(),
++        }),
++    );
++
++    const service = ctx.container.get(BoardWriteService);
++    const result: MergeResult = await service.merge(id);
++
++    ctx.status = 200;
++    ctx.type = 'application/json';
++    ctx.body = result;
++});
++
+ /**
+  * Card 0113. Reads without writing: renders the division a client would confirm, before anything is
+  * created from it. Refuses, naming why, when there is nothing to act on rather than handing back an
+  * empty confirmation prompt.
+- * from [board.ck](file://./../../data/contracts/board.ck#L523)
++ * from [board.ck](file://./../../data/contracts/board.ck#L562)
+  * anonymous access, no security required
+  */
+ BoardRouter.get('/api/cards/:id/division', async ctx => {
+@@ -336,7 +362,7 @@ BoardRouter.get('/api/cards/:id/division', async ctx => {
+  * pieces themselves are what would strand — and never re-runs `scope-check` on what it creates:
+  * deciding a split is `scope-check`'s job (card 0105), this only acts on a division an operator
+  * already confirmed.
+- * from [board.ck](file://./../../data/contracts/board.ck#L549)
++ * from [board.ck](file://./../../data/contracts/board.ck#L588)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/split', bodyParserMiddleware(['json']), async ctx => {
+@@ -361,7 +387,7 @@ BoardRouter.post('/api/cards/:id/split', bodyParserMiddleware(['json']), async c
+  * Runs card 0058's two guards before cutting anything: refuses a card that is not in `planning`, and
+  * refuses one whose real branch already has work (re-planning a card with code on it is a different,
+  * more dangerous operation). Cuts nothing on a refusal.
+- * from [board.ck](file://./../../data/contracts/board.ck#L574)
++ * from [board.ck](file://./../../data/contracts/board.ck#L613)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/plan/open', async ctx => {
+@@ -388,7 +414,7 @@ BoardRouter.post('/api/cards/:id/plan/open', async ctx => {
+  * operation here), and reusing it for "no draft yet" would leave a client unable to tell the two
+  * apart without inspecting `details`. [[0138]] renders an empty draft the same way it renders any
+  * other, with no special-case error path for a state that is completely normal.
+- * from [board.ck](file://./../../data/contracts/board.ck#L598)
++ * from [board.ck](file://./../../data/contracts/board.ck#L637)
+  * anonymous access, no security required
+  */
+ BoardRouter.get('/api/cards/:id/plan/draft', async ctx => {
+@@ -413,7 +439,7 @@ BoardRouter.get('/api/cards/:id/plan/draft', async ctx => {
+  * can skip, since skipping it is what let a card die at `assertDispatchable` three stages later
+  * (card 0058). Refuses naming what is missing. Writes exactly one new card version on success; an
+  * unchanged body writes nothing, the same no-op `BoardWriteService.edit` already makes.
+- * from [board.ck](file://./../../data/contracts/board.ck#L619)
++ * from [board.ck](file://./../../data/contracts/board.ck#L658)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/plan/save', bodyParserMiddleware(['json']), async ctx => {
+@@ -438,7 +464,7 @@ BoardRouter.post('/api/cards/:id/plan/save', bodyParserMiddleware(['json']), asy
+  * Reclaims the session's worktree and deletes its throwaway branch. Idempotent — safe to call twice,
+  * and safe to call for a session that opened but was never saved — because that is exactly what a CLI
+  * dying mid-conversation leaves behind, and closing it must never itself be the operation that fails.
+- * from [board.ck](file://./../../data/contracts/board.ck#L643)
++ * from [board.ck](file://./../../data/contracts/board.ck#L682)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/plan/close', async ctx => {
+@@ -462,7 +488,7 @@ BoardRouter.post('/api/cards/:id/plan/close', async ctx => {
+  * generated — see routes.setup.ts) is where a client watches that same reply stream in as it is
+  * written. Refused by exactly the two guards `open` applies: a card outside `planning`, or one whose
+  * real branch already has work.
+- * from [board.ck](file://./../../data/contracts/board.ck#L662)
++ * from [board.ck](file://./../../data/contracts/board.ck#L701)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/plan/turn', bodyParserMiddleware(['json']), async ctx => {
+@@ -484,7 +510,7 @@ BoardRouter.post('/api/cards/:id/plan/turn', bodyParserMiddleware(['json']), asy
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L682)
++ * from [board.ck](file://./../../data/contracts/board.ck#L721)
+  * anonymous access, no security required
+  */
+ BoardRouter.get('/api/cards/:id/events', async ctx => {
+@@ -506,7 +532,7 @@ BoardRouter.get('/api/cards/:id/events', async ctx => {
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L698)
++ * from [board.ck](file://./../../data/contracts/board.ck#L737)
+  * anonymous access, no security required
+  */
+ BoardRouter.get('/api/cards/:id/versions', async ctx => {
+@@ -528,7 +554,7 @@ BoardRouter.get('/api/cards/:id/versions', async ctx => {
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L711)
++ * from [board.ck](file://./../../data/contracts/board.ck#L750)
+  * anonymous access, no security required
+  */
+ BoardRouter.get('/api/stages', async ctx => {
+@@ -546,7 +572,7 @@ BoardRouter.get('/api/stages', async ctx => {
+  * PROJECT_BOARD_ROOT already pointing at the intended path, before it can create the board there —
+  * that circularity is real, and the 409 below is what makes it legible instead of a connection
+  * refused with no explanation.
+- * from [board.ck](file://./../../data/contracts/board.ck#L728)
++ * from [board.ck](file://./../../data/contracts/board.ck#L767)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/board/init', async ctx => {
+@@ -562,7 +588,7 @@ BoardRouter.post('/api/board/init', async ctx => {
+  * One-time import of the legacy markdown board (cards/*.md) into Postgres. Refuses a board that
+  * already has cards, the same guard `BoardImporter` always made, over HTTP now rather than only
+  * from the CLI.
+- * from [board.ck](file://./../../data/contracts/board.ck#L748)
++ * from [board.ck](file://./../../data/contracts/board.ck#L787)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/board/import', bodyParserMiddleware(['json']), async ctx => {
+diff --git a/apps/web/src/components/CardDetail.tsx b/apps/web/src/components/CardDetail.tsx
+index 937cf593..9983e737 100644
+--- a/apps/web/src/components/CardDetail.tsx
++++ b/apps/web/src/components/CardDetail.tsx
+@@ -1,5 +1,7 @@
+ import { Anchor, Badge, Button, Code, Divider, Grid, Group, List, Loader, Paper, Select, Stack, Tabs, Text, Timeline, Title } from '@mantine/core';
+ import { useMediaQuery } from '@mantine/hooks';
++import { notifications } from '@mantine/notifications';
++import { useMutation, useQueryClient } from '@tanstack/react-query';
+ import { Link } from '@tanstack/react-router';
+ import type { BoardColumns, CardDetail, CardEvent, CardVersion } from '@wilson/sdk';
+ import { TONE } from '#src/components/Board.js';
+@@ -7,7 +9,8 @@ import { DraftPane } from '#src/components/DraftPane.js';
+ import { Markdown } from '#src/components/Markdown.js';
+ import { PlanningSessionPane } from '#src/components/PlanningSession.js';
+ import { filesInScope, formatTimestamp } from '#src/lib/card.js';
+-import { useMoveCard, useStartCard } from '#src/lib/mutations.js';
++import { reasonFor, useMoveCard, useStartCard } from '#src/lib/mutations.js';
++import { wilson } from '#src/lib/sdk.js';
+ 
+ /** Below this width the two `planning` panes stack into `Tabs` instead of sitting side by side. */
+ const NARROW_BREAKPOINT = '(max-width: 62em)';
+@@ -123,6 +126,54 @@ function EnqueueButton({ card }: { card: CardDetail }) {
+     );
+ }
+ 
++/**
++ * Card 0143. `POST .../merge`, from `CardDetail.tsx` rather than `lib/mutations.ts` — that file is
++ * outside this card's "Files in scope", and this hook's shape otherwise matches `useStartCard`
++ * above it exactly: same invalidation, same "surface a refusal as a notification" rule.
++ *
++ * A genuine refusal (this card is not in `ready` — `onError` below) is not the only outcome worth
++ * telling an operator about. `MergeResult.merged: false` is a normal 200 — a conflict or a failed
++ * suite, the two honest ways an attempt can not land — and it arrives in `onSuccess`, so both paths
++ * end up as a notification either way; there is nowhere on a button to put a sentence, the same
++ * reasoning `EnqueueButton` below already relies on.
++ */
++function useMergeCard(id: string) {
++    const queryClient = useQueryClient();
++    return useMutation({
++        mutationFn: () => wilson.board.mergeCard(id),
++        onSuccess: result => {
++            void queryClient.invalidateQueries({ queryKey: ['cards'] });
++            void queryClient.invalidateQueries({ queryKey: ['card', id] });
++            if (result.merged) {
++                notifications.show({ color: 'green', title: 'Merged', message: `Landed on main as ${result.commit?.slice(0, 8) ?? result.commit}` });
++            } else {
++                notifications.show({ color: 'red', title: 'Could not merge the card', message: result.reason ?? 'unknown reason' });
++            }
++        },
++        onError: err => {
++            notifications.show({ color: 'red', title: 'Could not merge the card', message: reasonFor(err) });
++        },
++    });
++}
++
++/**
++ * Card 0143's operator-facing end: the merge the board used to require a shell for, behind one
++ * button. Only rendered for a card in `ready` — the one stage this operation ever acts on
++ * (`BoardWriteService.merge` refuses every other one) — so there is nothing to disable, only
++ * something to hide.
++ */
++function MergeControl({ card }: { card: CardDetail }) {
++    const mergeCard = useMergeCard(card.id);
++
++    if (card.stage !== 'ready') return null;
++
++    return (
++        <Button size="xs" variant="light" color="green" onClick={() => mergeCard.mutate()} loading={mergeCard.isPending}>
++            Merge
++        </Button>
++    );
++}
++
+ /**
+  * The timeline an operator reads to answer "why is this card not moving" — newest event first,
+  * each tagged with the stage it happened in, favouring legibility over density.
+@@ -271,6 +322,7 @@ export function CardDetailView({
+                 <Group gap="xs" align="center">
+                     <MoveControl card={card} columns={columns} columnsError={columnsError} />
+                     <EnqueueButton card={card} />
++                    <MergeControl card={card} />
+                 </Group>
+             </Stack>
+ 
+diff --git a/packages/sdk/src/board.client.ts b/packages/sdk/src/board.client.ts
+index a750ce32..4f191ce2 100644
+--- a/packages/sdk/src/board.client.ts
++++ b/packages/sdk/src/board.client.ts
+@@ -11,6 +11,7 @@ import type {
+     ImportBoardRequest,
+     ImportReport,
+     ListQuery,
++    MergeResult,
+     MoveCardRequest,
+     PlanDraft,
+     PlanSession,
+@@ -169,6 +170,19 @@ export class BoardClient {
+         return await parseJson<ReleaseResult>(result);
+     }
+ 
++    /**
++     * @name Merge card
++     * @description Card 0143. The merge the pipeline could never do by hand: compute the card's branch merged into
++     * `main` without a checkout, prove it against the project's suite, and land it — or refuse and say
++     * why. Reachable from the app rather than automatic on reaching `ready` (see this card's own
++     * Constraints): the trigger stays an explicit operator action, the same human gate `ready` always
++     * was, this endpoint just performs what a human used to type by hand.
++     */
++    async mergeCard(id: string): Promise<MergeResult> {
++        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/merge`, { method: 'POST' });
++        return await parseJson<MergeResult>(result);
++    }
++
+     /**
+      * @name Get card division
+      * @description Card 0113. Reads without writing: renders the division a client would confirm, before anything is
+diff --git a/packages/sdk/src/types/board.ts b/packages/sdk/src/types/board.ts
+index beac71d1..2dc9b26e 100644
+--- a/packages/sdk/src/types/board.ts
++++ b/packages/sdk/src/types/board.ts
+@@ -44,7 +44,7 @@ export interface CardSummary {
+  * `id` never appears in a request body — it is either a path param (move, edit act on a card that
+  * already exists) or, for create, assigned by the service the same way `wilson card create` assigns
+  * it: the next sequential id over the current board. A client cannot pick one.
+- * generated from [CreateCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L67)
++ * generated from [CreateCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L81)
+  */
+ export interface CreateCardRequest {
+     title: string;
+@@ -59,7 +59,7 @@ export interface CreateCardRequest {
+ }
+ 
+ /**
+- * generated from [MoveCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L77)
++ * generated from [MoveCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L91)
+  */
+ export interface MoveCardRequest {
+     /**
+@@ -76,7 +76,7 @@ export interface MoveCardRequest {
+  * where a client would have no way to compute one that is still valid by the time this request
+  * lands. Either may be absent — both absent together means "the only card in the column" — since a
+  * drop can land at either end, where there is nothing on that side to name.
+- * generated from [RepositionCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L89)
++ * generated from [RepositionCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L103)
+  */
+ export interface RepositionCardRequest {
+     /** The card `id` should sit immediately after, or absent for the top of the column. */
+@@ -86,7 +86,7 @@ export interface RepositionCardRequest {
+ }
+ 
+ /**
+- * generated from [EditCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L96)
++ * generated from [EditCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L110)
+  */
+ export interface EditCardRequest {
+     body: string;
+@@ -96,14 +96,14 @@ export interface EditCardRequest {
+  * Card 0094. Its own request shape rather than a `title` field on `EditCardRequest`: adding one there
+  * would rename the generated SDK method `editCardBody` (and its caller and the test that names it)
+  * for no behavioural gain, where `POST .../rename` is purely additive.
+- * generated from [RenameCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L103)
++ * generated from [RenameCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L117)
+  */
+ export interface RenameCardRequest {
+     title: string;
+ }
+ 
+ /**
+- * generated from [DependCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L107)
++ * generated from [DependCardRequest](file://./../../../../apps/api/data/contracts/board.ck#L121)
+  */
+ export interface DependCardRequest {
+     dependsOnId: string;
+@@ -115,7 +115,7 @@ export interface DependCardRequest {
+ }
+ 
+ /**
+- * generated from [CardEvent](file://./../../../../apps/api/data/contracts/board.ck#L114)
++ * generated from [CardEvent](file://./../../../../apps/api/data/contracts/board.ck#L128)
+  */
+ export interface CardEvent {
+     id: string;
+@@ -126,7 +126,7 @@ export interface CardEvent {
+ }
+ 
+ /**
+- * generated from [CardVersion](file://./../../../../apps/api/data/contracts/board.ck#L122)
++ * generated from [CardVersion](file://./../../../../apps/api/data/contracts/board.ck#L136)
+  */
+ export interface CardVersion {
+     id: string;
+@@ -137,7 +137,7 @@ export interface CardVersion {
+ /**
+  * Shared by both history endpoints — a named contract so the generator takes the schema path
+  * that honours `?`, rather than the inline `query: { limit?: int }` path that renders it required.
+- * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L130)
++ * generated from [ListQuery](file://./../../../../apps/api/data/contracts/board.ck#L144)
+  */
+ export interface ListQuery {
+     limit?: number;
+@@ -147,7 +147,7 @@ export interface ListQuery {
+  * Bootstrap: scaffolding and importing the board itself, not a card. Both operate on
+  * `BoardConfig.boardRoot` — the path is server configuration, never a request field, so an endpoint
+  * here is not a remote write-anywhere-on-disk primitive (card 0076).
+- * generated from [ImportBoardRequest](file://./../../../../apps/api/data/contracts/board.ck#L137)
++ * generated from [ImportBoardRequest](file://./../../../../apps/api/data/contracts/board.ck#L151)
+  */
+ export interface ImportBoardRequest {
+     /**
+@@ -158,7 +158,7 @@ export interface ImportBoardRequest {
+ }
+ 
+ /**
+- * generated from [ImportReport](file://./../../../../apps/api/data/contracts/board.ck#L143)
++ * generated from [ImportReport](file://./../../../../apps/api/data/contracts/board.ck#L157)
+  */
+ export interface ImportReport {
+     cards: number;
+@@ -179,7 +179,7 @@ export interface ImportReport {
+  * finished draft, writing it as a new card version, and tearing the worktree down. This contract is
+  * the second half. The API owns the session; the CLI (unchanged until card 0074) will own spawning
+  * `claude` with the operator's stdio against what this returns.
+- * generated from [PlanSession](file://./../../../../apps/api/data/contracts/board.ck#L159)
++ * generated from [PlanSession](file://./../../../../apps/api/data/contracts/board.ck#L173)
+  */
+ export interface PlanSession {
+     /**
+@@ -211,7 +211,7 @@ export interface PlanSession {
+ }
+ 
+ /**
+- * generated from [SaveDraftRequest](file://./../../../../apps/api/data/contracts/board.ck#L182)
++ * generated from [SaveDraftRequest](file://./../../../../apps/api/data/contracts/board.ck#L196)
+  */
+ export interface SaveDraftRequest {
+     /**
+@@ -225,7 +225,7 @@ export interface SaveDraftRequest {
+ /**
+  * Card 0133: the daemon can hold a planning conversation for a card itself. `POST .../plan/turn`'s
+  * request — one message in that conversation.
+- * generated from [PlanTurnRequest](file://./../../../../apps/api/data/contracts/board.ck#L191)
++ * generated from [PlanTurnRequest](file://./../../../../apps/api/data/contracts/board.ck#L205)
+  */
+ export interface PlanTurnRequest {
+     text: string;
+@@ -235,7 +235,7 @@ export interface PlanTurnRequest {
+  * One row of `runner.plan_turns` — a turn in a card's planning conversation, whether this is
+  * `POST .../plan/turn`'s response (the just-appended assistant turn) or one of the entries
+  * `GET .../plan/stream` replays after a client's `Last-Event-ID`.
+- * generated from [PlanTurn](file://./../../../../apps/api/data/contracts/board.ck#L198)
++ * generated from [PlanTurn](file://./../../../../apps/api/data/contracts/board.ck#L212)
+  */
+ export interface PlanTurn {
+     /**
+@@ -254,7 +254,7 @@ export interface PlanTurn {
+  * is the content a client reads instead: exactly what is on disk, whether that is the seed `open`
+  * wrote, a draft the agent is partway through, or the last thing `save` wrote before the session
+  * closed. See `PlanService.draft` for what an id with no draft yet gets instead of this.
+- * generated from [PlanDraft](file://./../../../../apps/api/data/contracts/board.ck#L212)
++ * generated from [PlanDraft](file://./../../../../apps/api/data/contracts/board.ck#L226)
+  */
+ export interface PlanDraft {
+     body: string;
+@@ -266,7 +266,7 @@ export interface PlanDraft {
+  * `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
+  * One shape for both directions so a client can round-trip a piece it only meant to touch one field
+  * of.
+- * generated from [DivisionPiece](file://./../../../../apps/api/data/contracts/board.ck#L221)
++ * generated from [DivisionPiece](file://./../../../../apps/api/data/contracts/board.ck#L235)
+  */
+ export interface DivisionPiece {
+     title: string;
+@@ -295,7 +295,7 @@ export interface CardDetail extends CardSummary {
+  * card. Read from the event log, not a fresh run — `scope-check` already happened, and re-running it
+  * could return a different division for the cost of a whole pass, which is `scope-check`'s job to
+  * spend, not this endpoint's.
+- * generated from [CardDivision](file://./../../../../apps/api/data/contracts/board.ck#L237)
++ * generated from [CardDivision](file://./../../../../apps/api/data/contracts/board.ck#L251)
+  */
+ export interface CardDivision {
+     /**
+@@ -312,7 +312,7 @@ export interface CardDivision {
+  * after being shown what was reported and given the chance to add to it. The endpoint does not go
+  * back to the event log to re-read the division itself; the confirmed pieces are the only truth it
+  * acts on.
+- * generated from [SplitCardsRequest](file://./../../../../apps/api/data/contracts/board.ck#L249)
++ * generated from [SplitCardsRequest](file://./../../../../apps/api/data/contracts/board.ck#L263)
+  */
+ export interface SplitCardsRequest {
+     pieces: DivisionPiece[];
+@@ -331,12 +331,31 @@ export interface ReleaseResult extends CardDetail {
+     releasedAs: 'queued' | 'orphan';
+ }
+ 
++/**
++ * Card 0143. `POST /api/cards/{id}/merge`'s response: the card, plus what the attempt actually did.
++ * A conflict and a suite failure are not bad input — they are two of the three honest outcomes an
++ * attempt can have, the same way `ReleaseResult.releasedAs` names which safe-to-cancel case a
++ * release was, so both come back as `merged: false` with `reason` in a 200, not a 400. The only
++ * thing this operation refuses outright is a card that is not in `ready` (see its 400 below).
++ * generated from [MergeResult](file://./../../../../apps/api/data/contracts/board.ck#L65)
++ */
++export interface MergeResult extends CardDetail {
++    merged: boolean;
++    /** The commit `main` now points at, present only when `merged` is true. */
++    commit?: string;
++    /**
++     * Why the attempt did not land — a conflict naming the paths, or the suite's own failure —
++     * present only when `merged` is false.
++     */
++    reason?: string;
++}
++
+ /**
+  * `POST /api/cards/{id}/split`'s response: the origin card, re-read after being annotated with the
+  * ids it produced, and the cards created from each piece, in the order `pieces` was sent. Every
+  * created card lands in `planning`, never `backlog` — a piece is a title, a task list and a
+  * sentence, not a plan with all six headings filled in.
+- * generated from [SplitResult](file://./../../../../apps/api/data/contracts/board.ck#L257)
++ * generated from [SplitResult](file://./../../../../apps/api/data/contracts/board.ck#L271)
+  */
+ export interface SplitResult {
+     origin: CardDetail;

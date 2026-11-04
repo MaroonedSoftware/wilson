@@ -1,0 +1,155 @@
+diff --git a/apps/web/src/components/ChatView.tsx b/apps/web/src/components/ChatView.tsx
+index 606229ea..08e38822 100644
+--- a/apps/web/src/components/ChatView.tsx
++++ b/apps/web/src/components/ChatView.tsx
+@@ -8,6 +8,7 @@ import { ChatActionCard, isAwaiting } from '#src/components/ChatActionCard.js';
+ import { AnswerInProgress, Message, UserMessage } from '#src/components/ChatMessages.js';
+ import { ThreadList, ThreadMenu } from '#src/components/ChatThreads.js';
+ import {
++    draftWithoutSuggestions,
+     setActiveThread,
+     useActiveThread,
+     useChatStream,
+@@ -66,10 +67,14 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
+     const { scrollIntoView, targetRef, scrollableRef } = useScrollIntoView<HTMLDivElement, HTMLDivElement>({ duration: 0 });
+ 
+     const entries = thread.data ? timeline(thread.data.messages, thread.data.actions) : [];
++    const draft = draftWithoutSuggestions(live.text);
+     const awaiting = thread.data?.actions.some(isAwaiting) ?? false;
+     const busy = start.isPending || send.isPending;
++    // What to ask next follows from the latest answer, until the chat is working again or a change waits on the person.
++    const last = thread.data?.messages.at(-1);
+     const answering = busy || live.text !== '' || live.operations.length > 0;
+-    useEffect(() => scrollIntoView({ alignment: 'end' }), [entries.length, live.text, send.isPending]);
++    const followUps = last?.role === 'assistant' && !answering && !awaiting ? (last.suggestions ?? []) : [];
++    useEffect(() => scrollIntoView({ alignment: 'end' }), [entries.length, draft, send.isPending, followUps.length]);
+ 
+     // A thread that no longer exists (archived elsewhere, or a stale id from another database) is let
+     // go of, so the view opens on a new chat rather than an error.
+@@ -153,7 +158,7 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
+                     )}
+                     {send.isPending && <UserMessage text={send.variables.text} />}
+                     {/* The answer in progress: to a message just sent, or the follow-up to a confirmed change. */}
+-                    {answering && <AnswerInProgress text={live.text} operations={live.operations} />}
++                    {answering && <AnswerInProgress text={draft} operations={live.operations} />}
+                     <div ref={targetRef} />
+                 </Stack>
+             </ScrollArea>
+@@ -163,6 +168,22 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
+                         {reasonFor(failure)}
+                     </Alert>
+                 )}
++                {followUps.length > 0 && (
++                    <Group gap="xs" role="group" aria-label="Suggested follow-ups">
++                        {followUps.map(suggestion => (
++                            <Chip
++                                key={suggestion}
++                                checked={false}
++                                variant="outline"
++                                size="sm"
++                                onClick={() => void sendText(suggestion)}
++                                disabled={busy}
++                            >
++                                {suggestion}
++                            </Chip>
++                        ))}
++                    </Group>
++                )}
+                 <ChatComposer
+                     value={typed}
+                     onChange={setTyped}
+@@ -170,6 +191,7 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
+                     disabled={busy}
+                     autoFocus={variant === 'page'}
+                     {...(awaiting ? { placeholder: 'Confirm or decline above, or ask for something else…' } : {})}
++                    {...(followUps[0] ? { suggestion: followUps[0] } : {})}
+                 />
+             </Stack>
+         </Stack>
+diff --git a/apps/web/src/lib/chat.ts b/apps/web/src/lib/chat.ts
+index bfbf7806..dadac887 100644
+--- a/apps/web/src/lib/chat.ts
++++ b/apps/web/src/lib/chat.ts
+@@ -128,6 +128,21 @@ export function useChatStream(threadId: string | undefined): ChatTurnInProgress
+     return { text, operations };
+ }
+ 
++const SUGGESTIONS_OPEN = '<suggestions>';
++
++/**
++ * An answer as it streams, without the follow-ups block the agent ends it on (the API takes it off
++ * the stored answer and offers its lines as taps). A trailing piece that may be the block starting
++ * is held back until it is clearly not.
++ */
++export const draftWithoutSuggestions = (draft: string): string => {
++    const start = draft.toLowerCase().indexOf(SUGGESTIONS_OPEN);
++    if (start !== -1) return draft.slice(0, start).trimEnd();
++    const lt = draft.lastIndexOf('<');
++    if (lt !== -1 && SUGGESTIONS_OPEN.startsWith(draft.slice(lt).toLowerCase())) return draft.slice(0, lt).trimEnd();
++    return draft;
++};
++
+ const ACTIVE_THREAD_KEY = 'wilson.chatThread';
+ 
+ const readActiveThread = (): string | undefined => {
+diff --git a/apps/web/tests/chat-dock.test.ts b/apps/web/tests/chat-dock.test.ts
+index bb8de7e2..8d0e9412 100644
+--- a/apps/web/tests/chat-dock.test.ts
++++ b/apps/web/tests/chat-dock.test.ts
+@@ -247,6 +247,56 @@ describe('the chat dock', () => {
+         expect(box.value).toBe('my own words');
+     });
+ 
++    it('offers the follow-ups of the latest answer, sends one on click, and fills the box on Tab', async () => {
++        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
++            detail([
++                message(1, 'user', 'What is in review?'),
++                message(2, 'assistant', 'One card.', { suggestions: ['Why is 0007 stuck?', 'Move 0007 back'] }),
++            ]),
++        );
++        const sendMessage = vi.spyOn(ChatClient.prototype, 'sendAChatMessage').mockReturnValue(new Promise(() => {}));
++        setActiveThread('7');
++        renderApp();
++        const box = (await openChat()) as HTMLTextAreaElement;
++
++        const chip = await screen.findByText('Move 0007 back');
++        fireEvent.keyDown(box, { key: 'Tab' });
++        expect(box.value).toBe('Why is 0007 stuck?');
++        fireEvent.change(box, { target: { value: '' } });
++
++        fireEvent.click(chip);
++
++        await waitFor(() => expect(sendMessage).toHaveBeenCalledWith('7', { text: 'Move 0007 back' }));
++    });
++
++    it('offers no follow-ups while a change waits on the person', async () => {
++        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
++            detail([message(1, 'user', 'Move 0007'), message(2, 'assistant', 'Proposed.', { suggestions: ['Then what?'] })], [action()]),
++        );
++        setActiveThread('7');
++        renderApp();
++        await openChat();
++
++        expect(await screen.findByText('Move 0007 to implementing.')).toBeTruthy();
++        expect(screen.queryByText('Then what?')).toBeNull();
++    });
++
++    it('keeps the follow-ups block out of an answer as it streams', async () => {
++        vi.spyOn(ChatClient.prototype, 'startAChatThread').mockResolvedValue(thread);
++        vi.spyOn(ChatClient.prototype, 'sendAChatMessage').mockReturnValue(new Promise(() => {}));
++        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(detail([]));
++        renderApp();
++
++        send(await openChat(), 'What is in review?');
++        await waitFor(() => expect(chatStreams()).toHaveLength(1));
++        act(() => chatStreams()[0]!.emit('delta', 'One card.\n\n<sugg'));
++        expect(await screen.findByText('One card.')).toBeTruthy();
++
++        act(() => chatStreams()[0]!.emit('delta', 'estions>\n- Why?'));
++        expect(screen.getByText('One card.')).toBeTruthy();
++        expect(screen.queryByText(/Why\?/)).toBeNull();
++    });
++
+     it('runs a proposed change only when the person confirms it', async () => {
+         vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
+         vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
