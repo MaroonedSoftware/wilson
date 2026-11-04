@@ -29,6 +29,7 @@ private val SUMMARIES = mapOf(
     "dispatch.deferred" to ActivitySummary("Deferred dispatch", ActivityTone.QUIET),
     "engine.failed" to ActivitySummary("Engine failed in {stage}", ActivityTone.BAD),
     "turn.empty" to ActivitySummary("Engine ended its turn without working", ActivityTone.WARNING),
+    "stage.compacted" to ActivitySummary("Engine compacted its conversation in {stage}", ActivityTone.QUIET),
     "scope.requested" to ActivitySummary("Requested more scope", ActivityTone.INFO),
     "scope.granted" to ActivitySummary("Scope granted", ActivityTone.GOOD),
     "scope.refused" to ActivitySummary("Scope refused", ActivityTone.WARNING),

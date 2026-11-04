@@ -17,6 +17,10 @@ export type CardEventType =
     // adapter first sees it and again if the engine moves to a new one, so the latest of these after
     // a `stage.dispatched` is what that attempt could resume from.
     | 'stage.engine-session'
+    // Carries `trigger` (`auto` or `manual`), `preTokens` and, when the engine reports it, `postTokens`:
+    // the `cli` engine summarized its conversation part way through a run. Not a failure. A count of
+    // these beside a run's spend is how to tell whether a lane's `autoCompactWindow` is doing anything.
+    | 'stage.compacted'
     // Carries `usage`: a daemon shutdown stopped the stage, which says nothing about the card, so
     // this is neither a pass nor a failure. The stage is sent again without spending a retry. Also
     // carries `usageLimit` and `heldUntil` when it was the account's usage limit that stopped it

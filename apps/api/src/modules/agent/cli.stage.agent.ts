@@ -844,6 +844,19 @@ export class CliStageAgent extends StageAgent {
                         .catch((error: unknown) => this.logger.warn(`could not record engine session for ${context.cardId}: ${String(error)}`));
                 }
 
+                if (message.type === 'system' && message.subtype === 'compact_boundary') {
+                    const { trigger, pre_tokens: preTokens, post_tokens: postTokens } = message.compact_metadata;
+                    await context.events
+                        .append({
+                            project: context.project,
+                            cardId: context.cardId,
+                            stage: context.stage,
+                            type: 'stage.compacted',
+                            payload: { trigger, preTokens, ...(postTokens !== undefined && { postTokens }) },
+                        })
+                        .catch((error: unknown) => this.logger.warn(`could not record compaction for ${context.cardId}: ${String(error)}`));
+                }
+
                 if (message.type === 'assistant') {
                     const text = message.message.content.map(part => (part.type === 'text' ? part.text : '')).join('');
                     if (text.trim()) summary = text.trim();

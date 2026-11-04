@@ -151,6 +151,24 @@ describe('CliStageAgent engine session', () => {
         expect(output.interrupted).toBeDefined();
     });
 
+    it('records a compaction the engine reports, with its before and after tokens', async () => {
+        const append = vi.fn(async (_event: { type: string; payload?: unknown }) => {});
+        queryMock.mockReturnValue({
+            async *[Symbol.asyncIterator]() {
+                yield { type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'auto', pre_tokens: 107_000, post_tokens: 9000 } };
+                yield { type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'manual', pre_tokens: 50_000 } };
+            },
+        });
+
+        await run(append);
+
+        const compactions = append.mock.calls.map(([event]) => event).filter(event => event.type === 'stage.compacted');
+        expect(compactions.map(event => event.payload)).toEqual([
+            { trigger: 'auto', preTokens: 107_000, postTokens: 9000 },
+            { trigger: 'manual', preTokens: 50_000 },
+        ]);
+    });
+
     it('counts what an interrupted run spent, which no result message will ever report', async () => {
         const interrupts = new StageInterrupt();
         queryMock.mockReturnValue({
