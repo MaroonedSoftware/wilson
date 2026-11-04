@@ -583,6 +583,10 @@ failing to work it out writes "could not compute" and leaves the stage to run.
   Under turbo the command needs `--continue`, or the first failing package cancels the rest. A command
   that writes outside ignored files has its writes reverted and reports "could not compute", because
   the review verifier rejects uncommitted paths.
+- **Exports nothing references.** Exports the branch adds, by the AST, whose name `git grep` finds
+  nowhere outside the file's own declaration, tests and docs. It fails toward silence: a name its own
+  file uses, a move between changed files, and files found without an import (entry points, routes,
+  migrations, configs) are never listed, and a match is written up as evidence, not a verdict.
 
 All of it fits in `REVIEW_EVIDENCE_DEADLINE_MS` (4 minutes). That time is outside the stage's own wall
 clock and comes out of the ten minutes `CARD_STAGE_EXPIRES_IN` leaves around it. Steps of a review lane

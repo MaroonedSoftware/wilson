@@ -113,6 +113,30 @@ const dispatchOn = async (dispatchStage: string, typecheckCommand: string, base:
 };
 
 describe('review evidence in the plan', () => {
+    it('gives a card with an uncalled export and a new type error both, and neither blocks it', async () => {
+        const { result, plan, events } = await dispatchOn(
+            'review',
+            TSC,
+            {},
+            {
+                'src/used.ts': 'export const used = 1;\n',
+                'src/caller.ts': "import { used } from './used.js';\nexport const caller: string = used;\n",
+                'src/uncalled.ts': 'export const nobodyCallsThis = () => 1;\n',
+            },
+        );
+
+        expect(result.passed).toBe(true);
+        expect(plan).toContain('reports 1 net-new type error against');
+        expect(plan).toContain('src/caller.ts:2:14 TS2322');
+        expect(plan).toContain('### Exports nothing references');
+        expect(plan).toContain('nobodyCallsThis src/uncalled.ts:1');
+        expect(plan).toContain('evidence, not a verdict');
+        expect(plan).not.toContain('used src/used.ts');
+        expect(events.append).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'review.evidence', payload: expect.objectContaining({ netNewTypeErrors: 1, unwiredSymbols: 2 }) }),
+        );
+    }, 60_000);
+
     it('lists a type error the branch adds, through a real run and real tsc', async () => {
         const { result, plan, events } = await dispatchOn('review', TSC, {}, { 'src/y.ts': 'export const y: number = "not a number";\n' });
 
