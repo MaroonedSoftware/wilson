@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -107,6 +107,21 @@ describe('seedCase and runCase', () => {
         expect(seeded.cardId).toBe('0007');
         expect(existsSync(join(path, 'truth.json'))).toBe(false);
         expect(path).not.toContain(evalCase.id);
+    });
+
+    it('keeps the base\'s file modes and does not count a later mode change as an edit', async () => {
+        await chmod(join(source, 'kept.ts'), 0o755);
+        await git(source, 'add', '-A');
+        await git(source, 'commit', '-q', '-m', 'an executable file');
+        seeded = await seedCase({ ...evalCase, base: await git(source, 'rev-parse', 'HEAD') }, { sourceRepo: source, ordinal: 1, logger });
+        const { path, baseSha } = seeded.worktree;
+        expect(await git(path, 'ls-tree', baseSha, 'kept.ts')).toMatch(/^100755/);
+        expect(await git(path, 'ls-tree', baseSha, 'a.ts')).toMatch(/^100644/);
+
+        // What a first `pnpm install` does to a package's `bin`.
+        await chmod(join(path, 'a.ts'), 0o755);
+
+        expect(await seeded.worktrees.uncommittedPaths(seeded.worktree)).toEqual([]);
     });
 
     it('removes the scratch directory', async () => {
