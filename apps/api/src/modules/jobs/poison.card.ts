@@ -25,27 +25,37 @@ export async function poisonCard(
 ): Promise<void> {
     const { project, cardId, stageName, reason } = args;
 
+    // Captured from the fresh row `write` reads inside its own transaction, rather than a separate
+    // read here: a notification needs something to call the card, and the id alone is not it. Also
+    // the guard below: a card that has already ended, however it ended, keeps that ending. A retried
+    // job poisoned it already, or a late one has nothing to stop and must not relabel merged work.
+    let title = cardId;
+    let ended: string | undefined;
+    let endedIn = '';
+    await deps.boardRepo.write(cardId, `Poison ${cardId}: ${reason.slice(0, 60)}`, card => {
+        title = card.frontmatter.title;
+        ended = endedAs(card.frontmatter);
+        endedIn = card.frontmatter.stage;
+        return ended ? card : { ...card, frontmatter: { ...card.frontmatter, stage: 'poisoned' } };
+    });
+
+    if (ended) {
+        await deps.events.append({
+            project,
+            cardId,
+            stage: stageName,
+            type: 'stage.stale',
+            payload: { wantedStage: stageName, actualStage: endedIn },
+        });
+        return;
+    }
+
     await deps.events.append({
         project,
         cardId,
         stage: stageName,
         type: 'stage.poisoned',
         payload: { reason },
-    });
-
-    // Captured from the fresh row `write` reads inside its own transaction, rather than a separate
-    // read here: a notification needs something to call the card, and the id alone is not it. Also
-    // doubles as the redelivery guard below — a card already poisoned before this write started
-    // means some earlier attempt already reported this poisoning.
-    let title = cardId;
-    let alreadyPoisoned = false;
-    await deps.boardRepo.write(cardId, `Poison ${cardId}: ${reason.slice(0, 60)}`, card => {
-        title = card.frontmatter.title;
-        alreadyPoisoned = endedAs(card.frontmatter) === 'poisoned';
-        return {
-            ...card,
-            frontmatter: { ...card.frontmatter, stage: 'poisoned' },
-        };
     });
 
     await deps.events.append({
@@ -56,9 +66,7 @@ export async function poisonCard(
         payload: { from: stageName, to: 'poisoned', by: 'runner', reason },
     });
 
-    // Do not send twice for one event: a retried or redelivered job that lands here after the card
-    // was already poisoned by an earlier attempt has nothing new to report.
-    if (deps.board && !alreadyPoisoned) {
+    if (deps.board) {
         await new Notifier(deps.board.notifyWebhookUrl, deps.board.notifyBaseUrl).notify({
             project,
             cardId,

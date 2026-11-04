@@ -311,7 +311,6 @@ export class StageDispatcher {
     /** `interrupted` names the tree a shutdown left, for a stage being sent again after one. */
     async run(cardId: string, stageName: string, interrupted?: InterruptedAttempt, stepName?: string): Promise<StageOutcome> {
         const stages = await this.stageConfigs.load();
-        const lane = findStage(stages, stageName, stepName);
 
         // Two reads answer two different questions about this card, and conflating them was card
         // 0109's bug: `head` is the live row — stage, retries, needsHuman, dependsOn — the runner
@@ -325,6 +324,17 @@ export class StageDispatcher {
         // runner state set by a previous dispatch, not part of the plan contract, so `card`'s pinned
         // snapshot from before that dispatch would never see it.
         const head = await this.board.read(cardId);
+
+        // A held job can outlive its lane, and by then its card has usually moved on or finished. That
+        // is a stale job, not a broken card, and a missing lane must not poison what already ended.
+        if (head.frontmatter.stage !== stageName && !stages.stages.some(({ name }) => name === stageName)) {
+            throw new NotDispatchableError(
+                { kind: 'wrong-stage', actualStage: head.frontmatter.stage },
+                `card ${cardId} is in stage "${head.frontmatter.stage}", and its job names "${stageName}", a lane that no longer exists`,
+            );
+        }
+
+        const lane = findStage(stages, stageName, stepName);
         const pinnedSha = head.frontmatter.planVersionId;
         const card = pinnedSha ? await this.board.readAt(cardId, pinnedSha) : head;
         if (!pinnedSha) {
