@@ -18,6 +18,7 @@ import { acceptanceCriteria, filesInScope, formatTimestamp, lastStageHost, paylo
 import { invalidateCard, invalidateCardsList, reasonFor, useAckCard, useMoveCard, useReleaseCard, useStartCard } from '#src/lib/mutations.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
+import { mergeStatusBadge, mergeStatusLine } from '#src/lib/board.js';
 
 /** Below this width the two `planning` panes stack into `Tabs` instead of sitting side by side. */
 const NARROW_BREAKPOINT = '(max-width: 62em)';
@@ -600,6 +601,12 @@ export function CardDetailView({
                     <MergeControl card={card} />
                 </Group>
             </Stack>
+
+            {card.mergeStatus && (
+                <Text size="sm" c={mergeStatusBadge(card.mergeStatus).color}>
+                    {mergeStatusLine(card.mergeStatus)}
+                </Text>
+            )}
 
             {card.needsHuman && (
                 <Paper withBorder p="sm" radius="sm" style={{ borderColor: 'var(--mantine-color-red-6)' }}>

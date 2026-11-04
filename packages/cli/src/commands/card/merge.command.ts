@@ -1,5 +1,6 @@
 import type { CommandModule } from '@maroonedsoftware/johnny5';
 import { withApi } from '../../api-client.js';
+import { describeMergeStatus } from '../../board-view.js';
 
 /**
  * Card 0238. `wilson card merge <id>` — the operator's way to run `BoardWriteService.merge`
@@ -18,6 +19,12 @@ const command: CommandModule = {
     args: [{ name: 'cardId', description: 'The card id, e.g. 0001', required: true }],
     run: withApi(async (_opts, ctx, args, api) => {
         const cardId = String(args[0]);
+
+        // A merge runs the whole suite first, so say what to expect before that wait. Advice only: the
+        // attempt below still goes ahead and decides for itself.
+        const { mergeStatus } = await api.board.getCard(cardId);
+        if (mergeStatus) ctx.logger.info(`${cardId}: ${describeMergeStatus(mergeStatus)}`);
+
         const result = await api.board.mergeCard(cardId);
 
         if (!result.merged) {
