@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -17,6 +18,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
@@ -47,6 +49,7 @@ import com.maroonedsoftware.wilson.board.PARKING_LOT
 import com.maroonedsoftware.wilson.board.mergeStatusLine
 import com.maroonedsoftware.wilson.board.mergeStatusWarns
 import com.maroonedsoftware.wilson.board.planCheckLine
+import com.maroonedsoftware.wilson.sdk.models.CardBlocked
 import com.maroonedsoftware.wilson.sdk.models.CardDetail
 import com.maroonedsoftware.wilson.sdk.models.CardSummaryPlanCheck
 import com.maroonedsoftware.wilson.ui.Loading
@@ -88,6 +91,7 @@ fun CardScreen(model: CardModel, onBack: () -> Unit, onEdit: () -> Unit, onPlan:
         }
         Column(Modifier.padding(padding).fillMaxSize()) {
             Header(card)
+            card.blocked?.let { Question(it, enabled = state.acting == null, onAnswer = model::answer) }
             Actions(card, state, model, onPlan)
             PrimaryTabRow(selectedTabIndex = tab) {
                 TABS.forEachIndexed { index, name -> Tab(selected = tab == index, onClick = { tab = index }, text = { Text(name) }) }
@@ -114,7 +118,32 @@ private fun Header(card: CardDetail) {
                 color = if (mergeStatusWarns(it)) MaterialTheme.colorScheme.error else Color.Unspecified,
             )
         }
-        if (card.needsHuman) Text(card.needsHumanReason ?: "This card is flagged for a human.", color = MaterialTheme.colorScheme.error)
+        if (card.needsHuman && card.blocked == null) Text(card.needsHumanReason ?: "This card is flagged for a human.", color = MaterialTheme.colorScheme.error)
+    }
+}
+
+/**
+ * A question a stage stopped to ask, and where to answer it. Bounded and scrolling, so a long question
+ * cannot push the actions and tabs off a phone's screen. A likely answer fills the box rather than
+ * sends, so it can be reworded, and the box keeps its text if the server refuses it.
+ */
+@Composable
+private fun Question(blocked: CardBlocked, enabled: Boolean, onAnswer: (String) -> Unit) {
+    var answer by rememberSaveable(blocked.askedAt.toString()) { mutableStateOf("") }
+    Column(
+        Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("${blocked.stage} stopped to ask", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+        Text(blocked.question, style = MaterialTheme.typography.bodyLarge)
+        Text("Already tried: ${blocked.tried}", style = MaterialTheme.typography.bodySmall)
+        blocked.options?.takeIf { it.isNotEmpty() }?.let { options ->
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                options.forEach { option -> OutlinedButton(onClick = { answer = option }) { Text(option) } }
+            }
+        }
+        OutlinedTextField(value = answer, onValueChange = { answer = it }, label = { Text("Your answer") }, modifier = Modifier.fillMaxWidth())
+        Button(onClick = { onAnswer(answer) }, enabled = enabled && answer.isNotBlank()) { Text("Send answer") }
     }
 }
 

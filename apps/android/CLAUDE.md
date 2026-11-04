@@ -37,6 +37,8 @@ skill, and say plainly what you did not run. Record what you find here, dated.
 
 ## Found on the emulator
 
+- 2026-11-04, API 36: after "Use a different server" and signing in, the board still calls the old address
+  (`Failed to connect to /10.0.2.2:13150`) until the app is killed and reopened.
 - 2026-10-31, API 36: a screen does not re-run `init` when navigated back to, and `/api/feed` reports
   nothing about what happened meanwhile, so both the board and card detail showed stale data after
   creating or editing a card. Each now reads afresh every time it starts following the feed.
