@@ -396,6 +396,7 @@ export class CodexStageAgent extends StageAgent {
             };
             if (total) {
                 // This engine's `inputTokens` includes what was cached; a stage's figures keep them apart.
+                // It reports cache reads only, so there is no `cacheWriteInputTokens` to record.
                 usage = {
                     inputTokens: Math.max(0, total.inputTokens - total.cachedInputTokens),
                     outputTokens: total.outputTokens,

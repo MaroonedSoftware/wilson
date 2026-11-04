@@ -95,6 +95,19 @@ describe('CliStageAgent resolves the claude-config-dir setting into the engine e
         expect(envFromCall().CLAUDE_CONFIG_DIR).toBe('/home/operator/.claude-wilson');
     });
 
+    it('passes a lane’s autoCompactWindow to the engine, and sets nothing when it has none', async () => {
+        queryMock.mockReturnValue(emptyStream());
+        const agent = new CliStageAgent(silentLogger as never, fakeSettingsStore(undefined) as never);
+
+        await agent.run(runInput(makeStage({ autoCompactWindow: 140_000 } as never)) as never);
+        expect(envFromCall().CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe('140000');
+
+        queryMock.mockClear();
+        queryMock.mockReturnValue(emptyStream());
+        await agent.run(runInput(makeStage()) as never);
+        expect(envFromCall().CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBeUndefined();
+    });
+
     it('sets CLAUDE_CODE_OAUTH_TOKEN in the engine env when a token is saved', async () => {
         queryMock.mockReturnValue(emptyStream());
         const accounts = { local: vi.fn(async () => ({ name: 'local', token: 'saved-token' })) };

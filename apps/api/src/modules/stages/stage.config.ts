@@ -22,6 +22,23 @@ export const MAX_STAGE_WALL_CLOCK_MS = 3_000_000;
  */
 const DEFAULT_IDLE_MS = 300_000;
 
+/** What `CLAUDE_CODE_AUTO_COMPACT_WINDOW` can hold: the engine moves anything outside this range to its edge. */
+const AutoCompactWindow = z.number().int().min(100_000).max(1_000_000);
+
+/**
+ * How far below its window the engine compacts: 20k kept for output and a 13k buffer. Read from the
+ * engine on 2.1.317, where a model allowing under 20k of output would keep less. Recheck on an upgrade.
+ */
+const ENGINE_COMPACT_MARGIN = 33_000;
+
+/**
+ * Whether `maxContextWindowFraction` would stop a run before the engine got to compact it, which would
+ * leave a lane's `autoCompactWindow` doing nothing but failing runs. `getContextUsage` rounds its
+ * percentage, so the guard fires half a point early: at 0.9 the crossover is near 314k, not 330k.
+ */
+const contextGuardBeatsCompaction = (autoCompactWindow: number, maxContextWindowFraction: number): boolean =>
+    (maxContextWindowFraction - 0.005) * autoCompactWindow <= autoCompactWindow - ENGINE_COMPACT_MARGIN;
+
 /**
  * A run inside a lane that is not the lane's own: its own prompt, verifier and budgets, on the lane's
  * provider, model and routes, with the card staying in the lane throughout. `on` says when it runs:
@@ -50,6 +67,7 @@ export const LaneStepSchema = z.object({
     maxInputTokens: z.number().int().min(1000).optional(),
     maxWallClockMs: z.number().int().min(1000).max(MAX_STAGE_WALL_CLOCK_MS).optional(),
     maxBudgetUsd: z.number().positive().optional(),
+    autoCompactWindow: AutoCompactWindow.optional(),
 });
 
 export type LaneStep = z.infer<typeof LaneStepSchema>;
@@ -217,28 +235,38 @@ export const StageConfigSchema = z
         maxSteps: z.number().int().min(1).default(60),
         maxOutputTokens: z.number().int().min(1024).default(16000),
         /**
-         * Cumulative input tokens a single run may consume before it is cut off as a budget failure,
-         * cached tokens included (`budgetedInputTokens`). Every turn resends the conversation, so this
-         * grows with steps times context size: the default allows `maxSteps` turns at 250k each, which
-         * is meant to catch a runaway, not to shape an ordinary run.
+         * Cost-weighted input tokens a single run may consume before it is cut off as a budget failure
+         * (`budgetedInputTokens`: fresh input at 1, cache reads at 0.1, cache writes at 1.25). Every turn
+         * resends the conversation, mostly as cache reads, so this grows far more slowly than the raw
+         * tokens stats show. The default is meant to catch a runaway, not to shape an ordinary run.
          */
         maxInputTokens: z.number().int().min(1000).default(15_000_000),
         /**
          * Fraction of the model's context window a run's usage may reach before it is stopped as a
          * budget failure.
          *
-         * Distinct from `maxInputTokens`, worth stating plainly: that one bounds the cumulative input
+         * Distinct from `maxInputTokens`, worth stating plainly: that one bounds the cost-weighted input
          * tokens a run has already spent across every turn so far. This bounds the request the *next*
          * turn is about to build on top of what the context window already holds — a run can be well
          * under its token budget and still overflow on a single turn, because a turn's prompt carries
          * the whole conversation so far, tools and memory files included, not just what that one turn
          * spends. Compared against `Query.getContextUsage()`'s own `percentage` (`cli.stage.agent.ts`)
          * rather than derived from token counts — the api adapter has no equivalent and is out of scope.
-         * 0.9 leaves a turn's worth of headroom below the window the engine itself resolves (already
-         * autocompaction-adjusted, per `getContextUsage`), rather than stopping exactly at the edge,
-         * which would be stopping one turn too late.
+         * That percentage is of the window the engine resolves, which is `autoCompactWindow` when set
+         * and otherwise the engine's choice for the model, with nothing taken off for compaction. So on
+         * a window of about 315k or more, 0.9 stops the run before the engine ever compacts: the engine
+         * compacts 33k below the window, which on those is above 90% of it. 0.9 is otherwise a turn's
+         * worth of headroom, rather than stopping exactly at the edge, which would be one turn too late.
          */
         maxContextWindowFraction: z.number().gt(0).max(1).default(0.9),
+        /**
+         * The context window the `cli` engine compacts against, in tokens, passed to it as
+         * `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Unset leaves it to the engine. A smaller window makes each
+         * resent turn cheaper, at the cost of a summary: the engine compacts at about this minus 33k, so
+         * a window of 140k compacts near 107k (`stage.compacted` records each one). No other adapter
+         * reads it. Rejected where `maxContextWindowFraction` would stop the run first.
+         */
+        autoCompactWindow: AutoCompactWindow.optional(),
         /**
      * Wall-clock a single run may take before it is aborted as a budget failure.
      *
@@ -274,7 +302,7 @@ export const StageConfigSchema = z
          * Ceiling on everything a card has ever spent, across every stage and every attempt.
          *
          * Unlike `maxInputTokens`, which bounds one run, this bounds the card, and counts the same
-         * way, cached tokens included. It sits on the stage
+         * way, cost-weighted. It sits on the stage
          * rather than the card because that is where every other budget lives, and a project sets it
          * once across its stages. Optional: absent means unbounded, exactly as today.
          */
@@ -354,6 +382,23 @@ export const StageConfigSchema = z
                 path: ['maxIdleMs'],
                 message: `maxIdleMs (${stage.maxIdleMs}) must be below maxWallClockMs (${stage.maxWallClockMs}), or the idle guard can never fire`,
             });
+        }
+        const windows = [
+            { path: ['autoCompactWindow'], label: stage.name, window: stage.autoCompactWindow },
+            ...(stage.steps ?? []).map((step, index) => ({
+                path: ['steps', index, 'autoCompactWindow'],
+                label: `step ${step.name}`,
+                window: step.autoCompactWindow,
+            })),
+        ];
+        for (const { path, label, window } of windows) {
+            if (window !== undefined && contextGuardBeatsCompaction(window, stage.maxContextWindowFraction)) {
+                ctx.addIssue({
+                    code: 'custom',
+                    path,
+                    message: `${label}: autoCompactWindow ${window} compacts at about ${window - ENGINE_COMPACT_MARGIN}, but maxContextWindowFraction ${stage.maxContextWindowFraction} stops the run first. Lower one of them`,
+                });
+            }
         }
     })
     .transform(stage => ({ ...stage, maxIdleMs: stage.maxIdleMs ?? Math.min(DEFAULT_IDLE_MS, stage.maxWallClockMs) }));

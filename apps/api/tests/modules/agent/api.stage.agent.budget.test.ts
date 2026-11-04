@@ -141,7 +141,20 @@ describe('ApiStageAgent budget wiring', () => {
 
         const output = (await agent.run(runInput(makeStage({ maxInputTokens: 1000 })))) as { budgetFailure?: string };
 
-        expect(output.budgetFailure).toContain('used 1000, cap 1000');
+        expect(output.budgetFailure).toContain('used 1000 cost-weighted, cap 1000');
+    });
+
+    it('weights the run’s cached input, recording the split and leaving a long cached run under its cap', async () => {
+        generateMock.mockResolvedValue({
+            usage: { inputTokens: 5100, outputTokens: 10, inputTokenDetails: { cacheReadTokens: 5000, cacheWriteTokens: 0 } },
+            steps: [],
+        });
+        const agent = new ApiStageAgent(fakeModels);
+
+        const output = await agent.run(runInput(makeStage({ maxInputTokens: 1000 })));
+
+        expect(output.budgetFailure).toBeUndefined();
+        expect(output.usage).toEqual({ inputTokens: 100, outputTokens: 10, cachedInputTokens: 5000, cacheWriteInputTokens: 0 });
     });
 
     it('leaves budgetFailure undefined while the run stays under its cap', async () => {

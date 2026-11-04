@@ -22,6 +22,7 @@ const SUMMARIES: Record<string, ActivitySummary> = {
     'dispatch.deferred': { label: 'Deferred dispatch', color: 'gray' },
     'engine.failed': { label: 'Engine failed in {stage}', color: 'red' },
     'turn.empty': { label: 'Engine ended its turn without working', color: 'orange' },
+    'stage.compacted': { label: 'Engine compacted its conversation in {stage}', color: 'gray' },
     'scope.requested': { label: 'Requested more scope', color: 'blue' },
     'scope.granted': { label: 'Scope granted', color: 'green' },
     'scope.refused': { label: 'Scope refused', color: 'orange' },

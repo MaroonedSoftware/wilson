@@ -604,7 +604,7 @@ describe('CodexStageAgent', () => {
             expect(output.budgetFailure).toBeUndefined();
         });
 
-        it('stops at its input token budget, counting what was cached', async () => {
+        it('stops at its input token budget, counting what was cached as reads', async () => {
             const { output } = await run(
                 new SimulatedCodexServer(async server => {
                     server.notify('thread/tokenUsage/updated', {
@@ -615,11 +615,11 @@ describe('CodexStageAgent', () => {
                         },
                     });
                 }),
-                { stageOver: { maxInputTokens: 900 } },
+                { stageOver: { maxInputTokens: 180 } },
             );
 
             expect(output.usage).toEqual({ inputTokens: 100, cachedInputTokens: 800, outputTokens: 5 });
-            expect(output.budgetFailure).toMatch(/900/);
+            expect(output.budgetFailure).toMatch(/used 180 cost-weighted, cap 180/);
         });
 
         it('stops when the context window is nearly full', async () => {

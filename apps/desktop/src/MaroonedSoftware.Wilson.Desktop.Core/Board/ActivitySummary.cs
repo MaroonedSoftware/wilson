@@ -34,6 +34,7 @@ public static class ActivitySummary
         ["dispatch.deferred"] = new("Deferred dispatch", ActivityTone.Quiet),
         ["engine.failed"] = new("Engine failed in {stage}", ActivityTone.Bad),
         ["turn.empty"] = new("Engine ended its turn without working", ActivityTone.Caution),
+        ["stage.compacted"] = new("Engine compacted its conversation in {stage}", ActivityTone.Quiet),
         ["scope.requested"] = new("Requested more scope", ActivityTone.Going),
         ["scope.granted"] = new("Scope granted", ActivityTone.Good),
         ["scope.refused"] = new("Scope refused", ActivityTone.Caution),

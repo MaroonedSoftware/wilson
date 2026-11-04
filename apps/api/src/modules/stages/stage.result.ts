@@ -241,7 +241,7 @@ export interface StageOutcome {
     /** What was uncommitted when the verifier finished, which is what its verdict is about. */
     verifiedTree?: TreeSnapshot;
     result?: unknown;
-    usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number };
+    usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; cacheWriteInputTokens?: number };
     /**
      * `VerificationOutcome.supportedRefusal`, carried only when the run itself added no failure of
      * its own: a truncated or budget-cut run's report is not one to act on, whatever it said.
