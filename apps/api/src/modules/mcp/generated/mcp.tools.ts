@@ -7,6 +7,7 @@ import { registerHealthMcpCatalog, registerHealthMcpToolClasses } from './health
 import { registerHostsMcpCatalog, registerHostsMcpToolClasses } from './hosts.mcp.js';
 import { registerLearningsMcpCatalog, registerLearningsMcpToolClasses } from './learnings.mcp.js';
 import { registerProjectsMcpCatalog, registerProjectsMcpToolClasses } from './projects.mcp.js';
+import { registerRulesMcpCatalog, registerRulesMcpToolClasses } from './rules.mcp.js';
 import { registerSettingsMcpCatalog, registerSettingsMcpToolClasses } from './settings.mcp.js';
 import { registerStagesMcpCatalog, registerStagesMcpToolClasses } from './stages.mcp.js';
 
@@ -49,6 +50,7 @@ export function registerMcpCatalog(container: Container): McpToolCatalog {
     registerHostsMcpCatalog(map, container);
     registerLearningsMcpCatalog(map, container);
     registerProjectsMcpCatalog(map, container);
+    registerRulesMcpCatalog(map, container);
     registerSettingsMcpCatalog(map, container);
     registerStagesMcpCatalog(map, container);
     return map;
@@ -69,6 +71,7 @@ export function registerMcpToolClasses(registry: Registry): void {
     registerHostsMcpToolClasses(registry);
     registerLearningsMcpToolClasses(registry);
     registerProjectsMcpToolClasses(registry);
+    registerRulesMcpToolClasses(registry);
     registerSettingsMcpToolClasses(registry);
     registerStagesMcpToolClasses(registry);
 }

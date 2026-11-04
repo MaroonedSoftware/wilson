@@ -4,9 +4,9 @@ import { oneLine } from './card.js';
 const HEADING = '## Review findings';
 const CRITERIA_HEADING = '### Criteria';
 
-/** One bullet per finding: severity, `file:line`, the problem and the suggestion. */
+/** One bullet per finding: severity, `file:line` (an omission has no line), the problem and the suggestion. */
 const bullet = (finding: ReviewFinding): string =>
-    `- **${finding.severity}** \`${finding.file}:${finding.line}\`: ${oneLine(finding.problem)} — ${oneLine(finding.suggestion)}`;
+    `- **${finding.severity}** \`${finding.file}${finding.line === undefined ? '' : `:${finding.line}`}\`: ${oneLine(finding.problem)} — ${oneLine(finding.suggestion)}`;
 
 /** One bullet per criterion: its ID, status and note — `AC2 unmet: <note>`. */
 const criterionBullet = (criterion: ReviewCriterion): string => `- ${criterion.id} ${criterion.status}: ${oneLine(criterion.note)}`;

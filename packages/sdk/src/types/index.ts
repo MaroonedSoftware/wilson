@@ -15,5 +15,6 @@ export * from './onboarding.js';
 export * from './passkey.types.js';
 export * from './projects.js';
 export * from './review.js';
+export * from './rules.js';
 export * from './settings.js';
 export * from './stages.js';

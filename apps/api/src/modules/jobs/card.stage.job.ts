@@ -9,6 +9,7 @@ import { EventLog } from '#modules/events/event.log.js';
 import { Notifier } from '#modules/notify/notifier.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
+import type { ReviewFinding } from '#modules/stages/stage.result.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { decideChain } from './chain.decision.js';
 import { CardJobs } from './card.jobs.js';
@@ -114,6 +115,8 @@ export class CardStageJob extends Job<CardStagePayload> {
             await this.cardJobs.clear(cardId);
             return;
         }
+
+        await this.enqueueRuleProposal(cardId, stageName, outcome.upheldBlockers);
 
         const stages = await this.stageConfigs.load();
         const decision = outcome.nextStep
@@ -237,6 +240,26 @@ export class CardStageJob extends Job<CardStagePayload> {
                     payload: { reason: `${originId}'s split could not enqueue it: ${error instanceof Error ? error.message : String(error)}` },
                 });
             }
+        }
+    }
+
+    /**
+     * One `card.rule-proposal` for what a challenge upheld and sent back. The dispatcher stays
+     * queue-agnostic for the reason it does above. A failed send costs a proposal nobody asked for, so
+     * it is recorded and the card moves on.
+     */
+    private async enqueueRuleProposal(cardId: string, stageName: string, blockers: ReviewFinding[] | undefined): Promise<void> {
+        if (!blockers?.length) return;
+        try {
+            await this.broker.send('card.rule-proposal', { cardId, project: this.board.project, blockers });
+        } catch (error) {
+            await this.events.append({
+                project: this.board.project,
+                cardId,
+                stage: stageName,
+                type: 'rule.proposed',
+                payload: { reason: `could not enqueue it: ${error instanceof Error ? error.message : String(error)}` },
+            });
         }
     }
 

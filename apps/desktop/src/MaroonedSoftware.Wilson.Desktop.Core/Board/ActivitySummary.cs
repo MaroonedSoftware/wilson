@@ -46,6 +46,8 @@ public static class ActivitySummary
         ["card.answered"] = new("Question answered", ActivityTone.Good),
         ["stage.blocked"] = new("{stage} asked a question", ActivityTone.Caution),
         ["card.over-budget"] = new("Went over budget", ActivityTone.Bad),
+        ["rule.verdicts"] = new("Checked the rules", ActivityTone.Going),
+        ["rule.proposed"] = new("Looked for a rule to propose", ActivityTone.Going),
         ["card.auto-split"] = new("Split automatically", ActivityTone.Going),
         ["card.plan-drafted"] = new("Drafted a plan", ActivityTone.Good),
         ["job.orphaned"] = new("Recovered an orphaned job", ActivityTone.Caution),

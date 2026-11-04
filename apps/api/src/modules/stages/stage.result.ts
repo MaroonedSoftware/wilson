@@ -252,6 +252,8 @@ export interface StageOutcome {
     supportedRefusal?: SupportedRefusal;
     /** The pieces this stage's automatic split created, for `CardStageJob` to have drafted. */
     splitInto?: string[];
+    /** Blockers a challenge upheld and that sent the card back, for `CardStageJob` to have looked at for a rule. */
+    upheldBlockers?: ReviewFinding[];
     /** Where the runner moved the card after this stage, when it moved it at all. */
     transitionedTo?: string;
     /** Whether this transition flagged the card for a human. `decideChain` checks this before re-enqueuing. */

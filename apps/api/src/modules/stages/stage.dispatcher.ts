@@ -25,17 +25,22 @@ import { HostLostError, type RemotePlacement } from '#modules/host/placement.js'
 import { LearningsStore } from '#modules/learnings/learnings.store.js';
 import { DevServerPortAllocator } from '#modules/lease/dev.server.port.allocator.js';
 import { Notifier } from '#modules/notify/notifier.js';
+import { withRulesGuidance } from '#modules/rules/rule.guidance.js';
+import { isRuleFinding, ruleFinding, ruleVerdictsMarkdown, withRuleFindings } from '#modules/rules/rule.findings.js';
+import { RuleJudge, type RuleVerdict } from '#modules/rules/rule.judge.js';
+import { RuleStore } from '#modules/rules/rule.store.js';
 import type { CardNotification } from '#modules/notify/notification.js';
 import { DEV_SERVER_PORT_RANGE } from '#modules/settings/dev.server.port.range.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { snapshotDrift, WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { cardOverBudget, withinCardBudget, withinInterruptedBudget } from './card.budget.js';
+import { incomingReview } from './challenge.verifier.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
-import { computeReviewEvidence, reviewEvidenceApplies } from './review.evidence.js';
+import { computeReviewEvidence, REVIEW_PREPARATION_DEADLINE_MS, reviewEvidenceApplies } from './review.evidence.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
 import { findStage, isPlanCheck, type ProjectStages, type StageConfig } from './stage.config.js';
 import { StageConfigStore } from './stage.config.store.js';
-import { StageResultSchemaMap, type ReviewCriterion, type ReviewFinding, type StageOutcome } from './stage.result.js';
+import { ReviewResultSchema, StageResultSchemaMap, type ReviewCriterion, type ReviewFinding, type StageOutcome } from './stage.result.js';
 import { StageVerifierMap } from './stage.verifier.js';
 import { endingOf } from './terminal.js';
 
@@ -282,6 +287,10 @@ export class StageDispatcher {
         // Optional for the reason the four above are. Left undefined, a refusal routes as it always
         // has, which is also what `AUTO_SPLIT_ENABLED` being off does.
         private readonly autoSplitter?: AutoSplitter,
+        // Optional for the reason the five above are. Left undefined, a project has no rules.
+        private readonly rules?: RuleStore,
+        // And left undefined, no rule is ever judged.
+        private readonly ruleJudge?: RuleJudge,
     ) {}
 
     /** `interrupted` names the tree a shutdown left, for a stage being sent again after one. */
@@ -574,19 +583,28 @@ export class StageDispatcher {
             this.logger.info(`worktree prepared with \`${setupCommand}\``);
         }
 
-        // Here because it needs what setup installed and the rebased `baseSha`, and the plan is how it
-        // reaches the agent. It adds to the time before the stage's clock starts, up to its own deadline.
-        const evidence = reviewEvidenceApplies(stage)
-            ? await computeReviewEvidence(
-                  { worktrees: this.worktrees, logger: this.logger, runRoot: this.config.runRoot },
-                  { cardId, worktree, stage },
-              )
-            : undefined;
+        // Here because evidence needs what setup installed and both need the rebased `baseSha`, and the
+        // plan is how they reach the agent. Side by side, since neither reads what the other writes and
+        // every minute here comes out of the job's margin.
+        const prepares = reviewEvidenceApplies(stage);
+        const [evidence, ruleVerdicts] = await Promise.all([
+            prepares
+                ? computeReviewEvidence({ worktrees: this.worktrees, logger: this.logger, runRoot: this.config.runRoot }, { cardId, worktree, stage })
+                : undefined,
+            prepares ? this.judgeRules(cardId, stageName, card, worktree) : undefined,
+        ]);
         if (evidence) {
             await this.events.append({ project: this.config.project, cardId, stage: stageName, type: 'review.evidence', payload: evidence.summary });
         }
 
-        const localPlanPath = await this.materializePlan(card, pinnedSha, stages, stage, evidence?.markdown);
+        const notes = [evidence?.markdown, ruleVerdictsMarkdown(ruleVerdicts ?? [])];
+        const localPlanPath = await this.materializePlan(
+            await this.withIncomingReview(card, stage),
+            pinnedSha,
+            stages,
+            stage,
+            notes.filter(Boolean).join('\n\n'),
+        );
         // The agent reads the plan where its worktree is. A placed stage gets a copy on the host,
         // under the host's run root, outside its worktree for the same reason the local one is.
         const planPath = placement ? await this.mirrorToHost(placement, cardId, localPlanPath, true) : localPlanPath;
@@ -597,7 +615,12 @@ export class StageDispatcher {
         // PROJECT.md decision 8) or `this.learnings` altogether unset (see the constructor's own
         // comment) both mean no file is written and no path reaches the adapter at all — an empty
         // document means "no learnings", not an empty file to hand the agent.
-        const learningsMarkdown = (await this.learnings?.load()) ?? '';
+        //
+        // The rules go with them where work gets written, so it can meet them before review judges it.
+        const learningsMarkdown = withRulesGuidance(
+            (await this.learnings?.load()) ?? '',
+            (stage.verifier ?? stage.name) === 'implementing' ? ((await this.rules?.list()) ?? []) : [],
+        );
         const localLearningsPath = learningsMarkdown.trim().length > 0 ? await this.materializeLearnings(cardId, learningsMarkdown) : undefined;
         const learningsPath = placement && localLearningsPath ? await this.mirrorToHost(placement, cardId, localLearningsPath) : localLearningsPath;
 
@@ -656,6 +679,7 @@ export class StageDispatcher {
                 learningsPath,
                 stages,
                 port,
+                ...(ruleVerdicts && { ruleVerdicts }),
                 ...(reopened && { interrupted }),
             });
 
@@ -780,14 +804,17 @@ export class StageDispatcher {
         let nextStep: string | undefined;
         let needsHuman = false;
         let splitInto: string[] | undefined;
+        let upheldBlockers: ReviewFinding[] | undefined;
         try {
-            const transition = outcome.blocked
-                ? await this.parkBlocked(cardId, stageName, card, outcome, outcome.blocked)
-                : await this.writeTransition(cardId, stageName, stage, head, card, outcome);
+            const transition: { target?: string; nextStep?: string; needsHuman: boolean; splitInto?: string[]; upheldBlockers?: ReviewFinding[] } =
+                outcome.blocked
+                    ? await this.parkBlocked(cardId, stageName, card, outcome, outcome.blocked)
+                    : await this.writeTransition(cardId, stageName, stage, head, card, outcome);
             transitionedTo = transition.target;
             nextStep = transition.nextStep;
             needsHuman = transition.needsHuman;
             splitInto = transition.splitInto;
+            upheldBlockers = transition.upheldBlockers;
         } catch (err) {
             await this.events.append({
                 project: this.config.project,
@@ -800,7 +827,14 @@ export class StageDispatcher {
             // silent failure here is how a card sits untouched forever.
             throw err;
         }
-        return { ...outcome, transitionedTo, ...(nextStep && { nextStep }), needsHuman, ...(splitInto && { splitInto }) };
+        return {
+            ...outcome,
+            transitionedTo,
+            ...(nextStep && { nextStep }),
+            needsHuman,
+            ...(splitInto && { splitInto }),
+            ...(upheldBlockers && { upheldBlockers }),
+        };
     }
 
     /**
@@ -819,7 +853,7 @@ export class StageDispatcher {
         head: Card,
         card: Card,
         outcome: StageOutcome,
-    ): Promise<{ target?: string; nextStep?: string; needsHuman: boolean; splitInto?: string[] }> {
+    ): Promise<{ target?: string; nextStep?: string; needsHuman: boolean; splitInto?: string[]; upheldBlockers?: ReviewFinding[] }> {
         // Before any routing: a split replaces the kickback rather than following it, and when it
         // declines the card routes exactly as it would have. A card whose ticket closed mid-run is
         // left to the halt below: nobody wants its work divided up.
@@ -1010,7 +1044,19 @@ export class StageDispatcher {
             });
         }
 
-        return { target: decision.target, ...(nextStep && { nextStep }), needsHuman: needsHuman !== undefined };
+        // Only what a challenge upheld and what moved the card counts as a blocker worth a rule. A rule's
+        // own failure already has one.
+        const upheld =
+            stage.step && stage.verifier === 'challenge' && decision.target !== stageName && !needsHuman
+                ? findings?.filter(finding => finding.severity === 'blocker' && !isRuleFinding(finding))
+                : undefined;
+
+        return {
+            target: decision.target,
+            ...(nextStep && { nextStep }),
+            needsHuman: needsHuman !== undefined,
+            ...(upheld?.length && { upheldBlockers: upheld }),
+        };
     }
 
     /**
@@ -1332,6 +1378,72 @@ export class StageDispatcher {
     }
 
     /**
+     * Have the judges look at this card's diff, and record what they said and what it cost, which is
+     * how it reaches the card's budget. Nothing here stops the stage: with no rule matching there is no
+     * trace of this at all, and whatever goes wrong leaves it as if there were no rules.
+     */
+    private async judgeRules(cardId: string, stageName: string, card: Card, worktree: Worktree): Promise<RuleVerdict[] | undefined> {
+        if (!this.rules || !this.ruleJudge) return undefined;
+        try {
+            const { verdicts, usage } = await this.ruleJudge.judge({
+                rules: await this.rules.list(),
+                host: worktreeHost(worktree),
+                cwd: worktree.path,
+                range: [worktree.baseSha],
+                plan: serializeCard(card),
+                cardId,
+                deadlineMs: REVIEW_PREPARATION_DEADLINE_MS,
+            });
+            if (verdicts.length === 0) return undefined;
+            await this.events.append({
+                project: this.config.project,
+                cardId,
+                stage: stageName,
+                type: 'rule.verdicts',
+                payload: { verdicts, ...(usage ? { usage } : {}) },
+            });
+            return verdicts;
+        } catch (err) {
+            this.logger.warn(`could not judge ${cardId}'s rules: ${(err as Error).message}`);
+            return undefined;
+        }
+    }
+
+    /**
+     * The card as a challenge step reads it: with what it is challenging under `## Review findings`,
+     * where its instructions say to look. A `revise` waiting on its step is written nowhere else but the
+     * event log until the step has spoken, so this goes on the plan and not on the card.
+     */
+    private async withIncomingReview(card: Card, stage: StageConfig): Promise<Card> {
+        if (!stage.step || stage.verifier !== 'challenge') return card;
+        const incoming = await incomingReview(this.events, this.config.project, card.frontmatter.id);
+        return incoming ? { ...card, body: withFindings(card.body, incoming.findings, incoming.criteria) } : card;
+    }
+
+    /**
+     * A review's report with the rules' failures in it, once what they cite has been checked against the
+     * tree. A report that does not parse has nothing to add to: the stage is sent again for that anyway,
+     * and the verdicts are kept, so the rules cost nothing the second time.
+     */
+    private async withRuleFailures(result: unknown, verdicts: readonly RuleVerdict[], worktree: Worktree): Promise<unknown> {
+        const failed = verdicts.filter(verdict => verdict.verdict === 'fail');
+        const parsed = ReviewResultSchema.safeParse(result);
+        if (failed.length === 0 || !parsed.success) return result;
+
+        const host = worktreeHost(worktree);
+        const paths = new Set(failed.flatMap(verdict => [...verdict.paths, ...(verdict.file ? [verdict.file] : [])]));
+        const lines = new Map<string, number>();
+        for (const path of paths) {
+            const text = await host.readFile(join(worktree.path, path)).catch(() => undefined);
+            if (text !== undefined) lines.set(path, text.split('\n').length);
+        }
+        return withRuleFindings(
+            parsed.data,
+            failed.flatMap(verdict => ruleFinding(verdict, lines) ?? []),
+        );
+    }
+
+    /**
      * Throw a `HostLostError` when `placement`'s host no longer answers, after marking it failed and
      * recording why. Returns quietly when it answers: then whatever went wrong is the stage's own.
      */
@@ -1395,8 +1507,10 @@ export class StageDispatcher {
         port?: number;
         /** The attempt whose tree this run reopened, to continue from where it stopped. */
         interrupted?: InterruptedAttempt;
+        /** What the rule judges said, when any rule matched this review's diff. */
+        ruleVerdicts?: RuleVerdict[];
     }): Promise<StageOutcome> {
-        const { card, stage, worktree, scope, planPath, learningsPath, stages, port, interrupted } = input;
+        const { card, stage, worktree, scope, planPath, learningsPath, stages, port, interrupted, ruleVerdicts } = input;
 
         const context: ToolContext = {
             project: this.config.project,
@@ -1505,7 +1619,7 @@ export class StageDispatcher {
                 `stage "${stage.name}" names verifier "${stage.verifier ?? stage.name}", which is not registered (have: ${[...this.verifiers.keys()].join(', ')})`,
             );
         }
-        const reported = run.result;
+        const reported = ruleVerdicts ? await this.withRuleFailures(run.result, ruleVerdicts, worktree) : run.result;
         const verification = await verifier.verify({ worktree, scope, stage, cardId: card.frontmatter.id, card, result: reported });
         const verifiedTree = await this.worktrees.uncommittedSnapshot(worktree);
         const failures = [...verification.failures];
