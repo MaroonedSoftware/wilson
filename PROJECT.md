@@ -664,10 +664,11 @@ scope guard, adapter and `ReviewVerifier` a stage uses, with no board or databas
 and specificity are reported with their `n`, both as the model reported them and as the
 verifier would have them.
 
-These scores stop at review, so they overstate what survives `challenge`. Setup, type-check
-evidence, rule judges and learnings do not run. The live prompt is only in the database, so a
-run takes a labelled copy of it. Real runs spend model usage, so they are started by hand and
-never by CI. `apps/api/evals/review/README.md` has the method and how to read a result.
+These scores stop at review, so they overstate what survives `challenge`. Type-check evidence,
+rule judges and learnings do not run. A scratch repository is not a sandbox: a reviewer's
+allowed commands run on this machine and can reach its test database. The live prompt is only
+in the database, so a run takes a labelled copy of it. Real runs spend model usage, so they are
+started by hand and never by CI. `apps/api/evals/review/README.md` has the method and how to read a result.
 
 ### Before the work: parking lot, planning, backlog
 
