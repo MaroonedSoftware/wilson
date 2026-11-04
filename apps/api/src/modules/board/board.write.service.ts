@@ -10,6 +10,7 @@ import { WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { DRY_RUN_ENABLED } from '#modules/settings/dry.run.setting.js';
 import { RE_REVIEW_ON_MERGE } from '#modules/settings/re.review.on.merge.setting.js';
+import { RE_REVIEW_CAP, RE_REVIEW_RETRY_KEY } from './re.review.js';
 import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
 import { findStage, StageConfigError, stepOn, validTargets, type StageConfig } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
@@ -1267,19 +1268,3 @@ const HUMAN_FINDINGS_NOTE = '_A human left these comments on the diff._';
  * event history runs past it before the refusal it should find.
  */
 const DIVISION_LOOKBACK = 2000;
-
-/**
- * The `retries` key {@link BoardWriteService.reReviewOnOverlap} counts its send-backs under —
- * distinct from `review`, the stage name itself, so this check's bookkeeping never touches
- * `review`'s own `maxKickbacks` counter. Follows `kickback.ts`'s `droppedRetryKey` naming: `<the
- * stage it routes to>:<what this counter is>`.
- */
-const RE_REVIEW_RETRY_KEY = 'review:re-review';
-
-/**
- * How many times {@link BoardWriteService.reReviewOnOverlap} sends a card back to `review` for the
- * same reason before giving up and flagging a human. Small and fixed, the same posture
- * `RESULT_DROPPED_ALLOWANCE` (`kickback.ts`) takes for its own bounded allowance: a card whose
- * files keep colliding with what lands on `main` is not making progress by retrying forever.
- */
-const RE_REVIEW_CAP = 2;

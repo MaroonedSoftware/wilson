@@ -1,5 +1,5 @@
 import type { DateTime } from 'luxon';
-import type { BoardColumns, CardSummary } from '@wilson/sdk';
+import type { BoardColumns, CardSummary, MergeStatus } from '@wilson/sdk';
 import type { CardState } from '#src/components/brand/StateIcon.js';
 import type { CardActivity } from './feed.js';
 
@@ -121,6 +121,43 @@ export const cardState = (card: CardSummary): CardState | undefined => {
     if ((card.doneReason ?? card.stage) === 'poisoned') return 'poisoned';
     if (merged(card)) return 'passed';
     return undefined;
+};
+
+/** A `ready` tile's badge: what Merge would do, in as few words as a tile has room for. */
+export const mergeStatusBadge = (status: MergeStatus): { label: string; color: string } => {
+    switch (status.state) {
+        case 'clean':
+            return { label: 'merges cleanly', color: 'green' };
+        case 'conflict':
+            return { label: 'merge conflict', color: 'red' };
+        case 'rereview':
+            // Re-review is on by default and checked first, so this is where most real conflicts land.
+            return status.conflicts.length > 0 ? { label: 'conflict, back to review', color: 'red' } : { label: 'back to review', color: 'orange' };
+        case 'capped':
+            return { label: 'merge needs a human', color: 'red' };
+        case 'unknown':
+            return { label: 'merge unknown', color: 'gray' };
+    }
+};
+
+/** The whole answer as a sentence, conflicting paths included, so nobody has to press Merge to find them. */
+export const mergeStatusLine = (status: MergeStatus): string => {
+    const target = status.target ?? 'the target';
+    const conflicts = status.conflicts.join(', ');
+    switch (status.state) {
+        case 'clean':
+            return `Merges cleanly into ${target}.`;
+        case 'conflict':
+            return conflicts ? `Conflicts with ${target}: ${conflicts}` : `Conflicts with ${target}.`;
+        case 'rereview': {
+            const moved = `Merge would send this back to review: ${target} moved under ${status.movedUnder.join(', ')}.`;
+            return conflicts ? `${moved} It also conflicts: ${conflicts}` : moved;
+        }
+        case 'capped':
+            return `Merge would stop and flag this for a human: ${target} moved under ${status.movedUnder.join(', ')}, and it has used up its re-reviews.`;
+        case 'unknown':
+            return `Could not check the merge: ${status.reason ?? 'no reason recorded'}`;
+    }
 };
 
 /**

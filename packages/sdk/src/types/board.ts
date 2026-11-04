@@ -25,72 +25,30 @@ export interface BoardColumns {
 }
 
 /**
- * Card 0091. Orders the parking lot; `list`'s `position, id` ordering (PostgresBoardRepository)
- * sorts a card with one ahead of every card without. Absent for a card nothing has ever dragged —
- * including every card that predates this, since there is no migration to back-fill it — and such a
- * card sorts by `id` among the others like it, not at either end of the column. Meaningless outside
- * `parking-lot`: no other stage's order is an operator's to set (POST .../reposition refuses it).
- * generated from [CardSummary](../../../../apps/api/data/contracts/board.ck)
+ * What pressing Merge on a `ready` card would do right now, worked out on read and never by trying it.
+ * `BoardWriteService.merge` checks re-review before it computes the merge, so `state` follows the same
+ * order: `rereview` wins over `conflict` when `RE_REVIEW_ON_MERGE` is on and both apply, and `conflicts`
+ * still lists what the rebase on re-entry will hit. `capped` is the same overlap on a card that has
+ * used up its re-reviews, so Merge flags it for a human instead of sending it back. `unknown` is a read
+ * that failed (a branch missing from `codeRoot`, say), not a claim about the merge; `reason` carries
+ * the error.
+ * generated from [MergeStatus](../../../../apps/api/data/contracts/board.ck)
  */
-export interface CardSummary {
-    id: string;
-    title: string;
-    stage: string;
-    /** How the card ended, once it has. Absent for a card still on the board. */
-    doneReason?: 'merged' | 'poisoned' | 'dropped' | 'split';
+export interface MergeStatus {
+    state: 'clean' | 'conflict' | 'rereview' | 'capped' | 'unknown';
     /**
-     * Where an approved plan's scope check has got to. The card stays in planning for both, and moves
-     * to backlog when the check passes.
+     * The ref the answer was computed against: `main`, or `dry-run-integration` when a dry run would
+     * land there. Absent when the read failed before it got that far.
      */
-    planCheck?: 'checking' | 'refused';
-    planCheckReason?: string;
-    branch?: string;
+    target?: string;
     /**
-     * Card 0160. `WorktreeManager.resolveBranch`'s own answer — `branch` above when something
-     * recorded one, otherwise the same derivation from the card's title `branchName` computes.
-     * `branch` alone cannot answer "which branch is this card's work on" for most cards (card 0095),
-     * and re-deriving the fallback anywhere but `WorktreeManager` would risk drifting from it, so this
-     * is that single answer carried onto the wire rather than a second copy of its logic. Optional
-     * because only the reads `BoardService` itself serves (`list`, `getById`) compute it; a write
-     * response built through `BoardWriteService`/`PlanService`'s shared `toCardDetail` leaves it
-     * absent rather than guess.
+     * Paths `git merge-tree` could not resolve. Empty can still mean `conflict`: a conflict git reports
+     * without naming a path.
      */
-    resolvedBranch?: string;
-    dependsOn: string[];
-    /**
-     * Required, unlike the frontmatter's optional `needsHuman?`, so the web never has to write
-     * `?? false` — every card has an answer to "does this need a human", even if that answer is no.
-     */
-    needsHuman: boolean;
-    needsHumanReason?: string;
-    position?: number;
-    /**
-     * The card this one was split out of. Absent on every other card, including pieces split before
-     * the field existed, so absence does not prove a card has no origin.
-     */
-    splitFrom?: string;
-    /**
-     * Card 0178. The moment this card entered its current stage — the most recent
-     * `transition.written` event's timestamp, or its earliest recorded event if the card has never
-     * transitioned, mirroring `wilson card show`'s own `timeInCurrentStage` derivation
-     * (apps/api/src/modules/events/time.in.stage.ts, factored out as `stageEnteredAt` there).
-     * Populated only by the reads `BoardService` itself serves (`list`, `getById`), the same way
-     * `resolvedBranch` above is: a write response built through `BoardWriteService`/`PlanService`'s
-     * shared `toCardDetail` leaves it absent rather than guess. Also absent for a card whose fetched
-     * event history holds no events at all, or whose fetched window is full of events with no
-     * transition among them — a history that cannot answer the question either way, not the same
-     * fact as "just entered".
-     */
-    stageEnteredAt?: DateTime;
-}
-
-/** Rehydrates every wire-encoded scalar in a CardSummary into its runtime type. Mutates and returns `raw`. */
-export function reviveCardSummary(raw: CardSummary): CardSummary {
-    const __o0 = raw as unknown as Record<string, unknown>;
-    if (__o0['stageEnteredAt'] != null) {
-        __o0['stageEnteredAt'] = __dt(__o0['stageEnteredAt'], 'CardSummary.stageEnteredAt');
-    }
-    return raw;
+    conflicts: string[];
+    /** Paths both the card and the target changed since they forked: what sends a merge back to review. */
+    movedUnder: string[];
+    reason?: string;
 }
 
 /**
@@ -529,22 +487,76 @@ export interface HumanFinding {
 }
 
 /**
- * generated from [CardDetail](../../../../apps/api/data/contracts/board.ck)
+ * Card 0091. Orders the parking lot; `list`'s `position, id` ordering (PostgresBoardRepository)
+ * sorts a card with one ahead of every card without. Absent for a card nothing has ever dragged —
+ * including every card that predates this, since there is no migration to back-fill it — and such a
+ * card sorts by `id` among the others like it, not at either end of the column. Meaningless outside
+ * `parking-lot`: no other stage's order is an operator's to set (POST .../reposition refuses it).
+ * generated from [CardSummary](../../../../apps/api/data/contracts/board.ck)
  */
-export interface CardDetail extends CardSummary {
-    body: string;
-    sections: Record<string, string>;
+export interface CardSummary {
+    id: string;
+    title: string;
+    stage: string;
+    /** How the card ended, once it has. Absent for a card still on the board. */
+    doneReason?: 'merged' | 'poisoned' | 'dropped' | 'split';
     /**
-     * The cards split out of this one, lowest id first. Populated only by `BoardService.getById`, the
-     * same way `resolvedBranch` is: a write response built through the shared `toCardDetail` leaves it
-     * absent rather than guess. Empty, from `getById`, on a card that was never split.
+     * Where an approved plan's scope check has got to. The card stays in planning for both, and moves
+     * to backlog when the check passes.
      */
-    pieces?: SplitPieceSummary[];
+    planCheck?: 'checking' | 'refused';
+    planCheckReason?: string;
+    branch?: string;
+    /**
+     * Card 0160. `WorktreeManager.resolveBranch`'s own answer — `branch` above when something
+     * recorded one, otherwise the same derivation from the card's title `branchName` computes.
+     * `branch` alone cannot answer "which branch is this card's work on" for most cards (card 0095),
+     * and re-deriving the fallback anywhere but `WorktreeManager` would risk drifting from it, so this
+     * is that single answer carried onto the wire rather than a second copy of its logic. Optional
+     * because only the reads `BoardService` itself serves (`list`, `getById`) compute it; a write
+     * response built through `BoardWriteService`/`PlanService`'s shared `toCardDetail` leaves it
+     * absent rather than guess.
+     */
+    resolvedBranch?: string;
+    dependsOn: string[];
+    /**
+     * Required, unlike the frontmatter's optional `needsHuman?`, so the web never has to write
+     * `?? false` — every card has an answer to "does this need a human", even if that answer is no.
+     */
+    needsHuman: boolean;
+    needsHumanReason?: string;
+    position?: number;
+    /**
+     * The card this one was split out of. Absent on every other card, including pieces split before
+     * the field existed, so absence does not prove a card has no origin.
+     */
+    splitFrom?: string;
+    /**
+     * Card 0178. The moment this card entered its current stage — the most recent
+     * `transition.written` event's timestamp, or its earliest recorded event if the card has never
+     * transitioned, mirroring `wilson card show`'s own `timeInCurrentStage` derivation
+     * (apps/api/src/modules/events/time.in.stage.ts, factored out as `stageEnteredAt` there).
+     * Populated only by the reads `BoardService` itself serves (`list`, `getById`), the same way
+     * `resolvedBranch` above is: a write response built through `BoardWriteService`/`PlanService`'s
+     * shared `toCardDetail` leaves it absent rather than guess. Also absent for a card whose fetched
+     * event history holds no events at all, or whose fetched window is full of events with no
+     * transition among them — a history that cannot answer the question either way, not the same
+     * fact as "just entered".
+     */
+    stageEnteredAt?: DateTime;
+    /**
+     * Populated only for a card in `ready`, and only by the reads `BoardService` itself serves (`list`,
+     * `getById`), the same way `resolvedBranch` is. A write response leaves it absent rather than guess.
+     */
+    mergeStatus?: MergeStatus;
 }
 
-/** Rehydrates every wire-encoded scalar in a CardDetail into its runtime type. Mutates and returns `raw`. */
-export function reviveCardDetail(raw: CardDetail): CardDetail {
-    reviveCardSummary(raw as never);
+/** Rehydrates every wire-encoded scalar in a CardSummary into its runtime type. Mutates and returns `raw`. */
+export function reviveCardSummary(raw: CardSummary): CardSummary {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    if (__o0['stageEnteredAt'] != null) {
+        __o0['stageEnteredAt'] = __dt(__o0['stageEnteredAt'], 'CardSummary.stageEnteredAt');
+    }
     return raw;
 }
 
@@ -719,6 +731,53 @@ export interface RecordFindingsRequest {
 }
 
 /**
+ * generated from [CardDetail](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface CardDetail extends CardSummary {
+    body: string;
+    sections: Record<string, string>;
+    /**
+     * The cards split out of this one, lowest id first. Populated only by `BoardService.getById`, the
+     * same way `resolvedBranch` is: a write response built through the shared `toCardDetail` leaves it
+     * absent rather than guess. Empty, from `getById`, on a card that was never split.
+     */
+    pieces?: SplitPieceSummary[];
+}
+
+/** Rehydrates every wire-encoded scalar in a CardDetail into its runtime type. Mutates and returns `raw`. */
+export function reviveCardDetail(raw: CardDetail): CardDetail {
+    reviveCardSummary(raw as never);
+    return raw;
+}
+
+/**
+ * `GET /api/stats`'s response: what a project spent and how its stages went, read from
+ * `EventLog.projectStats`. Tokens only, for the reason `CardUsage` gives. `topCards` is the ten cards
+ * that wrote the most output tokens, the figure the daily ceiling is held to, since a cached input
+ * total says little about what a run cost. Planning and review turns are not stage events, so only
+ * `conversations` includes them: one row for each kind, always in that order, at zero when there are none.
+ * generated from [ProjectStats](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectStats {
+    since: DateTime;
+    until: DateTime;
+    zone: string;
+    total: ProjectStatsTotal;
+    stages: ProjectStageStats[];
+    days: ProjectDayStats[];
+    topCards: ProjectCardStats[];
+    conversations: ProjectConversationStats[];
+}
+
+/** Rehydrates every wire-encoded scalar in a ProjectStats into its runtime type. Mutates and returns `raw`. */
+export function reviveProjectStats(raw: ProjectStats): ProjectStats {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['since'] = __dt(__o0['since'], 'ProjectStats.since');
+    __o0['until'] = __dt(__o0['until'], 'ProjectStats.until');
+    return raw;
+}
+
+/**
  * `BoardWriteService.release`'s response (card 0087): the card, plus which of the two safe-to-cancel
  * cases it took. `queued` is a job in `created` or `retry` — by definition nothing has picked it up,
  * so cancelling it cannot interrupt anything. `orphan` is a job the broker still shows `active` but
@@ -784,32 +843,5 @@ export function reviveSplitResult(raw: SplitResult): SplitResult {
             reviveCardDetail(__a1[__i2] as never);
         }
     }
-    return raw;
-}
-
-/**
- * `GET /api/stats`'s response: what a project spent and how its stages went, read from
- * `EventLog.projectStats`. Tokens only, for the reason `CardUsage` gives. `topCards` is the ten cards
- * that wrote the most output tokens, the figure the daily ceiling is held to, since a cached input
- * total says little about what a run cost. Planning and review turns are not stage events, so only
- * `conversations` includes them: one row for each kind, always in that order, at zero when there are none.
- * generated from [ProjectStats](../../../../apps/api/data/contracts/board.ck)
- */
-export interface ProjectStats {
-    since: DateTime;
-    until: DateTime;
-    zone: string;
-    total: ProjectStatsTotal;
-    stages: ProjectStageStats[];
-    days: ProjectDayStats[];
-    topCards: ProjectCardStats[];
-    conversations: ProjectConversationStats[];
-}
-
-/** Rehydrates every wire-encoded scalar in a ProjectStats into its runtime type. Mutates and returns `raw`. */
-export function reviveProjectStats(raw: ProjectStats): ProjectStats {
-    const __o0 = raw as unknown as Record<string, unknown>;
-    __o0['since'] = __dt(__o0['since'], 'ProjectStats.since');
-    __o0['until'] = __dt(__o0['until'], 'ProjectStats.until');
     return raw;
 }

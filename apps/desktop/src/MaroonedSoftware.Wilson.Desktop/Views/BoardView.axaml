@@ -71,6 +71,7 @@
                                                         <TextBlock Text="{Binding Blocked}" Foreground="{DynamicResource Caution}" FontSize="12" TextWrapping="Wrap" IsVisible="{Binding Blocked, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                                         <TextBlock Classes="quiet" Text="{Binding Deps}" IsVisible="{Binding Deps, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                                         <TextBlock Classes="quiet" Text="{Binding PlanCheck}" TextWrapping="Wrap" IsVisible="{Binding PlanCheck, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                        <TextBlock Classes="quiet" Classes.error="{Binding MergeStatusWarns}" Text="{Binding MergeStatus}" TextWrapping="Wrap" IsVisible="{Binding MergeStatus, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                                         <TextBlock Classes="quiet" Text="{Binding Ended}" IsVisible="{Binding Ended, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                                         <TextBlock Classes="quiet" Text="{Binding Pieces}" IsVisible="{Binding Pieces, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                                         <TextBlock Classes="quiet" Text="{Binding InStage}" IsVisible="{Binding InStage, Converter={x:Static ObjectConverters.IsNotNull}}" />

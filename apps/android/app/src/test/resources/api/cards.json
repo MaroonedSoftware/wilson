@@ -14,5 +14,14 @@
         "dependsOn": [],
         "needsHuman": false,
         "resolvedBranch": "card/0002-a-card-from-the-capture"
+    },
+    {
+        "id": "0004",
+        "title": "A card from the capture",
+        "stage": "ready",
+        "dependsOn": [],
+        "needsHuman": false,
+        "resolvedBranch": "card/0004-a-card-from-the-capture",
+        "mergeStatus": { "state": "rereview", "target": "main", "conflicts": ["a.txt"], "movedUnder": ["a.txt"] }
     }
 ]

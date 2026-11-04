@@ -147,6 +147,28 @@ afterEach(() => {
     notifications.clean();
 });
 
+describe('the merge status', () => {
+    it('shows a conflict with its paths beside the Merge button, before anyone presses it', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(
+            card('ready', { mergeStatus: { state: 'conflict', target: 'main', conflicts: ['a.ts', 'b.ts'], movedUnder: [] } }),
+        );
+
+        renderApp(CARD_PATH);
+
+        expect(await screen.findByText('Conflicts with main: a.ts, b.ts')).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Merge' })).toBeTruthy();
+    });
+
+    it('shows nothing for a card without a status', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('ready'));
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        expect(screen.queryByText(/Merges cleanly|Conflicts with|back to review|Could not check/)).toBeNull();
+    });
+});
+
 describe('the move control', () => {
     it("offers the board's configured stages and non-stages, not a hard-coded list", async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));

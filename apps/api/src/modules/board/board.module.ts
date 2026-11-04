@@ -14,6 +14,7 @@ import { PostgresBoardRepository } from './postgres.board.repository.js';
 import { ProjectRepository, type ProjectRow } from './project.repository.js';
 import { BoardBootstrapService } from './board.bootstrap.service.js';
 import { BoardService } from './board.service.js';
+import { MergeStatusReader } from './merge.status.reader.js';
 import { BoardWriteService } from './board.write.service.js';
 import { PlanService } from '#modules/plan/plan.service.js';
 import { PlanLintService } from './plan.lint.service.js';
@@ -99,6 +100,8 @@ export const BoardModule: ServerKitModule = {
         registry.register(BoardRepository).useClass(PostgresBoardRepository).asTransient();
         registry.register(BoardBootstrapService).useClass(BoardBootstrapService).asTransient();
         registry.register(BoardService).useClass(BoardService).asTransient();
+        // A singleton because it holds the cache `BoardService`, transient, cannot.
+        registry.register(MergeStatusReader).useClass(MergeStatusReader).asSingleton();
         registry.register(BoardWriteService).useClass(BoardWriteService).asTransient();
         // Registered here rather than its own module: `modules.ts` is the module list, and adding a
         // one-line entry there for a single service is out of scope for card 0077 (see its plan).

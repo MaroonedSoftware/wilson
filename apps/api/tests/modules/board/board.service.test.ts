@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { DateTime } from 'luxon';
 import type { Logger } from '@maroonedsoftware/logger';
 import { BoardService } from '#modules/board/board.service.js';
+import type { MergeStatusReader } from '#modules/board/merge.status.reader.js';
 import { CardNotFoundError } from '#modules/board/postgres.board.repository.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
@@ -36,6 +37,52 @@ const noHistory = { tail: async () => [] } as unknown as EventLog;
  * repository itself already has its own Postgres-backed tests; nothing here re-tests persistence.
  */
 describe('BoardService', () => {
+    describe('mergeStatus', () => {
+        const status = { state: 'conflict', target: 'main', conflicts: ['a.txt'], movedUnder: [] } as const;
+        const read = vi.fn(async () => status);
+        const reader = { read } as unknown as MergeStatusReader;
+        const ready = card('0001', { stage: 'ready', branch: 'card/0001' });
+        const reviewing = card('0002', { stage: 'review', branch: 'card/0002' });
+        const boardRepository = {
+            list: async () => [ready, reviewing],
+            read: async (id: string) => (id === '0001' ? ready : reviewing),
+        } as unknown as BoardRepository;
+
+        it('reports it on a ready card, from list and from getById, for the branch Merge would use', async () => {
+            const service = new BoardService(boardRepository, noHistory, config, worktrees, reader);
+
+            expect((await service.list())[0]!.mergeStatus).toEqual(status);
+            expect((await service.getById('0001')).mergeStatus).toEqual(status);
+            expect(read).toHaveBeenCalledWith('card/0001', undefined);
+        });
+
+        it('passes on how many re-reviews the card has used', async () => {
+            read.mockClear();
+            const sentBack = card('0001', { stage: 'ready', branch: 'card/0001', retries: { 'review:re-review': 2 } });
+            const repository = { list: async () => [], read: async () => sentBack } as unknown as BoardRepository;
+
+            await new BoardService(repository, noHistory, config, worktrees, reader).getById('0001');
+
+            expect(read).toHaveBeenCalledWith('card/0001', 2);
+        });
+
+        it('leaves it off every other stage, without reading anything', async () => {
+            read.mockClear();
+            const service = new BoardService(boardRepository, noHistory, config, worktrees, reader);
+
+            expect((await service.getById('0002')).mergeStatus).toBeUndefined();
+            expect((await service.list())[1]!.mergeStatus).toBeUndefined();
+            expect(read).toHaveBeenCalledTimes(1);
+            expect(read).toHaveBeenCalledWith('card/0001', undefined);
+        });
+
+        it('leaves it off when the service was built without a reader', async () => {
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
+
+            expect((await service.getById('0001')).mergeStatus).toBeUndefined();
+        });
+    });
+
     describe('plan', () => {
         const sections = (criteria: string) => ({ Goal: 'the goal', 'Acceptance criteria': criteria });
         const serviceOver = (head: Card, pinned?: Card) =>

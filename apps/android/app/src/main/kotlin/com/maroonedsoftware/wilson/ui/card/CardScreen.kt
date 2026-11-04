@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -43,6 +44,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.maroonedsoftware.wilson.board.PARKING_LOT
+import com.maroonedsoftware.wilson.board.mergeStatusLine
+import com.maroonedsoftware.wilson.board.mergeStatusWarns
 import com.maroonedsoftware.wilson.board.planCheckLine
 import com.maroonedsoftware.wilson.sdk.models.CardDetail
 import com.maroonedsoftware.wilson.sdk.models.CardSummaryPlanCheck
@@ -104,6 +107,13 @@ private fun Header(card: CardDetail) {
         Text(card.title, style = MaterialTheme.typography.titleMedium)
         Text(card.stage + (card.branch?.let { "  ·  $it" } ?: ""), style = MaterialTheme.typography.bodySmall)
         planCheckLine(card.planCheck, card.planCheckReason)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        card.mergeStatus?.let {
+            Text(
+                mergeStatusLine(it),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (mergeStatusWarns(it)) MaterialTheme.colorScheme.error else Color.Unspecified,
+            )
+        }
         if (card.needsHuman) Text(card.needsHumanReason ?: "This card is flagged for a human.", color = MaterialTheme.colorScheme.error)
     }
 }

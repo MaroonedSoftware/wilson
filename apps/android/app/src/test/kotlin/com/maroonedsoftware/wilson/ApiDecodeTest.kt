@@ -5,6 +5,7 @@ import com.maroonedsoftware.wilson.sdk.models.BoardColumns
 import com.maroonedsoftware.wilson.sdk.models.CardDetail
 import com.maroonedsoftware.wilson.sdk.models.CardEvent
 import com.maroonedsoftware.wilson.sdk.models.CardSummary
+import com.maroonedsoftware.wilson.sdk.models.MergeStatusState
 import com.maroonedsoftware.wilson.sdk.models.CardUsage
 import com.maroonedsoftware.wilson.sdk.models.ChatThread
 import com.maroonedsoftware.wilson.sdk.models.ChatThreadDetail
@@ -44,6 +45,7 @@ class ApiDecodeTest {
         val columns: BoardColumns = decode("columns")
         assertTrue(columns.stages.isNotEmpty())
         assertTrue(decode<List<CardSummary>>("cards").isNotEmpty())
+        assertEquals(MergeStatusState.REREVIEW, decode<List<CardSummary>>("cards").last().mergeStatus?.state)
     }
 
     @Test

@@ -27,6 +27,9 @@ public class DecodeTests
     public void Cards() => Assert.NotEmpty(Read<List<CardSummary>>("cards.json"));
 
     [Fact]
+    public void AMergeStatus() => Assert.Equal(MergeStatusState.Rereview, Read<List<CardSummary>>("cards.json")[^1].MergeStatus?.State);
+
+    [Fact]
     public void Card() => Assert.NotEmpty(Read<CardDetail>("card.json").Id);
 
     [Fact]

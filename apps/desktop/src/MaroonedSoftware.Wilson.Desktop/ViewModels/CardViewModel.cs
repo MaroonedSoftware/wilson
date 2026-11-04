@@ -126,6 +126,8 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanPlan))]
     [NotifyPropertyChangedFor(nameof(PlanCheck))]
+    [NotifyPropertyChangedFor(nameof(MergeStatus))]
+    [NotifyPropertyChangedFor(nameof(MergeStatusWarns))]
     [NotifyPropertyChangedFor(nameof(CanSplit))]
     [NotifyPropertyChangedFor(nameof(SplitFrom))]
     private CardDetail? _card;
@@ -212,6 +214,10 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     public bool CanPlan => Card?.Stage is "planning" or BoardRules.ParkingLot;
 
     public string? PlanCheck => BoardRules.PlanCheck(Card?.PlanCheck, Card?.PlanCheckReason);
+
+    public string? MergeStatus => BoardRules.MergeStatusLine(Card?.MergeStatus);
+
+    public bool MergeStatusWarns => BoardRules.MergeStatusWarns(Card?.MergeStatus);
 
     public bool CanSplit => Card?.PlanCheck == CardSummaryPlanCheck.Refused;
 
