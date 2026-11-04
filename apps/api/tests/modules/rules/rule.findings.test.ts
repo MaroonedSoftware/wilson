@@ -39,8 +39,11 @@ describe('ruleFinding', () => {
     });
 
     it('makes a concern of a failure with no citation, naming a file the rule was about', () => {
-        const { file: _file, line: _line, ...uncited } = verdict();
-        expect(ruleFinding(uncited as RuleVerdict, lines)).toMatchObject({ severity: 'concern', kind: 'omission', file: 'src/a.ts' });
+        expect(ruleFinding(verdict({ file: undefined, line: undefined }), lines)).toMatchObject({
+            severity: 'concern',
+            kind: 'omission',
+            file: 'src/a.ts',
+        });
     });
 
     it.each([

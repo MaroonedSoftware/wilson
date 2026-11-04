@@ -55,7 +55,7 @@ These are settled. Challenge them only if you find a concrete blocker.
    through `StageConfigStore` and edited with `wilson stages set`, `instructions` and `route`;
    every change is a revision in `wilson.lane_revisions`, and the next dispatch reads it, no
    restart involved. Lanes rarely change shape, so adding or removing one takes a migration.
-8. **Agents cannot modify the machinery.** Stage config, stage prompts, and
+8. **Agents cannot modify the machinery.** Stage config, stage prompts, checked rules and
    everything under `.runner/` are human-write-only. What actually enforces that differs by
    path. The board is unreachable from a worktree by construction (decision 6) — there is no
    file there for any tool or command to reach, since board state is rows in Postgres, not
@@ -414,7 +414,7 @@ job is to add files nobody could have declared in advance.
 | backlog | manual | none | picked up by the poller | implementing |
 | implementing | agent | rw | build passes, diff non-empty, diff within scope | testing |
 | testing | agent | rw | suite green, test count non-decreasing, no new skips, no weakened tests, new tests fail against the pre-change tree | review |
-| review | agent | readonly | findings schema valid, every finding cites a file:line in the card's diff, severity in enum; a `revise` then has to survive the `challenge` step | ready |
+| review | agent | readonly | findings schema valid, every finding cites a file:line in the card's diff, severity in enum; rule judges' failures are merged in; a `revise` then has to survive the `challenge` step | ready |
 | ready | manual | none | human approval | merge, then `done` |
 | done | — | — | never dispatched | — |
 
@@ -606,6 +606,49 @@ failing to work it out writes "could not compute" and leaves the stage to run.
 All of it fits in `REVIEW_EVIDENCE_DEADLINE_MS` (4 minutes). That time is outside the stage's own wall
 clock and comes out of the ten minutes `CARD_STAGE_EXPIRES_IN` leaves around it. Steps of a review lane
 inherit its settings but get no evidence. `review.evidence` records the counts on the event log.
+
+### Checked rules
+
+Learnings are advice nothing checks. A **rule** is a statement a person says must hold, with the path
+globs it is about and a severity: `wilson.rules`, with every change in `wilson.rule_revisions`, written
+through `wilson rules add|edit|rm` or the web's rules page. Rules are machinery (decision 8), so every
+write needs step-up and none is offered through MCP. Planning and implementing read them beside the
+learnings, so work can meet them before anyone judges it.
+
+At review, beside the evidence, each rule whose globs match a changed path gets its own **judge**
+(`RuleJudge`): one fresh, tool-less model call, handed the rule, the plan and that rule's part of the
+diff (`git diff --no-renames`), at most three at a time. It shares nothing with the reviewer, so it
+cannot be argued out of a rule by the rest of the change or by what the reviewer concluded. The
+`rule-judge` setting (`wilson rules route`, or the rules page) names its engine and model, `api` or
+`cli`, apart from any lane's routing, so a review lane on `codex` still has judges.
+
+- **A failure with a real `file:line`** on a `blocker` rule is merged into the review's report as a
+  blocker before `ReviewVerifier` reads it, and forces `revise`. From there it is an ordinary blocker: it
+  goes through `challenge` and kickback like any other, and routing knows nothing about rules. A rule's
+  finding starts `Rule <id> failed:`, which keeps its text unique for the challenge's accounting.
+- **A failure with no citation that holds up**, or any failure of a `concern` rule, is a concern. A
+  citation is only believed if the file is one the judge was shown and the line is in it, so a judge's
+  bad citation can never get the review's report rejected. The cap of 20 findings drops the review's
+  concerns first, then the rules' concerns.
+- **No verdict** is `unavailable`: the engine failed after one retry, the deadline passed, or the
+  rule's diff is over `RULE_DIFF_MAX_CHARS`, since a judge reading part of a diff could pass a rule the
+  unread part breaks. It is advisory, never blocking, and says so on the plan.
+
+`wilson.rule_verdicts` holds every verdict, keyed by rule revision and diff hash, so a stage sent again
+over the same code makes no new calls. An `unavailable` is not reused, and a later answer replaces it.
+No rule matching leaves no trace at all. `rule.verdicts` records what was said on the event log with
+its `usage`, which counts against the card's budget and in its stats as the stage's, and as no attempt.
+All of this shares `REVIEW_PREPARATION_DEADLINE_MS` (5 minutes) with the evidence. Steps get no judges.
+
+`wilson rules check <branch>` asks the same judges about any branch's diff from its merge base, with
+nothing on the board moving, and exits 1 when a blocker rule fails. It writes verdicts, so a card over
+the same code gets them for free.
+
+A blocker that survives `challenge` and sends a card back can also become a **proposal**:
+`card.rule-proposal` asks a fresh model whether it points at a lasting rule, on the judges' route. A card
+gets one look however many kickbacks it takes, and most looks should find nothing. A proposal is
+`wilson.rule_proposals`, and is nothing until a person names and accepts it (`wilson rules accept`, or the
+rules page), behind step-up. It stops being offered after 45 days. Rule failures are never proposed from.
 
 ### Before the work: parking lot, planning, backlog
 

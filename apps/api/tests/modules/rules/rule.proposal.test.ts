@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Kysely } from 'kysely';
 import { DateTime } from 'luxon';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
