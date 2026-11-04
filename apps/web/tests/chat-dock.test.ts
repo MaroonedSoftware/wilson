@@ -317,7 +317,7 @@ describe('the chat dock', () => {
 
         expect(await screen.findByText('Move 0007 to implementing.')).toBeTruthy();
         expect(screen.getByText('move_card')).toBeTruthy();
-        expect(screen.getByText(/"stage":"implementing"/)).toBeTruthy();
+        expect(screen.getByText('implementing')).toBeTruthy();
         expect(decide).not.toHaveBeenCalled();
 
         fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
@@ -368,6 +368,31 @@ describe('the chat dock', () => {
         fireEvent.click(await screen.findByRole('button', { name: 'Decline' }));
 
         await waitFor(() => expect(decide).toHaveBeenCalledWith('31', { decision: 'decline' }));
+    });
+
+    it('shows a proposal as labelled fields, with what will really be sent one press away', async () => {
+        vi.spyOn(ChatClient.prototype, 'listChatThreads').mockResolvedValue([{ ...thread, title: 'Move it' }]);
+        vi.spyOn(ChatClient.prototype, 'getAChatThread').mockResolvedValue(
+            detail(
+                [message(1, 'user', 'Make a card')],
+                [action({ arguments: { body: { body: '## Goal\n\nRead **public** repos.', stage: 'parking-lot' } } })],
+                [],
+                'Move it',
+            ),
+        );
+        renderApp();
+        await openChat();
+        await openThread('Move it');
+
+        expect(await screen.findByText('parking-lot')).toBeTruthy();
+        expect(screen.getByText('Stage')).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Goal' })).toBeTruthy();
+        expect(screen.queryByText(/"stage"/)).toBeNull();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Show raw JSON' }));
+
+        expect(screen.getByText(/"stage": "parking-lot"/)).toBeTruthy();
+        expect(screen.queryByRole('heading', { name: 'Goal' })).toBeNull();
     });
 
     it('offers no Confirm for a proposal that has expired, and shows how a failed one went', async () => {
