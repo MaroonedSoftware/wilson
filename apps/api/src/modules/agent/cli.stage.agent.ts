@@ -650,7 +650,10 @@ export class CliStageAgent extends StageAgent {
                 // through both is only credited/recorded once (see `createToolGuard`).
                 hooks: { PreToolUse: [{ hooks: [toolGuardHook(toolGuard)] }] },
                 canUseTool: toolGuard,
-                env: subscriptionEnv(configDir, hostAccount ? undefined : account?.token, account?.variable),
+                env: {
+                    ...subscriptionEnv(configDir, hostAccount ? undefined : account?.token, account?.variable),
+                    ...(stage.autoCompactWindow !== undefined && { CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(stage.autoCompactWindow) }),
+                },
                 // A worktree on another machine needs the engine there too: its built-in tools read
                 // and write the tree directly. The host starts `claude` from its own PATH, and the
                 // SDK's callbacks above still run here, over the same stdio. A host with no

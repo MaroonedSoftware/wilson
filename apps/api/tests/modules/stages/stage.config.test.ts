@@ -153,6 +153,60 @@ describe('StageConfigSchema maxContextWindowFraction', () => {
 });
 
 /**
+ * The engine compacts 33k below its window and `getContextUsage` rounds its percentage, so at the
+ * default 0.9 the guard fires first from a window of about 314k: a window there could only fail runs.
+ */
+describe('StageConfigSchema autoCompactWindow', () => {
+    it('has no default, leaving the window to the engine', () => {
+        expect(StageConfigSchema.parse(minimalStage).autoCompactWindow).toBeUndefined();
+    });
+
+    it('accepts a window that compacts before the context guard', () => {
+        expect(StageConfigSchema.parse({ ...minimalStage, autoCompactWindow: 140_000 }).autoCompactWindow).toBe(140_000);
+    });
+
+    it('draws the line at the default fraction’s crossover', () => {
+        expect(StageConfigSchema.safeParse({ ...minimalStage, autoCompactWindow: 314_000 }).success).toBe(true);
+        expect(() => StageConfigSchema.parse({ ...minimalStage, autoCompactWindow: 315_000 })).toThrow(/stops the run first/);
+    });
+
+    it('accepts a large window once the fraction leaves it room', () => {
+        expect(StageConfigSchema.safeParse({ ...minimalStage, autoCompactWindow: 500_000, maxContextWindowFraction: 0.99 }).success).toBe(true);
+    });
+
+    it('rejects a fraction that a small window’s compaction can never get ahead of', () => {
+        expect(() => StageConfigSchema.parse({ ...minimalStage, autoCompactWindow: 140_000, maxContextWindowFraction: 0.7 })).toThrow(
+            /stops the run first/,
+        );
+    });
+
+    it('rejects a window outside what the engine honours', () => {
+        expect(() => StageConfigSchema.parse({ ...minimalStage, autoCompactWindow: 99_999 })).toThrow();
+        expect(() => StageConfigSchema.parse({ ...minimalStage, autoCompactWindow: 1_000_001 })).toThrow();
+    });
+
+    it('checks a step’s own window against the lane’s fraction', () => {
+        const step = { name: 'fix', on: 'revise', instructions: 'fix it', autoCompactWindow: 500_000 };
+        const parsed = StageConfigSchema.safeParse({ ...minimalStage, steps: [step] });
+
+        expect(parsed.success).toBe(false);
+        expect(parsed.error?.issues[0]?.path).toEqual(['steps', 0, 'autoCompactWindow']);
+    });
+
+    it('hands a step the lane’s window unless it names its own', () => {
+        const lane = { ...minimalStage, name: 'lane', autoCompactWindow: 140_000 };
+        const steps = [
+            { name: 'inherits', on: 'revise', instructions: 'a' },
+            { name: 'overrides', on: 'approve', instructions: 'b', autoCompactWindow: 200_000 },
+        ];
+        const stages = ProjectStagesSchema.parse({ stages: [{ ...lane, steps }] });
+
+        expect(findStage(stages, 'lane', 'inherits').autoCompactWindow).toBe(140_000);
+        expect(findStage(stages, 'lane', 'overrides').autoCompactWindow).toBe(200_000);
+    });
+});
+
+/**
  * Card 0018 added `maxCardInputTokens`: a ceiling on everything a card has ever spent, across every
  * stage and every attempt — distinct from `maxInputTokens`, which bounds one run. Absent config must
  * mean unbounded, exactly as every other budget field here already behaves.

@@ -1327,6 +1327,10 @@ what is done, what is not, and what each remaining one is actually waiting on.
   over-budget card never reaches a model. Input caps are cost-weighted: fresh input
   at 1, cache reads at 0.1, cache writes at 1.25 (`budgetedInputTokens`), mirroring API
   pricing. Stats show raw tokens, so a stage's figure there is not what its cap saw.
+- **Engine compaction.** A lane's optional `autoCompactWindow` sets the window the `cli`
+  engine compacts against, at about that window minus 33k. Unset leaves it to the engine.
+  Stage config refuses a window `maxContextWindowFraction` would stop first, from about
+  315k at 0.9. Each compaction is a `stage.compacted` event.
 - **Worktree GC.** `reclaimIfTerminal` on a terminal transition; `preserveUncommitted`
   keeps a failed attempt's work as a patch first.
 - **Planning, and the interactive planning surface.** The `planning` stage, the
