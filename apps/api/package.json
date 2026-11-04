@@ -54,6 +54,7 @@
         "picomatch": "^4.0.5",
         "rate-limiter-flexible": "^11.2.0",
         "reflect-metadata": "^0.2.2",
+        "typescript": "^6.0.3",
         "ws": "^8.21.3",
         "yaml": "^2.9.0",
         "zod": "^4.6.7"

@@ -413,10 +413,18 @@ job is to add files nobody could have declared in advance.
 | planning | manual | none | a person approves, then the `scope-check` step passes | backlog |
 | backlog | manual | none | picked up by the poller | implementing |
 | implementing | agent | rw | build passes, diff non-empty, diff within scope | testing |
-| testing | agent | rw | suite green, test count non-decreasing, no new skips, new tests fail against the pre-change tree | review |
+| testing | agent | rw | suite green, test count non-decreasing, no new skips, no weakened tests, new tests fail against the pre-change tree | review |
 | review | agent | readonly | findings schema valid, every finding cites a file:line in the card's diff, severity in enum; a `revise` then has to survive the `challenge` step | ready |
 | ready | manual | none | human approval | merge, then `done` |
 | done | — | — | never dispatched | — |
+
+"No weakened tests" reads the AST of the card's changed TS/JS test files on both sides, and fails on
+a net drop in `expect(` and `expect*(` calls across the card, or on a new literal-against-literal
+tautology such as `expect(true).toBe(true)`. Moving a test between files nets to nothing. `.toBeTruthy()`
+and the like are not flagged. It does not depend on `baselineCheck`, and a lane can turn it off with
+`assertionCheck: false`. A card with a good reason declares it as a plan Constraint,
+`Expected assertion drop: N (reason)`, whose `N` covers drops and new tautologies together; a stage's
+`caveats` do not count. Other languages' test files are not read.
 
 A lane can hold **steps**: runs of their own, with their own prompt, verifier and budgets, on the
 lane's provider, model and routes, with the card staying in the lane throughout. `planning` runs

@@ -1,10 +1,11 @@
 import { dirname, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
-import { expectedSkippedTests } from '#modules/board/card.js';
+import { expectedAssertionDrop, expectedSkippedTests } from '#modules/board/card.js';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
+import { assertionDelta, isAssertionTestFile, type AssertionDelta, type LocatedAssertion } from './assertion.delta.js';
 import { pnpmStoreLock, runConfiguredCommand, type CommandFailure } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
 import { checkFormat, type StageVerifier, type VerificationInput, type VerificationOutcome } from './stage.verifier.js';
@@ -60,6 +61,47 @@ export const checkCounts = (counts: TestCounts, baseline: { total: number; skipp
             allowedSkipRise > 0
                 ? `the skipped-test count rose from ${baseline.skipped} to ${counts.skipped}, more than the ${allowedSkipRise} this plan declares`
                 : `the skipped-test count rose from ${baseline.skipped} to ${counts.skipped}: tests were skipped rather than fixed`,
+        );
+    }
+    return failures;
+};
+
+/** An assertion can be a whole object literal, and the attempt record keeps 200 characters of a line. */
+const MAX_ASSERTION_CHARS = 80;
+
+const describeAssertion = ({ text }: LocatedAssertion): string =>
+    text.length > MAX_ASSERTION_CHARS ? `${text.slice(0, MAX_ASSERTION_CHARS)}…` : text;
+
+/**
+ * Judge what a card did to its assertions: a net drop, or a new tautology. `allowedDrop` is a plan's
+ * declared ceiling (`expectedAssertionDrop`), and both spend it, since a tautology is an assertion
+ * that stopped asserting. So one assertion replaced by `expect(true).toBe(true)` uses one.
+ *
+ * Each failure opens with the file and the assertion. A retried stage keeps only the first line of a
+ * failure, cut at 200 characters (`append.attempts.ts`), so that is all it learns from this. How to
+ * declare a drop is left to the second line, because it is for whoever reads the board: the fix a
+ * retry should reach for is restoring the assertion.
+ */
+export const checkAssertionDelta = (delta: AssertionDelta, allowedDrop = 0): string[] => {
+    const drop = Math.max(0, delta.baseCount - delta.currentCount);
+    if (drop + delta.newTautologies.length <= allowedDrop) return [];
+
+    const overDeclared = allowedDrop > 0 ? `, more than the ${allowedDrop} this plan declares` : '';
+    const declare = "A plan Constraint `Expected assertion drop: N (reason)` allows a deliberate change; a stage's caveats do not.";
+    const failures: string[] = [];
+
+    const lost = delta.lost[0];
+    if (drop > 0 && lost) {
+        failures.push(
+            `${lost.path}:${lost.line} lost ${describeAssertion(lost)}: assertions fell from ${delta.baseCount} to ${delta.currentCount} across this card${overDeclared}\n${declare}`,
+        );
+    }
+
+    const [tautology, ...others] = delta.newTautologies;
+    if (tautology) {
+        const more = others.length > 0 ? ` and ${others.length} more` : '';
+        failures.push(
+            `${tautology.path}:${tautology.line} adds ${describeAssertion(tautology)}, which cannot fail${more}${overDeclared}\n${declare}`,
         );
     }
     return failures;
@@ -159,8 +201,8 @@ export const baselineRefusal = (testPaths: string[]): string =>
 
 /**
  * The testing stage's exit condition: the suite is green, the test count has not dropped, no new
- * tests were skipped, and — the baseline check — at least one new test fails against the pre-change
- * tree.
+ * tests were skipped, existing tests were not weakened, and — the baseline check — at least one new
+ * test fails against the pre-change tree.
  *
  * The first three are compared against counts from a second worktree cut from the card worktree's
  * own base, rather than from config, so "pre-change" always means what the card actually branched
@@ -200,6 +242,14 @@ export class TestingVerifier implements StageVerifier {
         // exactly how card 0032's unformatted test file reached main uncaught: nothing but a
         // by-hand repo-wide check ever ran prettier against a testing-stage diff.
         failures.push(...(await checkFormat(worktree, stage)));
+
+        // Apart from the baseline gate below: this reads two sides of some files and runs nothing, so
+        // whatever stops a baseline run from completing does not stop this.
+        if (stage.assertionCheck) {
+            failures.push(...(await this.checkAssertions(worktree, expectedAssertionDrop(card) ?? 0)));
+        } else {
+            this.logger.warn('assertionCheck disabled: weakened tests were not looked for');
+        }
 
         if (!changedPaths.some(path => TEST_FILE_PATTERN.test(path))) {
             failures.push('the diff contains no file matching *.test.ts: the testing stage added no tests');
@@ -366,6 +416,30 @@ export class TestingVerifier implements StageVerifier {
      */
     private async newTestPaths(worktree: Worktree): Promise<string[]> {
         return (await this.worktrees.addedPaths(worktree)).filter(path => TEST_FILE_PATTERN.test(path));
+    }
+
+    /**
+     * Compare the card's test files with their base, so that `expect(true).toBe(true)` in place of a
+     * real assertion is caught even though the test count and a green suite both say nothing changed.
+     *
+     * Reads through `WorktreeManager`, whose diff does not pair renames, so a renamed and gutted test
+     * file is one loss and not a new file with nothing to compare. A check that could not read its
+     * inputs fails rather than passing, as `readReport` does.
+     */
+    private async checkAssertions(worktree: Worktree, allowedDrop: number): Promise<string[]> {
+        try {
+            const changes = (await this.worktrees.pathChanges(worktree)).filter(change => isAssertionTestFile(change.path));
+            const files = await Promise.all(
+                changes.map(async ({ path, status }) => ({
+                    path,
+                    base: status === 'added' ? undefined : await this.worktrees.readAtBase(worktree, path),
+                    current: status === 'deleted' ? undefined : await this.worktrees.readCurrent(worktree, path),
+                })),
+            );
+            return checkAssertionDelta(assertionDelta(files), allowedDrop);
+        } catch (err) {
+            return [`the assertion check could not read this card's test files: ${(err as Error).message}`];
+        }
     }
 
     /**

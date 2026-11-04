@@ -8,9 +8,17 @@ import type { StageConfig } from '#modules/stages/stage.config.js';
  */
 export const stageDefaults: Pick<
     StageConfig,
-    'adapter' | 'placement' | 'sandboxAllowedDomains' | 'maxInputTokens' | 'maxContextWindowFraction' | 'maxWallClockMs' | 'maxIdleMs'
+    | 'adapter'
+    | 'assertionCheck'
+    | 'placement'
+    | 'sandboxAllowedDomains'
+    | 'maxInputTokens'
+    | 'maxContextWindowFraction'
+    | 'maxWallClockMs'
+    | 'maxIdleMs'
 > = {
     adapter: 'api',
+    assertionCheck: true,
     placement: 'local',
     sandboxAllowedDomains: [],
     maxInputTokens: 15_000_000,

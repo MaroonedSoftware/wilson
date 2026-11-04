@@ -205,6 +205,13 @@ export const StageConfigSchema = z
          * saving time (PROJECT.md decision on exit conditions that can be satisfied by doing less work).
          */
         baselineCheck: z.boolean().default(true),
+        /**
+         * Whether the testing verifier compares a card's TS/JS test files with their base, failing a
+         * net drop in assertions or a new `expect(true).toBe(true)`. Needs no baseline run, so it does
+         * not go off with `baselineCheck`. A card with a good reason declares it in its plan
+         * (`Expected assertion drop: N (reason)`) rather than a lane turning this off.
+         */
+        assertionCheck: z.boolean().default(true),
         /** Name of the registered verifier to run at the exit condition. Defaults to the stage's own name. */
         verifier: z.string().optional(),
         maxSteps: z.number().int().min(1).default(60),

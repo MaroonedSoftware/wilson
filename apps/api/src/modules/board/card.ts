@@ -284,6 +284,32 @@ export const expectedSkippedTests = (card: Card): number | undefined => {
     return undefined;
 };
 
+/** An `Expected assertion drop: N (reason)` bullet, matched case-insensitively. The reason is required. */
+const EXPECTED_ASSERTION_DROP = /^Expected assertion drop:\s*(\d+)\s*\(\s*[^\s)]/i;
+
+/**
+ * The plan's declared ceiling on how many assertions a card may lose, from a `Constraints` bullet:
+ * `Expected assertion drop: N (reason)`. No declaration, `0`, anything that is not a number or a
+ * missing reason is `undefined`, which callers treat as no allowance. More than one declaration uses
+ * the first.
+ *
+ * Unlike `expectedSkippedTests` the reason is not optional, because the reason is what a reviewer
+ * weighs. It comes from the plan and nowhere else: the stage's own `caveats` are the agent excusing
+ * its own work, and this check exists because that agent cannot be taken at its word.
+ */
+export const expectedAssertionDrop = (card: Card): number | undefined => {
+    const raw = card.sections['Constraints'];
+    if (!raw) return undefined;
+
+    for (const bullet of splitBullets(raw)) {
+        const match = EXPECTED_ASSERTION_DROP.exec(bullet);
+        if (!match) continue;
+        const n = Number(match[1]);
+        return n > 0 ? n : undefined;
+    }
+    return undefined;
+};
+
 export const acceptanceCriteria = (card: Card): { id: string; text: string }[] => {
     const raw = card.sections['Acceptance criteria'];
     if (!raw) return [];
