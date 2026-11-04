@@ -27,6 +27,7 @@ import { CardAttempts } from '#src/components/CardAttempts.js';
 import { CardContext } from '#src/components/CardContext.js';
 import { DependenciesSection, EditBodyControl, RenameControl } from '#src/components/CardEditControls.js';
 import { CriteriaPanel } from '#src/components/CriteriaPanel.js';
+import { RuleVerdictsPanel } from '#src/components/RuleVerdictsPanel.js';
 import { ReviewPane } from '#src/components/ReviewPane.js';
 import { DiffPane } from '#src/components/DiffPane.js';
 import { DraftPane } from '#src/components/DraftPane.js';
@@ -725,6 +726,8 @@ export function CardDetailView({
             )}
 
             {criteria.length > 0 && <CriteriaPanel criteria={criteria} events={events} />}
+
+            <RuleVerdictsPanel events={events} />
 
             {card.stage === 'planning' || card.stage === 'parking-lot' ? (
                 <PlanningPanes card={card} project={project} />
