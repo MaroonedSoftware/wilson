@@ -17,6 +17,8 @@ import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
 import { EngineAccountsService } from '#modules/host/engine.accounts.service.js';
 import { LearningsStore } from '#modules/learnings/learnings.store.js';
+import { withRulesGuidance } from '#modules/rules/rule.guidance.js';
+import { RuleStore } from '#modules/rules/rule.store.js';
 import type { DB } from '#modules/data/db.js';
 import { planFeed } from './plan.session.feed.js';
 import { planSessions } from './plan.session.registry.js';
@@ -86,7 +88,7 @@ export class PlanService {
     // card.
     //
     // `accounts` is the same again: left undefined, the engine signs in as it would with no
-    // token saved.
+    // token saved. So is `rules`: left undefined, a project has none.
     constructor(
         private readonly boardRepository: BoardRepository,
         private readonly boardConfig: BoardConfig,
@@ -96,6 +98,7 @@ export class PlanService {
         private readonly settings?: SettingsStore,
         private readonly learnings?: LearningsStore,
         private readonly accounts?: EngineAccountsService,
+        private readonly rules?: RuleStore,
     ) {
         this.planTurns = new PlanTurnRepository(this.boardConfig, this.db);
         this.planComments = new PlanCommentRepository(this.boardConfig, this.db);
@@ -233,7 +236,10 @@ export class PlanService {
         // turn resumes the same conversation, and the model's own context carries this forward from
         // there, the same way `session.instructions` itself is never resent past the first turn.
         // Loaded only when `isFirstTurn`, since a later turn's preamble is never used below anyway.
-        const learningsPreamble = isFirstTurn ? learningsBlock((await this.learnings?.load()) ?? '') : '';
+        // The project's checked rules go with them, so a plan can account for them.
+        const learningsPreamble = isFirstTurn
+            ? learningsBlock(withRulesGuidance((await this.learnings?.load()) ?? '', (await this.rules?.list()) ?? []))
+            : '';
 
         // "Has this conversation seen this snapshot yet" is answered by the snapshot ids earlier
         // turns recorded (`unseenSince`, below), and this turn records its own when it is appended.

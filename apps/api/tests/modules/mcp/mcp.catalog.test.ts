@@ -22,6 +22,7 @@ import { LearningsRouter } from '#src/routes/learnings.router.js';
 import { OnboardingRouter } from '#src/routes/onboarding.router.js';
 import { ProjectsRouter } from '#src/routes/projects.router.js';
 import { ReviewRouter } from '#src/routes/review.router.js';
+import { RulesRouter } from '#src/routes/rules.router.js';
 import { SettingsRouter } from '#src/routes/settings.router.js';
 import { StagesRouter } from '#src/routes/stages.router.js';
 
@@ -54,6 +55,7 @@ const ROUTERS = [
     OnboardingRouter,
     ProjectsRouter,
     ReviewRouter,
+    RulesRouter,
     SettingsRouter,
     StagesRouter,
 ];

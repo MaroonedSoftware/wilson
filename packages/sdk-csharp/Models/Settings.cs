@@ -215,6 +215,23 @@ public sealed record SetAutoSplitSettingRequest
 }
 
 /// <summary>
+/// Which engine and model judge a project's checked rules. Separate from every lane's routing so a review
+/// lane on any engine still has judges, since a judge needs only a one-shot model call. Behind step-up
+/// for the reason `rules.ck`'s writes are: who judges a rule is as much the gate as what it says.
+/// </summary>
+public sealed record RuleJudgeSetting
+{
+    [JsonPropertyName("engine")]
+    public required RuleJudgeSettingEngine Engine { get; init; }
+
+    [JsonPropertyName("provider")]
+    public required RuleJudgeSettingProvider Provider { get; init; }
+
+    [JsonPropertyName("model")]
+    public required string Model { get; init; }
+}
+
+/// <summary>
 /// Which engine new chat threads start on ('cli', the Claude Agent SDK on the operator's subscription,
 /// or 'api', the AI SDK against `provider`'s API key), and the model turns run on — see
 /// `chat.engine.setting.ts` for the default and why a thread keeps the engine it started on.
@@ -333,6 +350,123 @@ public sealed class EngineTokenSettingSourceConverter : JsonConverter<EngineToke
         EngineTokenSettingSource.Environment => "environment",
         EngineTokenSettingSource.None => "none",
         _ => throw new JsonException($"EngineTokenSettingSource.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(RuleJudgeSettingEngineConverter))]
+public enum RuleJudgeSettingEngine
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("api")]
+    Api,
+
+    [JsonStringEnumMemberName("cli")]
+    Cli,
+}
+
+/// <summary>
+/// Reads and writes <see cref="RuleJudgeSettingEngine"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="RuleJudgeSettingEngine.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class RuleJudgeSettingEngineConverter : JsonConverter<RuleJudgeSettingEngine>
+{
+    public override RuleJudgeSettingEngine Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for RuleJudgeSettingEngine, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, RuleJudgeSettingEngine value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override RuleJudgeSettingEngine ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, RuleJudgeSettingEngine value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static RuleJudgeSettingEngine FromWire(string? text) => text switch
+    {
+        "api" => RuleJudgeSettingEngine.Api,
+        "cli" => RuleJudgeSettingEngine.Cli,
+        _ => RuleJudgeSettingEngine.Unknown,
+    };
+
+    private static string ToWire(RuleJudgeSettingEngine value) => value switch
+    {
+        RuleJudgeSettingEngine.Api => "api",
+        RuleJudgeSettingEngine.Cli => "cli",
+        _ => throw new JsonException($"RuleJudgeSettingEngine.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(RuleJudgeSettingProviderConverter))]
+public enum RuleJudgeSettingProvider
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("anthropic")]
+    Anthropic,
+
+    [JsonStringEnumMemberName("openai")]
+    Openai,
+
+    [JsonStringEnumMemberName("xai")]
+    Xai,
+}
+
+/// <summary>
+/// Reads and writes <see cref="RuleJudgeSettingProvider"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="RuleJudgeSettingProvider.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class RuleJudgeSettingProviderConverter : JsonConverter<RuleJudgeSettingProvider>
+{
+    public override RuleJudgeSettingProvider Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for RuleJudgeSettingProvider, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, RuleJudgeSettingProvider value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override RuleJudgeSettingProvider ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, RuleJudgeSettingProvider value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static RuleJudgeSettingProvider FromWire(string? text) => text switch
+    {
+        "anthropic" => RuleJudgeSettingProvider.Anthropic,
+        "openai" => RuleJudgeSettingProvider.Openai,
+        "xai" => RuleJudgeSettingProvider.Xai,
+        _ => RuleJudgeSettingProvider.Unknown,
+    };
+
+    private static string ToWire(RuleJudgeSettingProvider value) => value switch
+    {
+        RuleJudgeSettingProvider.Anthropic => "anthropic",
+        RuleJudgeSettingProvider.Openai => "openai",
+        RuleJudgeSettingProvider.Xai => "xai",
+        _ => throw new JsonException($"RuleJudgeSettingProvider.{value} has no wire spelling, so it cannot be sent."),
     };
 }
 

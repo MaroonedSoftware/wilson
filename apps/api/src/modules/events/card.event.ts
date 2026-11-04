@@ -196,6 +196,16 @@ export type CardEventType =
     // adds or removes one through the API whatever stage the card is in.
     | 'attachment.added'
     | 'attachment.removed'
+    /**
+     * The rule judges looked at this card's diff before a review. Payload: `verdicts`, and `usage` when
+     * a call was made, which counts against the card's budget. Absent when no rule matched.
+     */
+    | 'rule.verdicts'
+    /**
+     * `RuleProposalJob` looked at a kickback's blockers for a rule. Payload: `proposal` when it drafted
+     * one, which waits on a person, `reason` when it did not, and `usage`.
+     */
+    | 'rule.proposed'
     /** `AutoSplitter` split this card on a supported refusal. Payload: `pieces` and the refusal's `reason`. */
     | 'card.auto-split'
     /** `AutoSplitter` declined a supported refusal, which then routed as usual. Payload: `reason`. */

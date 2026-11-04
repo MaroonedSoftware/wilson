@@ -21,6 +21,7 @@ import { RunningCards } from './running.cards.js';
 import { CardStageDeadJob } from './card.stage.dead.job.js';
 import { CardJobs, type ActiveCardStageJob } from './card.jobs.js';
 import { PlanDraftJob, PLAN_DRAFT_POLICY, PLAN_DRAFT_WORKER } from './plan.draft.job.js';
+import { RuleProposalJob, RULE_PROPOSAL_POLICY, RULE_PROPOSAL_WORKER } from './rule.proposal.job.js';
 import { PlanSessionSweep } from '#modules/plan/plan.session.sweep.js';
 import { Poller } from './poller.js';
 import { CARD_STAGE_CONCURRENCY_DEFAULT, POLLER_INTERVAL_MS_DEFAULT } from './job.runner.config.js';
@@ -34,7 +35,8 @@ import { CARD_STAGE_CONCURRENCY_DEFAULT, POLLER_INTERVAL_MS_DEFAULT } from './jo
  * the first attempt was still going, putting two agents in one worktree on one branch. The stage cap
  * is `MAX_STAGE_WALL_CLOCK_MS` and the schema enforces it; the difference is headroom for everything
  * a job does around the run itself: cutting the worktree, installing dependencies, computing review
- * evidence (`REVIEW_EVIDENCE_DEADLINE_MS`), verifying, and writing the transition.
+ * evidence and judging its rules (`REVIEW_PREPARATION_DEADLINE_MS`), verifying, and writing the
+ * transition.
  */
 export const CARD_STAGE_EXPIRES_IN = Duration.fromMillis(MAX_STAGE_WALL_CLOCK_MS).plus({ minutes: 10 });
 
@@ -565,12 +567,14 @@ export const JobsModule: ServerKitModule = {
         registerJobContext(registry);
         registry.register(CardStageDeadJob).useClass(CardStageDeadJob).asTransient();
         registry.register(PlanDraftJob).useClass(PlanDraftJob).asTransient();
+        registry.register(RuleProposalJob).useClass(RuleProposalJob).asTransient();
         registry.register(PlanSessionSweep).useClass(PlanSessionSweep).asTransient();
 
         const jobRegistry = new PgBossJobRegistryMap();
         jobRegistry.set('card.stage', { job: CardStageJob, policy: CARD_STAGE_POLICY, worker: CARD_STAGE_WORKER });
         jobRegistry.set('card.stage.dead', { job: CardStageDeadJob, policy: CARD_STAGE_DEAD_POLICY });
         jobRegistry.set('card.plan-draft', { job: PlanDraftJob, policy: PLAN_DRAFT_POLICY, worker: PLAN_DRAFT_WORKER });
+        jobRegistry.set('card.rule-proposal', { job: RuleProposalJob, policy: RULE_PROPOSAL_POLICY, worker: RULE_PROPOSAL_WORKER });
         registry.register(CardJobs).useClass(CardJobs).asTransient();
         registry.register(PgBossJobRegistryMap).useInstance(jobRegistry);
 
