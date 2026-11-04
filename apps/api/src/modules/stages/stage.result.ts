@@ -279,6 +279,12 @@ export interface StageOutcome {
      */
     resultDropped?: boolean;
     /**
+     * Set on a failing, `unjudged` outcome when the run was stopped for repeating the same tool call
+     * (`AgentRunOutput.loopFailure`). The one unjudged failure that writes an attempt bullet: the next
+     * attempt starts in a fresh session, and left unwarned it would be free to walk into the same loop.
+     */
+    loopStopped?: boolean;
+    /**
      * The engine's own account of why its last message ended, carried straight from
      * `AgentRunOutput.engineStopReason` (`stage.agent.ts`) — see that field's doc comment for exactly
      * what it can and cannot say. `StageDispatcher` puts this on `stage.failed` alongside `failures`

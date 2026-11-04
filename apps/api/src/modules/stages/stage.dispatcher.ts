@@ -725,6 +725,7 @@ export class StageDispatcher {
                               // `outcome.engineStopReason` is — a run whose `result` message never
                               // arrived, where the SDK told the adapter nothing to carry here.
                               ...(outcome.engineStopReason ? { engineStopReason: outcome.engineStopReason } : {}),
+                              ...(outcome.loopStopped ? { loopStopped: true } : {}),
                           }),
                 },
             });
@@ -865,10 +866,11 @@ export class StageDispatcher {
         // an engine that stopped responding, a missing or unparseable result) and `resultDropped` (the
         // stage did report and the transport lost it) are both infrastructure, not a statement about
         // the work — retrying repeats the same attempt, so there is nothing here worth telling the next
-        // attempt about. `decision.retries[stageName]` is safe to read unconditionally here: a judged
-        // failure is exactly the branch of `kickback` that sets it, to the attempt count this failure
-        // just reached.
-        const judgedFailure = !outcome.passed && !outcome.unjudged && !outcome.resultDropped;
+        // attempt about. A loop stop is the exception: it says nothing about the work either, but the
+        // retry starts in a fresh session and would walk into the same loop unless told how the last one
+        // ended. `decision.retries[stageName]` is safe to read unconditionally here: both are the branch
+        // of `kickback` that sets it, to the attempt count this failure just reached.
+        const earnsAttempt = !outcome.passed && !outcome.resultDropped && (!outcome.unjudged || Boolean(outcome.loopStopped));
         // `preserveUncommitted` (worktree.manager.ts) only ever writes a patch when the worktree is
         // actually dirty at reclaim time — a judged failure that left nothing uncommitted (the review
         // verifier's own "the card has an empty diff", the Goal's motivating example) has no patch to
@@ -877,7 +879,7 @@ export class StageDispatcher {
         // this stage has committed anything (only a pass commits, so a failing stage's branch never
         // moves between attempts) — so an empty list here means an empty `git status` there too, and a
         // non-empty one means the patch this bullet names will actually exist.
-        const attempt: Attempt | undefined = judgedFailure
+        const attempt: Attempt | undefined = earnsAttempt
             ? {
                   stage: stageName,
                   attempt: decision.retries[stageName] ?? 0,
@@ -911,9 +913,9 @@ export class StageDispatcher {
                     if (planCheck && current.frontmatter.planCheck !== 'checking') throw new CardMovedDuringRunError(current.frontmatter.stage);
 
                     // On a pass, the section this stage may have accumulated while it kept failing is
-                    // shed (the same "shed on pass" rule findings use); on a judged failure, one more
-                    // bullet joins whatever is already there; any other outcome (unjudged, resultDropped)
-                    // leaves the section exactly as it stands. An operator's answer sheds the same way:
+                    // shed (the same "shed on pass" rule findings use); on a judged failure or a loop stop,
+                    // one more bullet joins whatever is already there; any other outcome (unjudged,
+                    // resultDropped) leaves the section exactly as it stands. An operator's answer sheds the same way:
                     // it was for the stage that just passed.
                     const body = outcome.passed
                         ? withoutAnswers(withoutAttempts(current.body))
@@ -1454,6 +1456,24 @@ export class StageDispatcher {
                 blocked: run.blocked,
                 changedPaths: await this.worktrees.uncommittedPaths(worktree),
                 scopeGrants: scope.grants(),
+                usage: run.usage,
+                trace: run.trace,
+            };
+        }
+
+        // A loop stop skips the verifier too. The run never said it had finished, so the outcome is the
+        // same whatever a verifier finds, and testing's would run the whole suite to say so. Unjudged,
+        // so it retries here in a fresh session, and charged like any other failure, so the retries are
+        // bounded. Never `StageInterruptedError`, which charges nothing and could repeat without limit.
+        if (run.loopFailure) {
+            return {
+                passed: false,
+                failures: [run.loopFailure],
+                unjudged: true,
+                loopStopped: true,
+                changedPaths: await this.worktrees.uncommittedPaths(worktree),
+                scopeGrants: scope.grants(),
+                result: run.result,
                 usage: run.usage,
                 trace: run.trace,
             };

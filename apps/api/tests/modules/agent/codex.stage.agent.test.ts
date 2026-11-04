@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { CodexStageAgent, readOnlyCommand, unwrapShell } from '#modules/agent/codex.stage.agent.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
+import { REPEATED_CALL_LIMIT } from '#modules/agent/repeated.call.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { StageInterrupt } from '#modules/agent/stage.interrupt.js';
 import { localHost } from '#modules/host/local.execution.host.js';
@@ -389,6 +390,68 @@ describe('CodexStageAgent', () => {
 
             expect(answer?.result).toBeUndefined();
             expect(answer?.error).toBeDefined();
+        });
+    });
+
+    describe('a run repeating one call', () => {
+        /** A command the engine took to be read-only, so it never asks: all there is to see is its start. */
+        const started = (server: SimulatedCodexServer, id: string, command: string) =>
+            server.notify('item/started', { item: { type: 'commandExecution', id, command, status: 'inProgress' } });
+
+        it('stops at the limit and names the call, on commands that never ask', async () => {
+            const { output } = await run(
+                new SimulatedCodexServer(async server => {
+                    for (let call = 0; call < REPEATED_CALL_LIMIT; call++) started(server, `c${call}`, 'git status');
+                }),
+            );
+
+            expect(output.loopFailure).toContain(`same commandExecution call ${REPEATED_CALL_LIMIT} times`);
+            expect(output.loopFailure).toContain('git status');
+            expect(output.truncated).toBe(true);
+            expect(output.budgetFailure).toBeUndefined();
+            expect(output.engineFailure).toBeUndefined();
+        });
+
+        it('leaves re-running the tests after each accepted change alone', async () => {
+            const { output } = await run(
+                new SimulatedCodexServer(async server => {
+                    for (let round = 0; round < REPEATED_CALL_LIMIT * 2; round++) {
+                        await server.runCommand(`c${round}`, 'pnpm test');
+                        await server.changeFiles(`f${round}`, [{ path: join(root, 'src/a.ts'), diff: String(round) }]);
+                    }
+                    await report(server);
+                }),
+                { stageOver: { maxSteps: 500 } },
+            );
+
+            expect(output.loopFailure).toBeUndefined();
+            expect(output.result).toEqual({ summary: 'done' });
+        });
+
+        it('does not take a declined change for a write', async () => {
+            const { output } = await run(
+                new SimulatedCodexServer(async server => {
+                    for (let round = 0; round < REPEATED_CALL_LIMIT; round++) {
+                        await server.changeFiles(`f${round}`, [{ path: '/elsewhere/a.ts', diff: String(round) }]);
+                        await server.runCommand(`c${round}`, 'pnpm test');
+                    }
+                }),
+                { stageOver: { maxSteps: 500 } },
+            );
+
+            expect(output.loopFailure).toContain('pnpm test');
+        });
+
+        it('does not count the report tool', async () => {
+            const { output } = await run(
+                new SimulatedCodexServer(async server => {
+                    for (let call = 0; call < REPEATED_CALL_LIMIT - 1; call++) started(server, `c${call}`, 'git status');
+                    await report(server);
+                }),
+            );
+
+            expect(output.loopFailure).toBeUndefined();
+            expect(output.result).toEqual({ summary: 'done' });
         });
     });
 

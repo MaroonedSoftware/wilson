@@ -15,6 +15,7 @@ import {
 import { z } from 'zod';
 import type { EngineAccount, ExecutionHost } from '#modules/host/execution.host.js';
 import { UsageLimitWatch, type UsageLimit } from './usage.limit.js';
+import { RepeatedCallWatch, describeRepeatedCall } from './repeated.call.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
 import { EngineAccountsService, LOCAL_ACCOUNT } from '#modules/host/engine.accounts.service.js';
@@ -486,7 +487,7 @@ export class CliStageAgent extends StageAgent {
         // on a dead pipe cannot be asked to wake up, so the only reliable move is to stop waiting
         // for it. `abort()` still fires, for the engine's benefit when there is an engine left to
         // hear it, but nothing depends on it any more.
-        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | 'interrupted' | 'blocked' | undefined;
+        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | 'interrupted' | 'blocked' | 'loop' | undefined;
         // Set alongside `stoppedBecause === 'context'`, naming the cap and the usage the engine
         // reported at the moment it crossed — the one piece of information the generic
         // `stoppedBecause` tag cannot carry on its own, same reason `overBudget`'s message names
@@ -494,6 +495,11 @@ export class CliStageAgent extends StageAgent {
         let contextFailure: string | undefined;
         // The same, for `stoppedBecause === 'input-tokens'`.
         let inputTokenFailure: string | undefined;
+        // Fed from the stream rather than the guard, which the engine does not always consult (card
+        // 0248). `writeCalls` holds the writes still waiting on a `tool_result`, which is what says
+        // whether they succeeded.
+        const repeats = new RepeatedCallWatch();
+        const writeCalls = new Map<string, { tool: string; input: unknown }>();
         let stop!: () => void;
         const stopped = new Promise<typeof STOPPED>(resolve => {
             stop = () => resolve(STOPPED);
@@ -801,6 +807,16 @@ export class CliStageAgent extends StageAgent {
             ...traceField(),
         });
 
+        // Named here and not left to the branches below, whose last resort blames the wall clock.
+        const loopOutput = (): AgentRunOutput => ({
+            result: reported ?? (summary ? { summary } : undefined),
+            usage: usage ?? spentSoFar(),
+            truncated: true,
+            loopFailure: repeats.loop && describeRepeatedCall(repeats.loop),
+            ...droppedField(),
+            ...traceField(),
+        });
+
         // Only ever for a run with nothing reported: one that has reported has finished its work,
         // whatever state its account is left in. A failed write costs the next engine start a refusal.
         const limitedOutput = async (limit: UsageLimit): Promise<AgentRunOutput> => {
@@ -827,6 +843,7 @@ export class CliStageAgent extends StageAgent {
                 const next = await Promise.race([messages.next(), stopped]);
                 // Whichever side of that race won, and whatever the engine sent as it went down.
                 if (blocked) return blockedOutput(blocked);
+                if (stoppedBecause === 'loop') return loopOutput();
                 // The losing `messages.next()` is abandoned deliberately: it stays pending on a pipe
                 // that will never deliver, which is precisely the state being escaped.
                 if (next === STOPPED) {
@@ -913,6 +930,14 @@ export class CliStageAgent extends StageAgent {
                     // whose id `canUseTool` was never asked about can be named at the end of the run.
                     for (const part of message.message.content) {
                         if (part.type !== 'tool_use') continue;
+                        // Reporting and asking end the stage, so neither can be what it is stuck on.
+                        if (part.name !== qualifiedReportTool() && part.name !== qualifiedBlockedTool()) {
+                            const called = repeatedCallInput(part.name, part.input);
+                            repeats.observe(part.name, called);
+                            if (WRITE_TOOLS.includes(part.name) || part.name === qualifiedDeleteTool()) {
+                                writeCalls.set(part.id, { tool: part.name, input: called });
+                            }
+                        }
                         if (READ_TOOLS.includes(part.name)) {
                             const input = (part.input ?? {}) as { file_path?: string; path?: string };
                             reads.push(input.file_path ?? input.path);
@@ -958,6 +983,15 @@ export class CliStageAgent extends StageAgent {
                             stop();
                         }
                     }
+
+                    // After the usage above, so the turn that tripped this is charged. Not for a stage
+                    // that has reported or asked, which has already finished whatever it was repeating.
+                    if (repeats.loop && reported === undefined && !reportToolSeen && !blocked && !stoppedBecause) {
+                        stoppedBecause = 'loop';
+                        this.logger.warn(`cli stage stopped: ${describeRepeatedCall(repeats.loop)}`);
+                        abortController.abort();
+                        stop();
+                    }
                 }
                 if (message.type === 'user') {
                     // Card 0248: a `tool_result` here is the SDK's own evidence that the `tool_use`
@@ -968,7 +1002,10 @@ export class CliStageAgent extends StageAgent {
                     const content = message.message.content;
                     if (Array.isArray(content)) {
                         for (const part of content) {
-                            if (part.type === 'tool_result') completedToolUseIds.add(part.tool_use_id);
+                            if (part.type !== 'tool_result') continue;
+                            completedToolUseIds.add(part.tool_use_id);
+                            const write = writeCalls.get(part.tool_use_id);
+                            if (write && !part.is_error) repeats.wrote(write.tool, write.input);
                         }
                     }
                 }
@@ -1057,6 +1094,7 @@ export class CliStageAgent extends StageAgent {
             // process aborted by user"}` with nothing else to go on. `stoppedBecause` already knows
             // which of the runner's own controls fired, if any, independent of what the error says.
             if (blocked) return blockedOutput(blocked);
+            if (stoppedBecause === 'loop') return loopOutput();
             if (stoppedBecause === 'steps') {
                 return {
                     result: reported ?? (summary ? { summary } : undefined),
@@ -1281,6 +1319,16 @@ const parseReportedResult = (text: string, resultSchema: z.ZodTypeAny): { ok: tr
         return { ok: false, reason: `does not match this stage's result schema: ${validated.error.message}` };
     }
     return { ok: true, value: validated.data };
+};
+
+/**
+ * A call's input as `RepeatedCallWatch` should compare it. Bash's `description` is the model's prose
+ * about the command, free to change wording while the command it runs stays the same.
+ */
+const repeatedCallInput = (tool: string, input: unknown): unknown => {
+    if (!EXEC_TOOLS.includes(tool)) return input;
+    const { description: _description, ...rest } = (input ?? {}) as Record<string, unknown>;
+    return rest;
 };
 
 /** `2` -> `'2nd'`, `11` -> `'11th'`, `23` -> `'23rd'`. Used only to phrase the repeat count below. */

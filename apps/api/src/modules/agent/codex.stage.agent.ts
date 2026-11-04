@@ -11,6 +11,7 @@ import { createToolGuard, ENGINE_PASSED_THROUGH } from './cli.stage.agent.js';
 import { CodexConnection, type CodexExit, type CodexNotification, type CodexServerRequest } from './codex.connection.js';
 import { buildRunTrace, type RunTrace } from './run.trace.js';
 import { CodexLimitWatch, type UsageLimit } from './usage.limit.js';
+import { RepeatedCallWatch, describeRepeatedCall } from './repeated.call.js';
 import { REPORT_RESULT_PATH, SCRATCH_PREFIX } from './scope.guard.js';
 import { StageInterrupt } from './stage.interrupt.js';
 import { StageAgent, type AgentRunInput, type AgentRunOutput } from './stage.agent.js';
@@ -58,6 +59,13 @@ interface FileChange {
 }
 
 /** Every path a file change touches, including where an update moves a file to. */
+/** What makes one of this engine's tool items the same call as another, for `RepeatedCallWatch`. */
+const repeatedCallInput = (item: Record<string, unknown>): unknown => {
+    if (item.type === 'commandExecution') return { command: item.command, cwd: item.cwd };
+    if (item.type === 'fileChange') return item.changes;
+    return { tool: item.tool, arguments: item.arguments };
+};
+
 const changedPaths = (changes: FileChange[]): string[] => changes.flatMap(({ path, kind }) => (kind?.move_path ? [path, kind.move_path] : [path]));
 
 /** What only a command that writes or runs something else would say, whatever the engine parsed it as. */
@@ -190,7 +198,8 @@ export class CodexStageAgent extends StageAgent {
         const recording: Promise<unknown>[] = [];
 
         let stoppedBecause:
-            'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | 'interrupted' | 'reported' | 'blocked' | 'unasked' | undefined;
+            'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | 'interrupted' | 'reported' | 'blocked' | 'unasked' | 'loop' | undefined;
+        const repeats = new RepeatedCallWatch();
         let budgetFailure: string | undefined;
         // What `request_scope` threw under the `kickback` policy, for this method to throw in turn.
         let thrown: unknown;
@@ -381,11 +390,18 @@ export class CodexStageAgent extends StageAgent {
                 this.logger.warn(`codex stage reached its step budget of ${stage.maxSteps} (${denied} refused calls not charged)`);
                 stopFor('steps', stepsExceeded(stage.maxSteps, denied));
             }
+            // At the start, not on asking: a command this engine takes to be read-only may never ask.
+            repeats.observe(String(item.type), repeatedCallInput(item));
+            if (repeats.loop && !reportSeen) {
+                this.logger.warn(`codex stage stopped: ${describeRepeatedCall(repeats.loop)}`);
+                stopFor('loop', describeRepeatedCall(repeats.loop));
+            }
         };
 
         const itemCompleted = (item: Record<string, unknown>): void => {
             if (item.type === 'agentMessage' && typeof item.text === 'string' && item.text.trim()) summary = item.text.trim();
             if (!TOOL_ITEMS.has(String(item.type)) || item.type === 'dynamicToolCall' || item.status === 'declined') return;
+            if (item.type === 'fileChange' && item.status === 'completed') repeats.wrote(String(item.type), repeatedCallInput(item));
             // A patch can still change after it is approved, so what it ended up touching is compared too.
             const approved = approvedPaths.get(String(item.id));
             if (approved) {
@@ -591,7 +607,9 @@ export class CodexStageAgent extends StageAgent {
                         ? { engineFailure: `${engineSilent(stage.maxIdleMs)}${lastError ? ` — its last error: ${lastError}` : ''}` }
                         : stoppedBecause === 'unasked'
                           ? { engineFailure: budgetFailure }
-                          : { budgetFailure }),
+                          : stoppedBecause === 'loop'
+                            ? { loopFailure: budgetFailure }
+                            : { budgetFailure }),
                     ...dropped(),
                     ...trace(),
                 };
