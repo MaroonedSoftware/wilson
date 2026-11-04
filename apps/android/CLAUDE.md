@@ -62,5 +62,15 @@ skill, and say plainly what you did not run. Record what you find here, dated.
   rows into `wilson.chat_threads` and `wilson.chat_pending_actions` in `wilson_android`. Swipes in the list's
   side padding do nothing: it sits outside the scroller. A long value's box scrolls first, then hands the
   gesture on to the list, so Confirm is reachable even in landscape, where the box is taller than the list.
-- 2026-11-04: a confirmed action that fails leaves the card and the screen shows nothing, because only awaiting
-  actions are drawn. The action's `status` and `error` are right in the database; the web card shows them.
+- 2026-11-04: a confirmed action that failed used to leave the screen showing nothing, because only awaiting
+  actions were drawn. Every action now stays on its card with how it went, and an action follows the answer of
+  the turn that proposed it: it is stored mid-turn and the answer at the end, so sorting by time, as web does,
+  puts it above that answer. A real turn stored them 2.6 seconds apart in that order.
+- 2026-11-04: the local API can reach a real engine. Started with `preview_start` outside the sandbox it uses the
+  machine's Claude login, so confirming a seeded action starts a real follow-up turn that can answer and propose
+  another change a few seconds later. Read the screen again before tapping a position you found earlier. The
+  turn spends real usage, though what it proposes only runs if confirmed.
+- 2026-11-04: `verify.sh ui` leaves out any text containing a double quote, because the dump writes that attribute
+  in single quotes. A screenshot showed the failed action's error while `ui` did not list it.
+- 2026-11-04: the notification prompt comes back each time the activity is recreated, rotation included, until it
+  is refused twice, because `AskForPush` asks from a `LaunchedEffect`. It covers the screen, so dismiss it first.

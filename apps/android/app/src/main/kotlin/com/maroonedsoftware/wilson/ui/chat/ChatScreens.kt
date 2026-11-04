@@ -47,6 +47,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.maroonedsoftware.wilson.sdk.models.ChatMessageRole
 import com.maroonedsoftware.wilson.sdk.models.ChatPendingAction
+import com.maroonedsoftware.wilson.sdk.models.ChatPendingActionStatus
 import com.maroonedsoftware.wilson.sdk.models.DecideChatActionRequestDecision
 import com.maroonedsoftware.wilson.ui.Centered
 import com.maroonedsoftware.wilson.ui.Loading
@@ -103,13 +104,18 @@ fun ChatScreen(model: ChatModel, onBack: () -> Unit) {
         Column(Modifier.padding(padding).imePadding().fillMaxSize()) {
             val suggestions = state.messages.lastOrNull()?.suggestions.orEmpty().takeIf { !state.sending }.orEmpty()
             LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp), state = list, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(state.messages, key = { it.seq }) { message ->
-                    Text(if (message.role == ChatMessageRole.USER) "You" else "Wilson", style = MaterialTheme.typography.labelMedium)
-                    imagesCaption(message.attachments.orEmpty().size)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                    SelectionContainer { Text(message.content) }
-                    message.operations.forEach { Text("${if (it.ok) "✓" else "✗"} ${it.name}", style = MaterialTheme.typography.bodySmall) }
+                items(timeline(state.messages, state.actions), key = { it.key }) { entry ->
+                    when (entry) {
+                        is ChatEntry.Said -> {
+                            val message = entry.message
+                            Text(if (message.role == ChatMessageRole.USER) "You" else "Wilson", style = MaterialTheme.typography.labelMedium)
+                            imagesCaption(message.attachments.orEmpty().size)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            SelectionContainer { Text(message.content) }
+                            message.operations.forEach { Text("${if (it.ok) "✓" else "✗"} ${it.name}", style = MaterialTheme.typography.bodySmall) }
+                        }
+                        is ChatEntry.Proposal -> Proposed(entry.action, model)
+                    }
                 }
-                items(state.actions.filter { isAwaiting(it, model.now()) }, key = { it.id }) { action -> Proposed(action, model) }
                 state.sent?.let { item { Text("You", style = MaterialTheme.typography.labelMedium); Text(it) } }
                 draftWithoutSuggestions(state.draft).takeIf { it.isNotEmpty() }?.let { item { Text(it) } }
             }
@@ -133,15 +139,23 @@ private val LABEL_WIDTH = 96.dp
 /**
  * A change the chat wants to make. Nothing happens until it is confirmed here, and Confirm runs exactly
  * the operation and arguments shown, so every argument is on the card and the arguments as they will
- * really be sent are one press away.
+ * really be sent are one press away. Once decided or expired it stays in the conversation, saying how it
+ * went, because that is the only record on this screen of whether the change happened.
  */
 @Composable
 private fun Proposed(action: ChatPendingAction, model: ChatModel) {
     var raw by rememberSaveable(action.id) { mutableStateOf(false) }
     val fields = remember(action.arguments) { actionFields(action.arguments) }
+    val outcome = actionOutcome(action, model.now())
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(action.summary)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(action.summary, modifier = Modifier.weight(1f))
+                outcome?.let {
+                    val color = if (action.status == ChatPendingActionStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                    Text(it, style = MaterialTheme.typography.labelMedium, color = color)
+                }
+            }
             Text("Runs ${action.operation}${action.project?.let { " in $it" }.orEmpty()} as you.", style = MaterialTheme.typography.bodySmall)
             SelectionContainer {
                 if (raw) LongValue(prettyArguments(action.arguments), ChatFieldKind.JSON) else Fields(fields)
@@ -149,9 +163,14 @@ private fun Proposed(action: ChatPendingAction, model: ChatModel) {
             if (fields.isNotEmpty()) {
                 TextButton(onClick = { raw = !raw }) { Text(if (raw) "Show fields" else "Show raw JSON") }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { model.decide(action.id, DecideChatActionRequestDecision.CONFIRM) }) { Text("Confirm") }
-                OutlinedButton(onClick = { model.decide(action.id, DecideChatActionRequestDecision.DECLINE) }) { Text("Decline") }
+            if (outcome == null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { model.decide(action.id, DecideChatActionRequestDecision.CONFIRM) }) { Text("Confirm") }
+                    OutlinedButton(onClick = { model.decide(action.id, DecideChatActionRequestDecision.DECLINE) }) { Text("Decline") }
+                }
+            }
+            action.error?.let { error ->
+                SelectionContainer { Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             }
         }
     }
