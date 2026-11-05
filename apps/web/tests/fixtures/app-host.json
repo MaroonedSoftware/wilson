@@ -1,0 +1,35 @@
+{
+    "contentSecurityPolicy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; media-src data:; worker-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; webrtc 'block'",
+    "sandbox": "allow-scripts",
+    "connectMessage": "wilson.connect",
+    "maxRequestsInFlight": 16,
+    "methods": [
+        {
+            "name": "listCards",
+            "grant": "board.read"
+        },
+        {
+            "name": "getCard",
+            "grant": "board.read"
+        },
+        {
+            "name": "listBoardColumns",
+            "grant": "board.read"
+        },
+        {
+            "name": "listProjectActivity",
+            "grant": "activity.read"
+        },
+        {
+            "name": "getProjectStats",
+            "grant": "stats.read"
+        }
+    ],
+    "html": "<!doctype html><title>Sample</title><script>wilson.listCards()</script>",
+    "context": {
+        "project": "de\"mo</script>",
+        "grants": ["board.read", "stats.read"],
+        "colorScheme": "dark"
+    },
+    "document": "<!doctype html><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; media-src data:; worker-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; webrtc 'block'\"><script>(() => {\nconst names = [\"listCards\",\"getCard\",\"listBoardColumns\",\"listProjectActivity\",\"getProjectStats\"];\nconst waiting = new Map();\nconst early = [];\nconst changeListeners = new Set();\nconst schemeListeners = new Set();\nlet colorScheme = \"dark\";\nlet port;\nlet next = 0;\nconst listen = listeners => listener => {\n    listeners.add(listener);\n    return () => listeners.delete(listener);\n};\nconst applyScheme = () => {\n    document.documentElement.style.colorScheme = colorScheme;\n};\napplyScheme();\naddEventListener('message', event => {\n    if (port || event.source !== parent || event.data !== \"wilson.connect\" || !event.ports[0]) return;\n    port = event.ports[0];\n    port.onmessage = ({ data }) => {\n        if (data.event === 'change') {\n            for (const listener of [...changeListeners]) listener();\n            return;\n        }\n        if (data.event === 'colorScheme') {\n            if (data.colorScheme === colorScheme) return;\n            colorScheme = data.colorScheme;\n            applyScheme();\n            for (const listener of [...schemeListeners]) listener(colorScheme);\n            return;\n        }\n        const call = waiting.get(data.id);\n        if (!call) return;\n        waiting.delete(data.id);\n        if (data.ok) call.resolve(data.result);\n        else call.reject(new Error(data.error));\n    };\n    for (const request of early.splice(0)) port.postMessage(request);\n});\nconst method = name => (...args) =>\n    new Promise((resolve, reject) => {\n        const id = ++next;\n        waiting.set(id, { resolve, reject });\n        if (port) port.postMessage({ id, method: name, args });\n        else early.push({ id, method: name, args });\n    });\nwindow.wilson = Object.freeze({\n    project: \"de\\\"mo\\u003c/script>\",\n    grants: Object.freeze([\"board.read\",\"stats.read\"]),\n    get colorScheme() {\n        return colorScheme;\n    },\n    onChange: listen(changeListeners),\n    onColorSchemeChange: listen(schemeListeners),\n    ...Object.fromEntries(names.map(name => [name, method(name)])),\n});\n})();</script><!doctype html><title>Sample</title><script>wilson.listCards()</script>"
+}
