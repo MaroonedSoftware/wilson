@@ -24,10 +24,12 @@ export interface RemotePlacement {
 
 /**
  * A placed stage's host stopped answering partway through: deleted at the end of its lifetime, its
- * tunnel dropped, or the machine gone. Not the card's failure, so nothing about it is a kickback; it
- * is thrown for the queue to retry, and placement passes the host over until a probe passes again.
+ * tunnel dropped, or the machine gone. Not the card's failure, so nothing about it is a kickback, and
+ * `CardStageJob` sends the stage again without spending a retry. Placement passes the host over until
+ * a probe passes again, which for a worker is the next time it connects, so it can be chosen again.
  *
- * Its message avoids every pattern `isPermanentFailure` matches, so it classifies as a retry.
+ * Its message avoids every pattern `isPermanentFailure` matches, so a caller that does not handle it
+ * still classifies it as a retry.
  */
 export class HostLostError extends Error {
     constructor(
@@ -35,7 +37,7 @@ export class HostLostError extends Error {
         readonly detail: string,
         options?: { cause?: unknown },
     ) {
-        super(`host ${hostName} stopped answering during the stage, so it will be retried elsewhere: ${detail}`, options);
+        super(`host ${hostName} stopped answering during the stage, so the stage will be sent again: ${detail}`, options);
         this.name = 'HostLostError';
     }
 }
