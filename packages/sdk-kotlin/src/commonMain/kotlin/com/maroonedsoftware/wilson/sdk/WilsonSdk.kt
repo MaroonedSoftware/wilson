@@ -9,6 +9,7 @@ import com.maroonedsoftware.wilson.sdk.clients.CodeClient
 import com.maroonedsoftware.wilson.sdk.clients.ContextClient
 import com.maroonedsoftware.wilson.sdk.clients.DevicesClient
 import com.maroonedsoftware.wilson.sdk.clients.EngineTokensClient
+import com.maroonedsoftware.wilson.sdk.clients.EvalsClient
 import com.maroonedsoftware.wilson.sdk.clients.FactorsClient
 import com.maroonedsoftware.wilson.sdk.clients.HealthClient
 import com.maroonedsoftware.wilson.sdk.clients.HostsClient
@@ -38,6 +39,7 @@ class WilsonSdk(config: SdkConfig) : AutoCloseable {
     val context: ContextClient = ContextClient(http)
     val devices: DevicesClient = DevicesClient(http)
     val engineTokens: EngineTokensClient = EngineTokensClient(http)
+    val evals: EvalsClient = EvalsClient(http)
     val factors: FactorsClient = FactorsClient(http)
     val health: HealthClient = HealthClient(http)
     val hosts: HostsClient = HostsClient(http)

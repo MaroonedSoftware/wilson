@@ -13,7 +13,7 @@ import { sectionsOf, type Card } from '#modules/board/card.js';
 import { computeReviewEvidence } from '#modules/stages/review.evidence.js';
 import { ReviewVerifier } from '#modules/stages/review.verifier.js';
 import type { ProjectStages, StageConfig } from '#modules/stages/stage.config.js';
-import { planMaterial } from '#modules/stages/stage.dispatcher.js';
+import { planMaterial } from '#modules/stages/stage.preparation.js';
 import { ReviewResultSchema } from '#modules/stages/stage.result.js';
 import { WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
 import type { ReviewEvalCase } from './review.eval.corpus.js';

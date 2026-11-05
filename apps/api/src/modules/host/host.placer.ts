@@ -84,6 +84,8 @@ export class HostPlacer {
         cardId: string,
         stage: Pick<StageConfig, 'placement' | 'worktree' | 'maxWallClockMs' | 'isolated'>,
         preferred?: string,
+        /** Only `preferred` will do, as when an eval's two arms must not land on different machines. */
+        onlyPreferred = false,
     ): Promise<RemotePlacement | NoHostAvailable | undefined> {
         const wanted = stage.placement ?? 'local';
         if (wanted === 'local' || stage.worktree === 'none') return undefined;
@@ -93,7 +95,8 @@ export class HostPlacer {
         const deadline = DateTime.now().plus({ milliseconds: stage.maxWallClockMs, minutes: EXPIRY_MARGIN_MINUTES });
 
         const rows = await this.hosts.list();
-        for (const row of [...rows.filter(r => r.name === preferred), ...rows.filter(r => r.name !== preferred)]) {
+        const others = onlyPreferred ? [] : rows.filter(r => r.name !== preferred);
+        for (const row of [...rows.filter(r => r.name === preferred), ...others]) {
             const listed = row.projects.find(p => p.project === project);
             const serves = listed ?? (await this.defaultRoots(row, project));
             if (!serves) continue;
