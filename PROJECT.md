@@ -88,9 +88,9 @@ These are settled. Challenge them only if you find a concrete blocker.
     Orchestration.
 
 12. **An operator app holds no credential.** An app is one HTML file the operator installs (`wilson.apps`),
-    run by the web app in a sandboxed iframe. It reaches Wilson only by asking the web app over a private
-    port, and the web app answers from a fixed table of read-only calls, each tied to a grant. So the grant
-    is enforced in the browser, not by the API, and nothing can widen it without replacing the app.
+    run by the web or desktop app in a sandboxed iframe. It reaches Wilson only by asking its host over a
+    private port, and the host answers from a fixed table of read-only calls, each tied to a grant. So the
+    grant is enforced in the client, not by the API, and nothing can widen it without replacing the app.
     Installing takes a recent sign-in (`wilson.step.up`), never a key, and agents have no route to it
     (decision 8). A grant is what an app could leak, not only what it can read: see Operator apps.
 
@@ -1344,9 +1344,9 @@ catalog (decision 8): it spends tokens and runs a config nobody saved.
 
 ## Operator apps
 
-Small HTML apps inside the web app, for views of a project that do not belong in Wilson itself. Writing one
-is in `apps/web/examples/apps/README.md`. They are read-only, web-only, and installed for the whole server,
-and the URL an app is opened at says which project it reads.
+Small HTML apps inside the web and desktop apps, for views of a project that do not belong in Wilson itself.
+Writing one is in `apps/web/examples/apps/README.md`. They are read-only and installed for the whole server, and
+the project an app is opened from is the one it reads. Android does not run them.
 
 An app's frame has `sandbox="allow-scripts"`, so its origin is opaque, under a policy placed ahead of its
 HTML (`appDocument`, `apps/web/src/lib/apps.ts`). The page hosting it is sent `frame-src 'none'`, by
@@ -1364,6 +1364,12 @@ Measured in Brave and Chromium on 2026-11-05, with an app built to escape and a 
 
 So the boundary is what an app can read, not where it can send it. Your session and anything ungranted stay
 out of reach, and what you grant could leave. Safari and Firefox are unmeasured.
+
+The desktop app runs the same document in the same sandboxed frame, inside a WKWebView it locks down itself, as
+a native view has neither that frame nor the header by default. Measured on macOS 26.6 with
+`tools/Walk -- app-probe`, which turns each lock off as its control: with all of them on, no way out reached the
+server, WebRTC included. Two of those locks are private WebKit switches, so this is what was measured and not
+a promise, and the boundary above stays what an app can read. `apps/desktop/CLAUDE.md` has the detail.
 
 Write access, an app's own storage, revision history and apps written by agents are all out of scope for
 now. Agents especially: their output is untrusted, and the limit above matters far more for an author the

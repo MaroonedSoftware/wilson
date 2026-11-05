@@ -1,6 +1,6 @@
 # Writing an operator app
 
-An operator app is one HTML file that runs inside Wilson's web app and reads what you granted it.
+An operator app is one HTML file that runs inside Wilson's web and desktop apps and reads what you granted it.
 [`board-summary.html`](board-summary.html) is a working example.
 
 ## Installing
@@ -9,7 +9,8 @@ In the web app, open Settings, then Apps. Choose the file and tick what it can r
 by default. Installing, replacing and removing all need a recent sign-in. Installed apps are listed under
 Apps in the header of any project, and each opens in the project you opened it from.
 
-Apps run in the web app only, not on desktop or Android.
+Apps run in the web app and on desktop, which lists and opens them but does not install them. They do not run
+on Android.
 
 ## The file
 
@@ -17,7 +18,8 @@ Apps run in the web app only, not on desktop or Android.
   `data:` URL, for images, fonts and media only.
 - It cannot load anything from a network, use `fetch`, open a popup, submit a form, run `eval`, start a
   worker or nest a frame, and it has no cookies or storage. Keep state in memory.
-- It cannot navigate. A page that tries is closed, with a message saying why.
+- It cannot navigate. A page that tries is closed, with a message saying why. On desktop that includes a link
+  to a `#fragment` in the page, so scroll with `scrollIntoView` instead.
 
 ## `window.wilson`
 
@@ -59,3 +61,7 @@ not `innerHTML`.
 It keeps your session, your credentials and anything you did not grant away from an app. It does not stop
 an app sharing what it can read: Chromium browsers let a page send WebRTC packets to a server it names, and
 no web standard turns that off from here. Grant only what you would trust the app's author with.
+
+The desktop app also turns WebRTC off and refuses the network at the engine, and nothing got out when that was
+measured. Those are switches private to the macOS web engine, so do not write an app that depends on them, or
+grant it more on that account.
