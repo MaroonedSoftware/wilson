@@ -169,4 +169,48 @@ public sealed class AccountRulesTests
         Assert.Equal("Every account in rotation is at its limit", limited.Headline);
         Assert.Equal("Stages wait for a. 5-hour limit, back 5:00 PM.", limited.Detail);
     }
+
+    [Fact]
+    public void Lines_are_the_rotation_in_order_with_the_next_one_named_and_the_server_left_out_while_unused()
+    {
+        var lines = AccountRules.Lines(
+            [Token("pool-a", priority: 0), Token("rdean79.gmail.com", priority: 1)],
+            [Limit("pool-a", Now.AddHours(5)), Limit(AccountRules.LocalAccount, Now.AddHours(2)), Limit("worker:my-mac", Now.AddHours(1))],
+            Now);
+
+        Assert.Equal(
+            [new AccountLine("pool-a", "Weekly limit, back 5:00 PM", Limited: true), new AccountLine("rdean79.gmail.com", "Next", Limited: false)],
+            lines);
+    }
+
+    [Fact]
+    public void Lines_mark_only_the_first_unlimited_account_as_next()
+    {
+        var lines = AccountRules.Lines([Token("a"), Token("b", priority: 1)], [], Now);
+        Assert.Equal(["Next", "Ready"], lines.Select(line => line.Status));
+    }
+
+    [Fact]
+    public void Lines_show_a_token_outside_the_rotation_by_the_hosts_it_is_assigned_to()
+    {
+        var lines = AccountRules.Lines([Token("a"), Token("mine", pooled: false, hosts: ["my-mac", "tower"]), Token("spare", pooled: false)], [], Now);
+        Assert.Equal(["Next", "Assigned to my-mac, tower", "Not in rotation"], lines.Select(line => line.Status));
+    }
+
+    [Fact]
+    public void Lines_with_no_rotation_are_the_machines_own_sign_ins()
+    {
+        var lines = AccountRules.Lines([], [Limit("worker:my-mac", Now.AddHours(1), "five_hour"), Limit("codex:tower", Now.AddHours(-1))], Now);
+
+        Assert.Equal(
+            [new AccountLine("This server", "Own sign-in", Limited: false), new AccountLine("my-mac's own sign-in", "5-hour limit, back 1:00 PM", Limited: true)],
+            lines);
+    }
+
+    [Fact]
+    public void Lines_with_no_tokens_read_are_every_limit_in_force()
+    {
+        var lines = AccountRules.Lines(null, [Limit(AccountRules.LocalAccount, Now.AddHours(1)), Limit("pool-a", Now.AddHours(-1))], Now);
+        Assert.Equal([new AccountLine("This server", "Weekly limit, back 1:00 PM", Limited: true)], lines);
+    }
 }

@@ -48,7 +48,7 @@ public sealed partial class MenuBarViewModel(ShellViewModel shell, Action reveal
 
     public ObservableCollection<MenuBarRow> Hosts { get; } = [];
 
-    public ObservableCollection<MenuBarRow> Limits { get; } = [];
+    public ObservableCollection<MenuBarRow> Accounts { get; } = [];
 
     /// <summary>Which server this is about, as more than one can be signed in to over time.</summary>
     [ObservableProperty]
@@ -83,7 +83,7 @@ public sealed partial class MenuBarViewModel(ShellViewModel shell, Action reveal
     private bool _hasHosts;
 
     [ObservableProperty]
-    private bool _hasLimits;
+    private bool _hasAccounts;
 
     [RelayCommand]
     public void OpenWilson() => reveal();
@@ -127,10 +127,11 @@ public sealed partial class MenuBarViewModel(ShellViewModel shell, Action reveal
             var hosts = Optional(connection.Sdk.Hosts.ListHostsAsync(cancellationToken));
             var local = Optional(connection.Sdk.Settings.GetLocalStageSlotsAsync(cancellationToken));
             var limits = Optional(connection.Sdk.EngineTokens.ListEngineLimitsAsync(cancellationToken));
+            var tokens = Optional(connection.Sdk.EngineTokens.ListEngineTokensAsync(cancellationToken));
             var projects = await Task.WhenAll(names.Select(name => ReadProjectAsync(name, cancellationToken)));
             var read = projects.OfType<MenuBarProjectReading>().ToList();
 
-            Show(MenuBarStats.Figures(new MenuBarReading(read, await drain, await hosts, await local, await limits), DateTimeOffset.UtcNow));
+            Show(MenuBarStats.Figures(new MenuBarReading(read, await drain, await hosts, await local, await limits, await tokens), DateTimeOffset.UtcNow));
             var missing = names.Except(read.Select(project => project.Name), StringComparer.Ordinal).ToList();
             Error = missing.Count > 0 ? $"Could not read {string.Join(", ", missing)}" : null;
         }
@@ -192,9 +193,9 @@ public sealed partial class MenuBarViewModel(ShellViewModel shell, Action reveal
         Replace(Today, DetailRows(figures));
         Replace(Projects, figures.Projects.Select(project => new MenuBarProjectRow(project.Name, ProjectDetail(project), project.Flagged > 0, this)));
         Replace(Hosts, figures.Hosts.Select(host => new MenuBarRow(host.State == "enabled" ? host.Name : $"{host.Name} ({host.State})", $"{host.Used} of {host.Slots}")));
-        Replace(Limits, figures.Limits.Select(limit => new MenuBarRow($"{limit.Account}: {limit.LimitType}", $"resets {limit.Resets}", Warns: true)));
+        Replace(Accounts, figures.Accounts.Select(account => new MenuBarRow(account.Name, account.Status, account.Limited)));
         HasHosts = Hosts.Count > 0;
-        HasLimits = Limits.Count > 0;
+        HasAccounts = Accounts.Count > 0;
     }
 
     private static IEnumerable<MenuBarRow> DetailRows(MenuBarFigures figures)

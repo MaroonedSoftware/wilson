@@ -12,6 +12,9 @@ public sealed record AccountType(string Label, EngineTokenProvider Provider, Eng
 /// <summary>Which account comes next in a rotation: <see cref="Limit"/> says when, if every one is limited.</summary>
 public sealed record NextAccount(string Name, EngineLimit? Limit);
 
+/// <summary>An account and how it stands, as a line: <see cref="Limited"/> when a limit keeps engines off it.</summary>
+public sealed record AccountLine(string Name, string Status, bool Limited);
+
 /// <summary>A priority to save for a token moved in a rotation.</summary>
 public sealed record PriorityChange(string Name, long Priority);
 
@@ -106,6 +109,60 @@ public static class AccountRules
 
         var accounts = rotation.Select(token => new NextAccount(token.Name, LimitOn(token.Name, limits, now))).ToList();
         return accounts.Find(account => account.Limit is null) ?? accounts.MinBy(account => account.Limit!.ResetsAt);
+    }
+
+    /// <summary>
+    /// Every account engines can sign in as, one line each, in the order the Accounts section shows them:
+    /// the Claude rotation, the OpenAI rotation, then the saved tokens outside both. A machine's own
+    /// sign-in is only an account while its provider's rotation is empty, since otherwise no engine uses
+    /// it. This server's then always has a line, and a worker's or a Codex one only while it is limited,
+    /// as nothing else is known about them. With no <paramref name="tokens"/> read, every limit in force
+    /// is a line, as nothing says which accounts are unused.
+    /// </summary>
+    public static IReadOnlyList<AccountLine> Lines(IReadOnlyList<EngineTokenSummary>? tokens, IReadOnlyList<EngineLimit> limits, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+
+        AccountLine? Limited(string account, string name) =>
+            LimitOn(account, limits, now) is { } limit ? new AccountLine(name, DescribeLimit(limit, now), Limited: true) : null;
+
+        if (tokens is null)
+        {
+            return [.. limits.Where(limit => limit.ResetsAt > now).Select(limit => limit.Account).Distinct().Select(account => Limited(account, DescribeSignIn(account))!)];
+        }
+
+        AccountLine Line(EngineTokenSummary token, IReadOnlyList<EngineTokenSummary>? rotation)
+        {
+            if (Limited(token.Name, token.Name) is { } limited)
+            {
+                return limited;
+            }
+            if (rotation is null)
+            {
+                return new AccountLine(token.Name, token.Hosts.Count == 0 ? "Not in rotation" : $"Assigned to {string.Join(", ", token.Hosts)}", Limited: false);
+            }
+            return new AccountLine(token.Name, Next(rotation, limits, now)?.Name == token.Name ? "Next" : "Ready", Limited: false);
+        }
+
+        var claude = RotationOf(tokens);
+        var openai = RotationOf(tokens, EngineTokenProvider.Openai);
+        var lines = new List<AccountLine>();
+        lines.AddRange(claude.Select(token => Line(token, claude)));
+        lines.AddRange(openai.Select(token => Line(token, openai)));
+        lines.AddRange(OutsideRotation(tokens).Select(token => Line(token, null)));
+
+        var saved = tokens.Select(token => token.Name).ToHashSet();
+        var signIns = limits.Select(limit => limit.Account).Distinct().Where(account => account != LocalAccount && !saved.Contains(account));
+        if (claude.Count == 0)
+        {
+            lines.Add(Limited(LocalAccount, DescribeSignIn(LocalAccount)) ?? new AccountLine(DescribeSignIn(LocalAccount), "Own sign-in", Limited: false));
+            lines.AddRange(signIns.Where(account => account.StartsWith("worker:", StringComparison.Ordinal)).Select(account => Limited(account, DescribeSignIn(account))).OfType<AccountLine>());
+        }
+        if (openai.Count == 0)
+        {
+            lines.AddRange(signIns.Where(account => account.StartsWith("codex:", StringComparison.Ordinal)).Select(account => Limited(account, DescribeSignIn(account))).OfType<AccountLine>());
+        }
+        return lines;
     }
 
     /// <summary>The priority that puts a token last in <paramref name="rotation"/>, so a new account never jumps ahead of the ones already working.</summary>

@@ -42,6 +42,28 @@ internal static class Steps
         Console.WriteLine($"     menu bar: passed {panel.Passed.Value}, cached {panel.Cached.Value}, slots {panel.Slots.Value}");
         walk.ShotOf(new MenuBarView { DataContext = panel }, "menubar-figures", 300, 720);
         panel.Hidden();
+
+        // Two accounts in rotation, the first at its limit, and a limit left on this server's own sign-in,
+        // which no engine uses while the rotation has accounts. The ciphertext is never read by a listing.
+        Walker.Sql(
+            "insert into wilson.engine_tokens (name, ciphertext, pooled, priority) values "
+            + "('walk-pool-a', 'not-a-token', true, 0), ('walk-second', 'not-a-token', true, 1)");
+        Walker.Sql(
+            "insert into wilson.engine_limits (account, limit_type, resets_at) values "
+            + "('walk-pool-a', 'seven_day', now() + interval '5 hours'), ('local', 'seven_day', now() + interval '2 hours')");
+        try
+        {
+            panel.Shown();
+            await walk.UntilAsync("the accounts in rotation", () => panel.Accounts.Any(account => account.Label == "walk-second"));
+            Console.WriteLine($"     accounts: {string.Join("; ", panel.Accounts.Select(account => $"{account.Label} = {account.Value}"))}");
+            walk.ShotOf(new MenuBarView { DataContext = panel }, "menubar-accounts", 300, 720);
+            panel.Hidden();
+        }
+        finally
+        {
+            Walker.Sql("delete from wilson.engine_limits where account in ('walk-pool-a', 'local')");
+            Walker.Sql("delete from wilson.engine_tokens where name in ('walk-pool-a', 'walk-second')");
+        }
     }
 
     public static async Task RunAsync(Walker walk, string origin, string email, string password, string? only = null)

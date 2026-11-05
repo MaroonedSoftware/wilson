@@ -108,8 +108,8 @@
                     <TextBlock Classes="heading" Text="Hosts" IsVisible="{Binding HasHosts}" />
                     <ItemsControl ItemsSource="{Binding Hosts}" IsVisible="{Binding HasHosts}" />
 
-                    <TextBlock Classes="heading" Text="Account limits" IsVisible="{Binding HasLimits}" />
-                    <ItemsControl ItemsSource="{Binding Limits}" IsVisible="{Binding HasLimits}" />
+                    <TextBlock Classes="heading" Text="Accounts" IsVisible="{Binding HasAccounts}" />
+                    <ItemsControl ItemsSource="{Binding Accounts}" IsVisible="{Binding HasAccounts}" />
                 </StackPanel>
             </ScrollViewer>
         </DockPanel>
