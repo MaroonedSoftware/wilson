@@ -18,6 +18,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 
 const { CliStageAgent } = await import('#modules/agent/cli.stage.agent.js');
 const { StageInterrupt } = await import('#modules/agent/stage.interrupt.js');
+const { MemoryHost } = await import('#tests/support/memory.host.js');
 type StageInterrupt = InstanceType<typeof StageInterrupt>;
 const { z } = await import('zod');
 
@@ -45,7 +46,7 @@ const stage = {
     maxKickbacks: 3,
 };
 
-const run = (append: (event: { type: string; payload?: unknown }) => Promise<void>, interrupts?: StageInterrupt) =>
+const run = (append: (event: { type: string; payload?: unknown }) => Promise<void>, interrupts?: StageInterrupt, host?: unknown) =>
     new CliStageAgent(silentLogger as never, undefined, undefined, interrupts).run({
         stage,
         context: {
@@ -53,6 +54,7 @@ const run = (append: (event: { type: string; payload?: unknown }) => Promise<voi
             cardId: '0001',
             stage: 'implementing',
             worktreeRoot: '/tmp/worktree',
+            ...(host !== undefined && { host }),
             events: { append },
             logger: silentLogger,
         },
@@ -151,6 +153,103 @@ describe('CliStageAgent engine session', () => {
         expect(output.interrupted).toBeDefined();
     });
 
+    describe('when its host is lost', () => {
+        /** A host that can be lost by hand, and how many are still listening for that. */
+        const losableHost = () => {
+            const listeners = new Set<(reason: string) => void>();
+            const host = Object.assign(new MemoryHost(), {
+                onLost: (listener: (reason: string) => void) => {
+                    listeners.add(listener);
+                    return () => listeners.delete(listener);
+                },
+            });
+            return { host, listeners, lose: (reason: string) => [...listeners].forEach(listener => listener(reason)) };
+        };
+
+        it('stops the engine and says why, keeping the session to resume', async () => {
+            const { host, lose } = losableHost();
+            queryMock.mockReturnValue(parkedStream(() => lose('closed with 1006')));
+
+            const output = await run(
+                vi.fn(async () => {}),
+                undefined,
+                host,
+            );
+
+            expect(output).toMatchObject({ interrupted: { sessionId: 'session-1', steps: 1, hostLost: 'closed with 1006' }, truncated: true });
+            expect(output.engineFailure).toBeUndefined();
+        });
+
+        it('is not read as the engine failing when the engine’s exit arrives with it', async () => {
+            const { host, lose } = losableHost();
+            const append = vi.fn(async (_event: { type: string; payload?: unknown }) => {});
+            queryMock.mockReturnValue({
+                async *[Symbol.asyncIterator]() {
+                    yield assistant('session-1');
+                    lose('closed with 1006');
+                    throw Object.assign(new Error('Claude Code process exited'), { errorClass: 'process_exit', exitCode: 1 });
+                },
+            });
+
+            const output = await run(append, undefined, host);
+
+            expect(output.interrupted?.hostLost).toBe('closed with 1006');
+            expect(output.engineFailure).toBeUndefined();
+            expect(append.mock.calls.map(([event]) => event.type)).not.toContain('engine.failed');
+        });
+
+        it('stops at once on a host already lost when the run starts', async () => {
+            const host = Object.assign(new MemoryHost(), {
+                onLost: (listener: (reason: string) => void) => {
+                    listener('gone already');
+                    return () => {};
+                },
+            });
+            queryMock.mockReturnValue(parkedStream(() => {}));
+
+            const output = await run(
+                vi.fn(async () => {}),
+                undefined,
+                host,
+            );
+
+            expect(output.interrupted?.hostLost).toBe('gone already');
+        });
+
+        it('does not blame the host for a shutdown that closed its connection', async () => {
+            const { host, lose } = losableHost();
+            const interrupts = new StageInterrupt();
+            queryMock.mockReturnValue(
+                parkedStream(() => {
+                    interrupts.interrupt();
+                    lose('the server is shutting down');
+                }),
+            );
+
+            const output = await run(
+                vi.fn(async () => {}),
+                interrupts,
+                host,
+            );
+
+            expect(output.interrupted).toBeDefined();
+            expect(output.interrupted).not.toHaveProperty('hostLost');
+        });
+
+        it('stops listening once the run is over', async () => {
+            const { host, listeners } = losableHost();
+            queryMock.mockReturnValue(streamOf(assistant('session-1')));
+
+            await run(
+                vi.fn(async () => {}),
+                undefined,
+                host,
+            );
+
+            expect(listeners.size).toBe(0);
+        });
+    });
+
     it('records a compaction the engine reports, with its before and after tokens', async () => {
         const append = vi.fn(async (_event: { type: string; payload?: unknown }) => {});
         queryMock.mockReturnValue({
@@ -220,7 +319,7 @@ describe('CliStageAgent engine session', () => {
         await resumedRun('session-1');
 
         expect(queried(0).options.resume).toBe('session-1');
-        expect(queried(0).prompt).toContain('interrupted this stage');
+        expect(queried(0).prompt).toContain('This stage was interrupted');
         expect(queried(0).prompt).not.toContain('Your plan is at');
     });
 

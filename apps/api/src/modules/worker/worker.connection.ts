@@ -2,7 +2,17 @@ import type { EngineAccount } from '#modules/host/execution.host.js';
 import { randomUUID } from 'node:crypto';
 import { DateTime } from 'luxon';
 import type { WebSocket } from 'ws';
-import { parseFrame, FromWorker, type CallOp, type CallResults, type ToWorker, type WorkerError, type WorkerStats } from '@wilson/worker-protocol';
+import {
+    parseFrame,
+    FromWorker,
+    WORKER_KEEPALIVE_MS,
+    WORKER_MAX_MISSED_PONGS,
+    type CallOp,
+    type CallResults,
+    type ToWorker,
+    type WorkerError,
+    type WorkerStats,
+} from '@wilson/worker-protocol';
 import type { ExecFailure } from '#modules/host/execution.host.js';
 
 /** What a worker said about itself in its `hello`. */
@@ -13,17 +23,6 @@ export interface WorkerHello {
 
 /** A spawned process's output or end, as the worker reports it. */
 export type WorkerStreamMessage = Extract<FromWorker, { type: 'out' } | { type: 'exit' }>;
-
-/** How often a connection is pinged. */
-export const KEEPALIVE_MS = 15_000;
-
-/**
- * How many pings in a row may go unanswered before a connection is closed. Closing one ends every stage
- * running on that worker, and a worker that is only busy answers late rather than never: its pong waits
- * for its event loop, which a machine short of CPU or memory can hold up for tens of seconds. So a
- * worker that has really gone is noticed a minute later, rather than a busy one being cut off.
- */
-export const MAX_MISSED_PONGS = 4;
 
 /**
  * Rebuild the `execFile`-shaped failure a worker described, so callers handle a failure on a worker
@@ -90,14 +89,14 @@ export class WorkerConnection {
         socket.on('close', (code, reason) => this.closed(`closed with ${code}${reason.length > 0 ? ` (${reason.toString()})` : ''}`));
         socket.on('error', err => this.closed(err.message));
         this.keepalive = setInterval(() => {
-            if (this.missedPongs >= MAX_MISSED_PONGS) {
+            if (this.missedPongs >= WORKER_MAX_MISSED_PONGS) {
                 socket.terminate();
-                this.closed(`no answer to a keepalive ping in ${(KEEPALIVE_MS * MAX_MISSED_PONGS) / 1000}s`);
+                this.closed(`no answer to a keepalive ping in ${(WORKER_KEEPALIVE_MS * WORKER_MAX_MISSED_PONGS) / 1000}s`);
                 return;
             }
             this.missedPongs += 1;
             socket.ping();
-        }, KEEPALIVE_MS);
+        }, WORKER_KEEPALIVE_MS);
         this.keepalive.unref();
     }
 
@@ -157,10 +156,21 @@ export class WorkerConnection {
         this.socket.send(JSON.stringify(message));
     }
 
-    /** Called once, with the reason, when the connection closes. Immediately if it already has. */
-    onClose(listener: (reason: string) => void): void {
-        if (this.closedWith !== undefined) listener(this.closedWith);
-        else this.closeListeners.add(listener);
+    /**
+     * Called once, with the reason, when the connection closes. Immediately if it already has.
+     *
+     * @returns stops listening, for a caller that finishes before the connection does: a connection
+     * outlives the stages run over it, and would otherwise hold on to every listener they left.
+     */
+    onClose(listener: (reason: string) => void): () => void {
+        if (this.closedWith !== undefined) {
+            listener(this.closedWith);
+            return () => {};
+        }
+        this.closeListeners.add(listener);
+        return () => {
+            this.closeListeners.delete(listener);
+        };
     }
 
     /** Close the connection with `code`, failing everything still waiting on it. */

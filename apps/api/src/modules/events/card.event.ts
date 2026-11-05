@@ -24,7 +24,8 @@ export type CardEventType =
     // Carries `usage`: a daemon shutdown stopped the stage, which says nothing about the card, so
     // this is neither a pass nor a failure. The stage is sent again without spending a retry. Also
     // carries `usageLimit` and `heldUntil` when it was the account's usage limit that stopped it
-    // instead, and the stage is sent again at `heldUntil`.
+    // instead, and the stage is sent again at `heldUntil`. Carries `hostLost` when it was losing its
+    // host, saying why the host went.
     | 'stage.interrupted'
     | 'stage.passed'
     // Carries `blocked`, the question the stage stopped to ask, with `usage`, `changedPaths` and

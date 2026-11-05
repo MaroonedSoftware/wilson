@@ -41,11 +41,14 @@ export interface InterruptedAttempt {
     sessionId?: string;
     spent?: InterruptedSpend;
     depth?: LaneDepth;
+    /** How many times losing this tree's host has stopped the stage, which is capped. Unset for none. */
+    hostLosses?: number;
 }
 
 /**
- * A stage stopped by {@link StageInterrupt}. Says nothing about the card's work, so it must not reach
- * the kickback path, and `CardStageJob` sends the stage again rather than letting it spend a retry.
+ * A stage stopped by {@link StageInterrupt} or by losing its host. Says nothing about the card's work,
+ * so it must not reach the kickback path, and `CardStageJob` sends the stage again rather than letting
+ * it spend a retry.
  */
 export class StageInterruptedError extends Error {
     constructor(
@@ -54,8 +57,10 @@ export class StageInterruptedError extends Error {
         /** What the run spent before it stopped, so a card's token budget still counts it. */
         readonly usage: AgentRunOutput['usage'],
         readonly attempt: InterruptedAttempt,
+        /** Why the stage's host went, when that is what stopped it rather than a shutdown. */
+        readonly hostLost?: string,
     ) {
-        super(`${cardId} ${stageName} was interrupted by a daemon shutdown`);
+        super(`${cardId} ${stageName} was interrupted by ${hostLost ? `losing its host: ${hostLost}` : 'a daemon shutdown'}`);
         this.name = 'StageInterruptedError';
     }
 }

@@ -82,6 +82,13 @@ class CardMovedDuringRunError extends Error {
 const BLOCKED_QUESTION_CAP = 3;
 
 /**
+ * How many times losing its host may stop one stage before it stops being treated as a passing
+ * interruption and becomes a lost host, which `CardStageJob` limits with `MAX_HOST_LOSSES`. An
+ * interruption charges nothing, so a host that keeps dropping would otherwise repeat it forever.
+ */
+export const MAX_HOST_LOSS_RESUMES = 3;
+
+/**
  * Thrown by `assertDispatchable` in place of a bare `Error`.
  *
  * None of its conditions is a provider hiccup or a dropped connection, so retrying is a
@@ -610,7 +617,11 @@ export class StageDispatcher {
                     cardId,
                     stage: stageName,
                     type: 'stage.interrupted',
-                    payload: { usage: err.usage, ...(err instanceof StageHeldError && { usageLimit: err.limit, heldUntil: err.heldUntil }) },
+                    payload: {
+                        usage: err.usage,
+                        ...(err instanceof StageHeldError && { usageLimit: err.limit, heldUntil: err.heldUntil }),
+                        ...(err.hostLost && { hostLost: err.hostLost }),
+                    },
                 });
                 throw err;
             }
@@ -1192,7 +1203,19 @@ export class StageDispatcher {
      */
     private async throwIfHostLost(placement: RemotePlacement, cardId: string, stageName: string, reason: string, cause?: unknown): Promise<void> {
         if (!this.placer || (await this.placer.isAlive(placement))) return;
-        await this.placer.markLost(placement, `${cardId} ${stageName}: ${reason}`);
+        throw await this.recordHostLost(placement, cardId, stageName, reason, undefined, cause);
+    }
+
+    /** Mark `placement`'s host failed and record why; the error that sends the stage back to the queue. */
+    private async recordHostLost(
+        placement: RemotePlacement,
+        cardId: string,
+        stageName: string,
+        reason: string,
+        attempt?: InterruptedAttempt,
+        cause?: unknown,
+    ): Promise<HostLostError> {
+        await this.placer?.markLost(placement, `${cardId} ${stageName}: ${reason}`);
         await this.events.append({
             project: this.config.project,
             cardId,
@@ -1200,21 +1223,33 @@ export class StageDispatcher {
             type: 'stage.host-lost',
             payload: { host: placement.hostName, reason },
         });
-        throw new HostLostError(placement.hostName, reason, { cause });
+        return new HostLostError(placement.hostName, reason, { cause, attempt });
     }
 
-    private runAgent(input: StageExecutionInput): Promise<StageOutcome> {
-        return executeStage(
-            {
-                project: this.config.project,
-                worktrees: this.worktrees,
-                agents: this.agents,
-                verifiers: this.verifiers,
-                resultSchemas: this.resultSchemas,
-                events: this.events,
-                logger: this.logger,
-            },
-            input,
-        );
+    private async runAgent(input: StageExecutionInput): Promise<StageOutcome> {
+        try {
+            return await executeStage(
+                {
+                    project: this.config.project,
+                    worktrees: this.worktrees,
+                    agents: this.agents,
+                    verifiers: this.verifiers,
+                    resultSchemas: this.resultSchemas,
+                    events: this.events,
+                    logger: this.logger,
+                },
+                input,
+            );
+        } catch (err) {
+            // Past the cap the host is not coming back steadily enough to keep resuming on it straight
+            // away, so from here it is a lost host, which `CardStageJob` sends again more slowly and
+            // eventually flags. The attempt goes with it: a tree the host still holds is resumed from
+            // where it stopped, and one that has gone starts a new session.
+            const placement = input.worktree.placement;
+            if (err instanceof StageInterruptedError && err.hostLost && placement && (err.attempt.hostLosses ?? 0) >= MAX_HOST_LOSS_RESUMES) {
+                throw await this.recordHostLost(placement, input.card.frontmatter.id, input.stage.name, err.hostLost, err.attempt);
+            }
+            throw err;
+        }
     }
 }

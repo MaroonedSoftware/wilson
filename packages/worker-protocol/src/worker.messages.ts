@@ -30,6 +30,20 @@ export const WorkerCloseCode = {
     Superseded: 4409,
 } as const;
 
+/**
+ * How often Wilson pings a worker's connection. A worker that has heard nothing for several of these
+ * knows the connection is gone, even when nothing has closed it.
+ */
+export const WORKER_KEEPALIVE_MS = 15_000;
+
+/**
+ * How many pings in a row may go unanswered before Wilson closes a connection. Closing one ends every
+ * stage running on that worker, and a worker that is only busy answers late rather than never: its pong
+ * waits for its event loop, which a machine short of CPU or memory can hold up for tens of seconds. So a
+ * worker that has really gone is noticed a minute later, rather than a busy one being cut off.
+ */
+export const WORKER_MAX_MISSED_PONGS = 4;
+
 /** A failure, shaped as `execFile`'s errors are, so Wilson can rebuild one its callers already handle. */
 export const WorkerError = z.object({
     message: z.string(),

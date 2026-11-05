@@ -90,8 +90,11 @@ export interface AgentRunOutput {
      * so there is nothing to verify: the dispatcher parks the card until someone answers.
      */
     blocked?: BlockedReport;
-    /** Set when `StageInterrupt` stopped the run, which says nothing about the stage itself. */
-    interrupted?: { sessionId?: string; wallClockMs: number; steps: number };
+    /**
+     * Set when `StageInterrupt` or the loss of the run's host stopped it, which says nothing about the
+     * stage itself. `hostLost` is why the host went, when that is what stopped it.
+     */
+    interrupted?: { sessionId?: string; wallClockMs: number; steps: number; hostLost?: string };
     /** The engine could not continue `AgentRunInput.resume`'s session. Never leaves `CliStageAgent`. */
     resumeFailed?: boolean;
     /**

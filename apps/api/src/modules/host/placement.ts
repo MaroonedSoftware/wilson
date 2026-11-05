@@ -1,3 +1,4 @@
+import type { InterruptedAttempt } from '#modules/agent/stage.interrupt.js';
 import type { ExecutionHost } from './execution.host.js';
 import type { GitTransport } from './git.transport.js';
 
@@ -32,13 +33,17 @@ export interface RemotePlacement {
  * still classifies it as a retry.
  */
 export class HostLostError extends Error {
+    /** Where the stage had got to, when it was running: what to resume instead of the attempt it started from. */
+    readonly attempt?: InterruptedAttempt;
+
     constructor(
         readonly hostName: string,
         readonly detail: string,
-        options?: { cause?: unknown },
+        options?: { cause?: unknown; attempt?: InterruptedAttempt },
     ) {
         super(`host ${hostName} stopped answering during the stage, so the stage will be sent again: ${detail}`, options);
         this.name = 'HostLostError';
+        this.attempt = options?.attempt;
     }
 }
 

@@ -84,6 +84,15 @@ describe('CardStageJob when a stage loses its host', () => {
         expect(broker.send.mock.calls[0]![1]).toMatchObject({ hostLosses: 3, step: 'scope-check' });
     });
 
+    it('resumes the attempt the lost run reached, not the one it started from', async () => {
+        const reached = { baseSha: 'abc', host: 'my-mac', sessionId: 'session-2', hostLosses: 3 };
+        dispatcher.run.mockRejectedValueOnce(new HostLostError('my-mac', 'closed with 1006', { attempt: reached }));
+
+        await job.run({ cardId: '0001', stageName: 'testing', interrupted: { baseSha: 'abc', host: 'my-mac', hostLosses: 2 } });
+
+        expect(broker.send.mock.calls[0]![1]).toMatchObject({ interrupted: reached });
+    });
+
     it('keeps where an interrupted stage left off', async () => {
         const interrupted = { baseSha: 'abc', host: 'my-mac' };
 

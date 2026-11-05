@@ -112,7 +112,8 @@ export class CardStageJob extends Job<CardStagePayload> {
                 return this.requeueInterrupted(cardId, stageName, error.attempt, DateTime.fromMillis(error.heldUntil), step);
             }
             if (error instanceof StageInterruptedError) return this.requeueInterrupted(cardId, stageName, error.attempt, DRAIN_HOLD, step);
-            if (error instanceof HostLostError) return this.afterHostLost(cardId, stageName, error, hostLosses + 1, interrupted, step);
+            if (error instanceof HostLostError)
+                return this.afterHostLost(cardId, stageName, error, hostLosses + 1, error.attempt ?? interrupted, step);
 
             const failure = classifyDispatchFailure(error);
             // The only outcome that does not settle: rethrown so the queue retries under its policy.
