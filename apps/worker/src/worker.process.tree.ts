@@ -1,4 +1,5 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 
 /** How long a process tree has to end on the signal it was sent before it gets `SIGKILL`. */
 export const KILL_GRACE_MS = 5_000;
@@ -15,21 +16,84 @@ const OWN_GROUPS = process.platform !== 'win32';
 /** What `spawn` needs for {@link endProcessTree} to reach everything the process starts. */
 export const PROCESS_TREE_OPTIONS = { detached: OWN_GROUPS } as const;
 
+interface ProcessEntry {
+    pid: number;
+    ppid: number;
+    pgid: number;
+}
+
+/** One `/proc/<pid>/stat`. The command name is in parentheses and may hold anything, spaces included. */
+const parseStat = (pid: number, stat: string): ProcessEntry | undefined => {
+    const [, ppid, pgid] = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    return ppid === undefined || pgid === undefined ? undefined : { pid, ppid: Number(ppid), pgid: Number(pgid) };
+};
+
 /**
- * Signal `child`'s whole group. Falls back to the process alone when the group cannot be signalled,
- * which is also what a group with nothing left in it reports (`ESRCH`, or `EPERM` on macOS when only
- * zombies remain); signalling a process that has gone does nothing.
+ * Every process on this machine, or as many as could be read. `/proc` where there is one, since a
+ * worker's image need not have `ps`, and `ps` elsewhere. Empty when neither answers, which leaves only
+ * the group to signal.
  */
-const signalTree = (child: ChildProcess, signal: NodeJS.Signals): void => {
-    if (OWN_GROUPS && child.pid !== undefined) {
-        try {
-            process.kill(-child.pid, signal);
-            return;
-        } catch {
-            // Reported by `child.kill` below, if it is still there to report anything.
+const processTable = (): ProcessEntry[] => {
+    try {
+        if (existsSync('/proc/self/stat')) {
+            return readdirSync('/proc').flatMap(name => {
+                if (!/^\d+$/.test(name)) return [];
+                try {
+                    return parseStat(Number(name), readFileSync(`/proc/${name}/stat`, 'utf8')) ?? [];
+                } catch {
+                    return []; // Gone between listing it and reading it.
+                }
+            });
+        }
+        return execFileSync('ps', ['-axo', 'pid=,ppid=,pgid='], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+            .trim()
+            .split('\n')
+            .map(line => {
+                const [pid, ppid, pgid] = line.trim().split(/\s+/).map(Number);
+                return { pid: pid!, ppid: ppid!, pgid: pgid! };
+            });
+    } catch {
+        return [];
+    }
+};
+
+/**
+ * Signal `child`'s tree. A group alone does not reach all of it: the engine runs each command in a
+ * session of its own, and those commands would otherwise outlive it, so its descendants are walked as
+ * well. `tree` holds what has been found so far, because once a process exits its children are
+ * reparented and can no longer be found from it.
+ *
+ * Only a group led by a member of the tree is signalled as a group, so this can never reach the
+ * worker's own. A failed signal means the process or group has gone, which is what was wanted (`ESRCH`,
+ * or `EPERM` on macOS when only zombies remain).
+ */
+const signalTree = (child: ChildProcess, signal: NodeJS.Signals, tree: Set<number>): void => {
+    if (!OWN_GROUPS || child.pid === undefined) {
+        child.kill(signal);
+        return;
+    }
+    tree.add(child.pid);
+    const table = processTable();
+    for (let found = true; found;) {
+        found = false;
+        for (const { pid, ppid } of table) {
+            if (tree.has(ppid) && !tree.has(pid)) {
+                tree.add(pid);
+                found = true;
+            }
         }
     }
-    child.kill(signal);
+    const groups = new Set(table.filter(({ pid, pgid }) => tree.has(pid) && tree.has(pgid)).map(({ pgid }) => pgid));
+    groups.add(child.pid);
+    const send = (target: number): void => {
+        try {
+            process.kill(target, signal);
+        } catch {
+            // Gone already.
+        }
+    };
+    for (const group of groups) send(-group);
+    for (const pid of tree) send(pid);
 };
 
 /**
@@ -41,11 +105,12 @@ const signalTree = (child: ChildProcess, signal: NodeJS.Signals): void => {
  * is stopping waits for it, because nothing would come back for a group left running once it has gone.
  */
 export const endProcessTree = (child: ChildProcess, signal: NodeJS.Signals = 'SIGTERM', graceMs: number = KILL_GRACE_MS): Promise<void> => {
-    signalTree(child, signal);
+    const tree = new Set<number>();
+    signalTree(child, signal, tree);
     if (signal === 'SIGKILL') return Promise.resolve();
     return new Promise(resolve => {
         setTimeout(() => {
-            signalTree(child, 'SIGKILL');
+            signalTree(child, 'SIGKILL', tree);
             resolve();
         }, graceMs);
     });

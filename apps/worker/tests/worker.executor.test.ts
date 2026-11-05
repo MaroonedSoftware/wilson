@@ -314,6 +314,29 @@ describe('WorkerExecutor', () => {
             expect(await gone(pid)).toBe(true);
         });
 
+        it('ends a command an engine runs in a session of its own, as the real engine does', async () => {
+            // A stand-in that stays alive holding a detached shell, which holds a sleep: no group of the
+            // engine's reaches either of them.
+            const dir = await mkdtemp(join(root, 'session-'));
+            const command = join(dir, 'engine');
+            const pidFile = join(dir, 'pid');
+            const shell = `sleep 60 & echo $! > ${pidFile}; wait`;
+            await writeFile(
+                command,
+                `#!${process.execPath}\nrequire('node:child_process').spawn('sh', ['-c', ${JSON.stringify(shell)}], { detached: true, stdio: 'ignore' });\nsetInterval(() => {}, 1000);\n`,
+                'utf8',
+            );
+            await chmod(command, 0o755);
+            const { executor, waitFor } = harness({ claudeCommand: command, killGraceMs: 50 });
+
+            executor.handle({ type: 'spawn', id: 'session', command: 'claude', args: [], env: {} });
+            const pid = await readPid(pidFile);
+            await executor.killAll();
+
+            await waitFor((m): m is Exit => m.type === 'exit' && m.id === 'session');
+            expect(await gone(pid)).toBe(true);
+        });
+
         it('ends the tree on a kill from Wilson too', async () => {
             const { command, pidFile } = await fakeEngine('sleep 60 &\necho $! > PIDFILE\nwait');
             const { executor, waitFor } = harness({ claudeCommand: command, killGraceMs: 50 });
