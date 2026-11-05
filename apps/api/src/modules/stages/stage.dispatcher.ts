@@ -1,5 +1,3 @@
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { join, posix } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { AutoSplitter } from '#modules/board/auto.splitter.js';
@@ -9,8 +7,6 @@ import { withAttempt, withoutAttempts, type Attempt } from '#modules/board/appen
 import { withFindings } from '#modules/board/append.findings.js';
 import { filesInScope, type Card } from '#modules/board/card.js';
 import { unsatisfiedDependencies } from '#modules/board/next.card.js';
-import { serializeCard } from '#modules/board/card.parser.js';
-import { collateralPaths } from '#modules/agent/collateral.js';
 import { StageHeldError, StageInterruptedError, type InterruptedAttempt } from '#modules/agent/stage.interrupt.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { ScopeKickbackError } from '#modules/agent/tools/index.js';
@@ -24,14 +20,14 @@ import { Notifier } from '#modules/notify/notifier.js';
 import type { CardNotification } from '#modules/notify/notification.js';
 import { DEV_SERVER_PORT_RANGE } from '#modules/settings/dev.server.port.range.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
-import { snapshotDrift, WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
+import { snapshotDrift, WorktreeManager, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { cardOverBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
-import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
 import { findStage, isPlanCheck, type ProjectStages, type StageConfig } from './stage.config.js';
 import { StageConfigStore } from './stage.config.store.js';
 import { StageResultSchemaMap, type ReviewCriterion, type ReviewFinding, type StageOutcome } from './stage.result.js';
 import { executeStage, type StageExecutionInput } from './stage.execution.js';
+import { prepareStage } from './stage.preparation.js';
 import { StageVerifierMap } from './stage.verifier.js';
 import { endingOf } from './terminal.js';
 
@@ -134,72 +130,6 @@ const findingsFrom = (result: unknown): ReviewFinding[] | undefined => {
 const criteriaFrom = (result: unknown): ReviewCriterion[] | undefined => {
     const criteria = (result as { criteria?: unknown } | undefined)?.criteria;
     return Array.isArray(criteria) ? (criteria as ReviewCriterion[]) : undefined;
-};
-
-/**
- * The `extraScope` the running stage may itself write, beyond this card's own "Files in scope" —
- * the fact `materializePlan` folds into that stage's own plan so it knows what it can already
- * write, instead of calling `request_scope` for paths `ScopeGuard`'s allow list (`scoped` in `run`,
- * above) already covers.
- *
- * `ScopeGuard` is built from `[...filesInScope(card), ...stage.extraScope]`, but that allow list
- * lives inside the guard — nothing the agent reads ever names it. A plan that lists only the card's
- * own "Files in scope" and says nothing about `extraScope` reads as "everything else is out of
- * bounds," which is exactly what led card 0154's testing stage to request and be granted four test
- * files its own `*.test.ts` glob already allowed.
- *
- * Deliberately a separate note from `otherStagesScopeNote`, not folded into one list: that one tells
- * a reviewer "a file here is another stage doing its job"; this one tells the running stage "you may
- * write these yourself." Merging them would leave a reader guessing which sense applied to which
- * line.
- *
- * Returns the empty string when this stage configures no `extraScope`, so a stage with none gets no
- * heading and no dangling sentence, matching `otherStagesScopeNote`.
- */
-const ownScopeNote = (stage: StageConfig): string => {
-    if (stage.extraScope.length === 0) return '';
-
-    return [
-        '## Your scope',
-        '',
-        'Beyond this card\'s own "Files in scope" above, this stage may also write, under its own',
-        'configured scope:',
-        '',
-        ...stage.extraScope.map(g => `- \`${g}\``),
-    ].join('\n');
-};
-
-/**
- * The paths another stage may add on top of this card's own "Files in scope" — the fact
- * `materializePlan` folds into every stage's plan so a file a later stage legitimately adds under
- * its own `extraScope` (`stage.config.ts`) reads as expected, not as undeclared scope creep.
- *
- * A card's "Files in scope" is written for `implementing`; nothing else about the pipeline is in
- * that document, so a stage reading only the plan has no way to tell a test file the testing stage
- * added under its own `extraScope` apart from one that was never declared at all (card 0139).
- *
- * Generated from the loaded `stages.yaml`, not duplicated here as a second copy of it: a project
- * that configures different globs, or a different stage entirely, gets those globs with no code
- * change. Excludes the stage this plan is being materialized for — not because restating it would
- * say nothing new (`ScopeGuard`'s allow list enforces that stage's own `extraScope` but never shows
- * it to the agent, which is exactly why `ownScopeNote`, above, exists), but because it is a different
- * fact for a different reader: this list tells a reviewer "a file here is that stage doing its job,"
- * not "you may write this." Returns the empty string when no other stage configures one, so a project
- * with no `extraScope` anywhere gets no heading and no dangling sentence.
- */
-const otherStagesScopeNote = (stages: ProjectStages, currentStageName: string): string => {
-    const others = stages.stages.filter(s => s.name !== currentStageName && s.extraScope.length > 0);
-    if (others.length === 0) return '';
-
-    return [
-        '## Also in scope',
-        '',
-        'Not this card\'s own "Files in scope" above, but paths another stage may add under its own',
-        'configured scope. A file here in the diff is that stage doing its job, not undeclared scope',
-        'creep:',
-        '',
-        ...others.map(s => `- \`${s.name}\`: ${s.extraScope.map(g => `\`${g}\``).join(', ')}`),
-    ].join('\n');
 };
 
 /**
@@ -513,106 +443,16 @@ export class StageDispatcher {
             }
         }
 
-        // Before the agent sees the tree, not as its first task: a fresh worktree has no
-        // node_modules, and card 0001 twice spent its whole run installing dependencies and
-        // confirming the baseline built, then reported that as the work.
-        //
-        // Wrapped in `pnpmStoreLock` because this is an install: two of these racing pnpm's shared
-        // store is what broke four of five cards started together in card 0081, and an agent's own
-        // `pnpm install` through the bash tool takes the same lock, so either side waits for the
-        // other rather than corrupting the store. The wait happens here, before `runAgent` below
-        // ever starts the stage's `maxWallClockMs` clock — that clock opens inside the adapter's own
-        // `generate()` call (`api.stage.agent.ts`/`cli.stage.agent.ts`), well after this returns — so
-        // a stage queued behind another card's install is not charged for a queue it did not choose.
-        if (stage.setupCommand) {
-            const setupCommand = stage.setupCommand;
-            // Captured alongside the log line `pnpmStoreLock` already emits, so a wait shows up in
-            // the durable event trail too, not only in the log an operator has to be watching live —
-            // the same reasoning `withCollateralCaveats` above applies to `scope.collateral`: a log
-            // entry nobody reads before the review runs is not the same as recorded.
-            let installWaitedMs: number | undefined;
-            const failure = await pnpmStoreLock.run(
-                `${cardId} ${stageName} setup`,
-                message => this.logger.info(message),
-                () => runConfiguredCommand(worktree.path, setupCommand, undefined, port, worktreeHost(worktree)),
-                waitedMs => {
-                    installWaitedMs = waitedMs;
-                },
-            );
-            await this.events.append({
-                project: this.config.project,
-                cardId,
-                stage: stageName,
-                type: 'worktree.prepared',
-                payload: {
-                    command: setupCommand,
-                    ok: !failure,
-                    ...(failure ? { reason: failure.reason } : {}),
-                    ...(installWaitedMs !== undefined ? { installWaitedMs } : {}),
-                },
-            });
-            if (failure) {
-                // Not retried: the race that used to produce this exact failure is gone now that the
-                // install is serialized, so what reaches here is a genuine failure — a real lockfile
-                // mismatch, a registry outage, a full disk — and retrying identical work against an
-                // unpinned cause is exactly the waste `isPermanentFailure` exists to avoid elsewhere.
-                // An unprepared worktree makes every later signal meaningless — the build would fail
-                // for reasons that have nothing to do with the card.
-                throw new Error(`worktree setup failed for ${cardId}: ${failure.reason}`);
-            }
-            this.logger.info(`worktree prepared with \`${setupCommand}\``);
-        }
-
-        const localPlanPath = await this.materializePlan(card, pinnedSha, stages, stage);
-        // The agent reads the plan where its worktree is. A placed stage gets a copy on the host,
-        // under the host's run root, outside its worktree for the same reason the local one is.
-        const planPath = placement ? await this.mirrorToHost(placement, cardId, localPlanPath, true) : localPlanPath;
-
-        // Card 0244: the project's human-approved learnings document, materialized outside the
-        // worktree the same way the plan is — so it can never be committed to the card's branch
-        // either. Empty (`load()`'s own contract: no document yet reads the same as an empty one,
-        // PROJECT.md decision 8) or `this.learnings` altogether unset (see the constructor's own
-        // comment) both mean no file is written and no path reaches the adapter at all — an empty
-        // document means "no learnings", not an empty file to hand the agent.
-        const learningsMarkdown = (await this.learnings?.load()) ?? '';
-        const localLearningsPath = learningsMarkdown.trim().length > 0 ? await this.materializeLearnings(cardId, learningsMarkdown) : undefined;
-        const learningsPath = placement && localLearningsPath ? await this.mirrorToHost(placement, cardId, localLearningsPath) : localLearningsPath;
-
-        // Structural dependencies of a scoped file, one hop out — so the stage does not have to ask
-        // for the file defining a type it is already using because something in scope imports it.
-        const scoped = [...filesInScope(card), ...stage.extraScope];
-        const collateral = await collateralPaths(worktree.path, scoped, worktreeHost(worktree));
-
-        // Every card's preserved patch, not just this one's (card 0161): a split card's plan
-        // routinely names its parent's `last-failed-attempt.patch` as the single most useful
-        // artifact around, and the stage running it has no way to know in advance which card that
-        // will be — `boardCards`, already fetched above for `assertDispatchable`, is every card on
-        // the board. Listed unconditionally, with no `stat` first: most cards have never failed, so
-        // most of these paths do not exist, and an unconditional grant just lets that read fail with
-        // an ordinary "no such file" — the same as any other in-scope path that happens to be
-        // absent — rather than the scope refusal this card exists to remove.
-        //
-        // A placed stage gets the same set, copied to the same place under the host's run root.
-        // Only the patches that exist are copied: whether one does is a local `stat`, and the
-        // copies are what cost a round trip, so a board of cards that never failed costs nothing.
-        const preservedPatchPaths = placement
-            ? await this.mirrorPatches(placement, boardCards)
-            : boardCards.map(c => this.worktrees.failedAttemptPatchPath(c.frontmatter.id));
-
-        const scope = new ScopeGuard({
-            worktreeRoot: worktree.path,
-            allow: scoped,
-            alwaysAllowed: stages.alwaysAllowed,
-            deny: stages.deny,
-            collateral,
-            // The plan and every card's preserved patch live outside the worktree so neither can be
-            // committed to the card's branch. Without this both are also unreadable, and the agent
-            // either infers its own contract or is refused the one artifact its plan told it to read.
-            // `learningsPath` joins them on the same footing, present only when the document is
-            // non-empty — see its own comment above.
-            readableExtras: [planPath, ...preservedPatchPaths, ...(learningsPath ? [learningsPath] : [])],
-            host: worktreeHost(worktree),
-        });
+        const { planPath, learningsPath, scoped, scope } = await prepareStage(
+            {
+                config: this.config,
+                worktrees: this.worktrees,
+                events: this.events,
+                logger: this.logger,
+                learnings: this.learnings,
+            },
+            { cardId, stageName, stages, stage, card, pinnedSha, worktree, placement, port, boardCards },
+        );
 
         await this.events.append({
             project: this.config.project,
@@ -1169,41 +1009,6 @@ export class StageDispatcher {
     }
 
     /**
-     * Write the plan where the agent can read it — outside the worktree.
-     *
-     * The board is a sibling repo, so the plan is not in the tree the agent is editing. Materializing
-     * it outside means it can never be accidentally committed to the card's branch.
-     *
-     * Appends `ownScopeNote` and `otherStagesScopeNote` after the card's own body — the one place
-     * every stage's agent, review included, actually reads (card 0139). `stages` is the same config
-     * `run` already loaded for this dispatch, not a second load.
-     */
-    private async materializePlan(card: Card, sha: string | undefined, stages: ProjectStages, stage: StageConfig): Promise<string> {
-        const dir = join(this.config.runRoot, 'cards', card.frontmatter.id);
-        await mkdir(dir, { recursive: true });
-        const path = join(dir, 'plan.md');
-        const notes = [ownScopeNote(stage), otherStagesScopeNote(stages, stage.name)].filter(note => note.length > 0);
-        const material = notes.length > 0 ? `${serializeCard(card).trimEnd()}\n\n${notes.join('\n\n')}\n` : serializeCard(card);
-        await writeFile(path, material, 'utf8');
-        this.logger.info(`plan for ${card.frontmatter.id} materialized at ${path}${sha ? ` (${sha.slice(0, 8)})` : ''}`);
-        return path;
-    }
-
-    /**
-     * Write the project's learnings document where the agent can read it — outside the worktree,
-     * for the identical reason `materializePlan` above lives there: so it can never be committed to
-     * the card's branch. Called only when `run` already knows the document is non-empty, so unlike
-     * `materializePlan` this has no "absent" case of its own to handle.
-     */
-    private async materializeLearnings(cardId: string, markdown: string): Promise<string> {
-        const dir = join(this.config.runRoot, 'cards', cardId);
-        await mkdir(dir, { recursive: true });
-        const path = join(dir, 'learnings.md');
-        await writeFile(path, markdown, 'utf8');
-        return path;
-    }
-
-    /**
      * Throw a `HostLostError` when `placement`'s host no longer answers, after marking it failed and
      * recording why. Returns quietly when it answers: then whatever went wrong is the stage's own.
      */
@@ -1218,40 +1023,6 @@ export class StageDispatcher {
             payload: { host: placement.hostName, reason },
         });
         throw new HostLostError(placement.hostName, reason, { cause });
-    }
-
-    /**
-     * Copy a file materialized here to the same card's folder under the host's run root.
-     *
-     * `rehome` rewrites this machine's run root to the host's wherever it appears in the text: a
-     * plan names preserved patches by path (its attempts section records each failed attempt's
-     * `patchPath`, and a split card's plan cites its parent's), and on the host those paths are the
-     * copies `mirrorPatches` makes, not the originals.
-     */
-    private async mirrorToHost(placement: RemotePlacement, cardId: string, localPath: string, rehome = false): Promise<string> {
-        const dir = posix.join(placement.runRoot, 'cards', cardId);
-        const remotePath = posix.join(dir, posix.basename(localPath));
-        const text = await readFile(localPath, 'utf8');
-        await placement.host.mkdir(dir);
-        await placement.host.writeFile(
-            remotePath,
-            rehome ? text.replaceAll(`${join(this.config.runRoot, 'cards')}/`, `${posix.join(placement.runRoot, 'cards')}/`) : text,
-        );
-        return remotePath;
-    }
-
-    /** Every board card's preserved patch that exists here, copied to the host; the copies' paths. */
-    private async mirrorPatches(placement: RemotePlacement, boardCards: Card[]): Promise<string[]> {
-        const copied: string[] = [];
-        for (const board of boardCards) {
-            const local = this.worktrees.failedAttemptPatchPath(board.frontmatter.id);
-            const exists = await stat(local).then(
-                () => true,
-                () => false,
-            );
-            if (exists) copied.push(await this.mirrorToHost(placement, board.frontmatter.id, local));
-        }
-        return copied;
     }
 
     private runAgent(input: StageExecutionInput): Promise<StageOutcome> {
