@@ -272,7 +272,8 @@ describe('a card in planning', () => {
         });
 
         expect(sendAPlanTurn).toHaveBeenCalledWith('0007', { text: 'Trim task 3', mode: 'cuts' });
-        expect(await screen.findByText('Trim task 3')).toBeTruthy();
+        // The composer can still hold the same text while the turn is sent, so look only at the transcript.
+        expect(await screen.findByText('Trim task 3', { ignore: 'script, style, textarea' })).toBeTruthy();
         expect((proposeCuts as HTMLButtonElement).disabled).toBe(true);
 
         await act(async () => {

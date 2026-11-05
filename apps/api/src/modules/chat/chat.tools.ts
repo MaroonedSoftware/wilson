@@ -17,7 +17,7 @@ import type { ChatOperation } from './chat.message.repository.js';
 import { ChatPendingActionRepository, type PendingAction } from './chat.pending.action.repository.js';
 import { ChatQuestionRepository, type PendingQuestion } from './chat.question.repository.js';
 import { QUESTION_TTL, QUESTIONS_SCHEMA, type AskedQuestion } from './chat.questions.js';
-import { ChatCatalog, explainError } from './chat.catalog.js';
+import { ChatCatalog, explainError, type ChatCatalogEntry } from './chat.catalog.js';
 
 /**
  * A tool as both engines take it: a name, a description, a zod object for its input, and an
@@ -46,6 +46,8 @@ export interface ChatTurnContext {
     logger: Logger;
     /** Who the turn is for: the session its reads run as. */
     session: AuthenticationSession;
+    /** The outside tools this turn is offered (`ChatCatalog.external`). None when left out. */
+    external?: readonly ChatCatalogEntry[];
     operations: ChatOperation[];
     proposed: PendingAction[];
     asked: PendingQuestion[];
@@ -141,7 +143,7 @@ export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatT
         {
             name: 'discover',
             description:
-                "Search Wilson's operations by keyword: cards, the board, stages, projects, settings, learnings. Answers each match's name, what it does, and whether it is a read (run it yourself) or a change (propose it).",
+                "Search Wilson's operations by keyword: cards, the board, stages, projects, settings, learnings, and the tools of any outside services connected. Answers each match's name, what it does, and whether it is a read (run it yourself) or a change (propose it).",
             input: z.object({
                 query: z.string().describe('Words describing what you want to do, e.g. "move card stage" or "card events".'),
                 readOnly: z.boolean().optional().describe('true for reads only, false for changes only.'),
@@ -149,7 +151,7 @@ export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatT
             }),
             execute: async input => {
                 const { query, readOnly, limit } = input as { query: string; readOnly?: boolean; limit?: number };
-                const matches = catalog.search(query, limit ?? 10, readOnly);
+                const matches = catalog.search(query, limit ?? 10, readOnly, context.external);
                 return capped(matches.map(({ name, description, readOnly }) => ({ name, description, readOnly })));
             },
         },
@@ -158,7 +160,7 @@ export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatT
             description: "One operation's full description and the JSON Schema of its arguments. Read it before running or proposing an operation.",
             input: z.object({ name: z.string().describe('The operation name, as the search answered it.') }),
             execute: async input => {
-                const entry = catalog.get((input as { name: string }).name);
+                const entry = catalog.get((input as { name: string }).name, context.external);
                 return entry ? capped(entry) : `There is no operation named "${(input as { name: string }).name}". Search for one first.`;
             },
         },
@@ -179,12 +181,12 @@ export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatT
                     arguments: args = {},
                     offset,
                 } = input as { name: string; project?: string; arguments?: Record<string, unknown>; offset?: number };
-                const entry = catalog.get(name);
+                const entry = catalog.get(name, context.external);
                 if (!entry) return `There is no operation named "${name}". Search for one first.`;
                 if (!entry.readOnly)
                     return `"${name}" changes something, so it is not run directly. Propose it instead, and the person will confirm or decline it.`;
                 try {
-                    const result = await catalog.run(context.container, context.logger, context.session, name, args, project);
+                    const result = await catalog.run(context.container, context.logger, context.session, name, args, project, { mustBeRead: true });
                     record({ name, arguments: args, project, ok: true });
                     return capped(result, offset);
                 } catch (err) {
@@ -210,7 +212,7 @@ export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatT
                     arguments: args = {},
                     summary,
                 } = input as { name: string; project?: string; arguments?: Record<string, unknown>; summary: string };
-                const entry = catalog.get(name);
+                const entry = catalog.get(name, context.external);
                 if (!entry) return `There is no operation named "${name}". Search for one first.`;
                 if (entry.readOnly) return `"${name}" only reads. Run it directly instead of proposing it.`;
                 const proposals = context.container.get(ChatPendingActionRepository);

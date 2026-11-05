@@ -29,6 +29,7 @@ namespace Walk;
 //     dotnet run --project tools/Walk -- keychain
 //     dotnet run --project tools/Walk -- app-probe
 //     dotnet run --project tools/Walk -- app-live <out dir> <origin> <email> <password>
+//     dotnet run --project tools/Walk -- menubar-live <out dir> <origin> <email> <password>
 //     dotnet run --project tools/Walk -- signin [<claude, or empty to look for it>] [<seconds>]
 //     dotnet run --project tools/Walk -- update <bundle> <zip> <sig> <public key> <version>
 internal static class Program
@@ -54,6 +55,12 @@ internal static class Program
         if (args is ["app-live", var liveDir, var liveOrigin, var liveEmail, var livePassword])
         {
             Environment.ExitCode = AppLive.Run(liveDir, liveOrigin, liveEmail, livePassword);
+            return;
+        }
+
+        if (args is ["menubar-live", var barDir, var barOrigin, var barEmail, var barPassword])
+        {
+            Environment.ExitCode = MenuBarLive.Run(barDir, barOrigin, barEmail, barPassword);
             return;
         }
 
@@ -474,6 +481,20 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
 
         window.MouseUp(to, MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>A control in a window of its own, for what is not a page of the shell.</summary>
+    public void ShotOf(Avalonia.Controls.Control control, string name, int width, int height)
+    {
+        var other = new Window { Width = width, Height = height, Content = control };
+        other.Show();
+        Dispatcher.UIThread.RunJobs();
+        Dispatcher.UIThread.RunJobs();
+        Dispatcher.UIThread.RunJobs();
+        using var frame = other.CaptureRenderedFrame();
+        frame?.Save(Path.Combine(into, $"{name}.png"), new PngBitmapEncoderOptions());
+        other.Close();
+        Console.WriteLine($"shot {name}");
     }
 
     public void Shot(string name)

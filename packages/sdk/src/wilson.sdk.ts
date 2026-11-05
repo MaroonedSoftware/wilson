@@ -15,10 +15,12 @@ import { GoalsClient } from './goals.client.js';
 import { HealthClient } from './health.client.js';
 import { HostsClient } from './hosts.client.js';
 import { LearningsClient } from './learnings.client.js';
+import { McpConnectionsClient } from './mcp.connections.client.js';
 import { OnboardingClient } from './onboarding.client.js';
 import { ProjectsClient } from './projects.client.js';
 import { ReviewClient } from './review.client.js';
 import { RulesClient } from './rules.client.js';
+import { SecretsClient } from './secrets.client.js';
 import { SettingsClient } from './settings.client.js';
 import { StagesClient } from './stages.client.js';
 
@@ -38,10 +40,12 @@ export class WilsonSdk {
     readonly health: HealthClient;
     readonly hosts: HostsClient;
     readonly learnings: LearningsClient;
+    readonly mcpConnections: McpConnectionsClient;
     readonly onboarding: OnboardingClient;
     readonly projects: ProjectsClient;
     readonly review: ReviewClient;
     readonly rules: RulesClient;
+    readonly secrets: SecretsClient;
     readonly settings: SettingsClient;
     readonly stages: StagesClient;
 
@@ -62,10 +66,12 @@ export class WilsonSdk {
         this.health = new HealthClient(sdkFetch);
         this.hosts = new HostsClient(sdkFetch);
         this.learnings = new LearningsClient(sdkFetch);
+        this.mcpConnections = new McpConnectionsClient(sdkFetch);
         this.onboarding = new OnboardingClient(sdkFetch);
         this.projects = new ProjectsClient(sdkFetch);
         this.review = new ReviewClient(sdkFetch);
         this.rules = new RulesClient(sdkFetch);
+        this.secrets = new SecretsClient(sdkFetch);
         this.settings = new SettingsClient(sdkFetch);
         this.stages = new StagesClient(sdkFetch);
     }

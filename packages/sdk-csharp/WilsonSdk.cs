@@ -34,10 +34,12 @@ public sealed class WilsonSdk : IDisposable
         Health = new HealthClient(Http);
         Hosts = new HostsClient(Http);
         Learnings = new LearningsClient(Http);
+        McpConnections = new McpConnectionsClient(Http);
         Onboarding = new OnboardingClient(Http);
         Projects = new ProjectsClient(Http);
         Review = new ReviewClient(Http);
         Rules = new RulesClient(Http);
+        Secrets = new SecretsClient(Http);
         Settings = new SettingsClient(Http);
         Stages = new StagesClient(Http);
     }
@@ -74,6 +76,8 @@ public sealed class WilsonSdk : IDisposable
 
     public LearningsClient Learnings { get; }
 
+    public McpConnectionsClient McpConnections { get; }
+
     public OnboardingClient Onboarding { get; }
 
     public ProjectsClient Projects { get; }
@@ -81,6 +85,8 @@ public sealed class WilsonSdk : IDisposable
     public ReviewClient Review { get; }
 
     public RulesClient Rules { get; }
+
+    public SecretsClient Secrets { get; }
 
     public SettingsClient Settings { get; }
 

@@ -1,5 +1,14 @@
 import { WebSocket } from 'ws';
-import { parseFrame, ToWorker, WORKER_CONNECT_PATH, WORKER_PROTOCOL_VERSION, WorkerCloseCode, type FromWorker } from '@wilson/worker-protocol';
+import {
+    parseFrame,
+    ToWorker,
+    WORKER_CONNECT_PATH,
+    WORKER_KEEPALIVE_MS,
+    WORKER_MAX_MISSED_PONGS,
+    WORKER_PROTOCOL_VERSION,
+    WorkerCloseCode,
+    type FromWorker,
+} from '@wilson/worker-protocol';
 import { WorkerExecutor, type WorkerExecutorOptions } from './worker.executor.js';
 import { ProjectRoots } from './worker.roots.js';
 
@@ -25,7 +34,17 @@ export interface WorkerClientOptions {
     /** The wait before the first reconnect, doubling to `maxReconnectMs`. */
     minReconnectMs?: number;
     maxReconnectMs?: number;
+    /** How long a connection may stay silent before it counts as gone. A test shortens it. */
+    silenceLimitMs?: number;
 }
+
+/**
+ * How long a connection may stay silent before it counts as gone. One interval past the point Wilson
+ * would have closed it for missing pongs: the check's timer fires before pings waiting in the socket are
+ * read, so after a stall any shorter limit would end stages Wilson was still prepared to wait for. A
+ * network cut that closes nothing is still found rather than whenever traffic happens to return.
+ */
+const SILENCE_LIMIT_MS = (WORKER_MAX_MISSED_PONGS + 1) * WORKER_KEEPALIVE_MS;
 
 /** Wilson's API URL as the WebSocket URL of its worker endpoint. */
 export const connectUrl = (api: string): string => {
@@ -50,8 +69,12 @@ export class WorkerStoppedError extends Error {
 /**
  * A worker's connection to Wilson, kept open: connect, say hello, carry out whatever arrives, and
  * reconnect with backoff whenever the connection drops. Each connection gets a fresh executor, and a
- * drop kills every process the last one started, since the stage that wanted them can no longer hear
- * them and will be retried.
+ * drop ends every process the last one started and everything those started, since the stage that
+ * wanted them can no longer hear them and will be retried.
+ *
+ * Wilson pings every connection, and one that stops being heard from is closed here as a drop would
+ * be. A network cut can close nothing, and without this the worker would sit on a dead socket, with its
+ * engines still running and no way for Wilson to reach it, for as long as the cut lasts.
  *
  * It stops for good only when reconnecting cannot help: the token is refused (401), Wilson does not
  * speak this protocol version, or another worker has connected as the same host.
@@ -91,13 +114,17 @@ export class WorkerClient {
         return this.host;
     }
 
-    /** Close the connection, end every process it started, and stop reconnecting. */
+    /**
+     * Close the connection, end every process it started, and stop reconnecting. `run` resolves only
+     * once those have had their last signal, since they are in process groups of their own and would
+     * outlive a worker that exited first.
+     */
     stop(): void {
         this.stopping = true;
         if (this.retryTimer) clearTimeout(this.retryTimer);
-        this.executor?.killAll();
+        const ended = this.executor?.killAll() ?? Promise.resolve();
         this.socket?.close(1000, 'worker stopping');
-        this.settle?.resolve();
+        void ended.finally(() => this.settle?.resolve());
     }
 
     /** An engine token came over this connection. Once, since each engine start brings one. */
@@ -108,11 +135,22 @@ export class WorkerClient {
     }
 
     private connect(): void {
+        const silenceLimitMs = this.options.silenceLimitMs ?? SILENCE_LIMIT_MS;
         const socket = new WebSocket(connectUrl(this.options.url), {
             headers: { authorization: `Bearer ${this.options.token}` },
             maxPayload: MAX_PAYLOAD_BYTES,
+            handshakeTimeout: silenceLimitMs,
         });
         this.socket = socket;
+        let silence: NodeJS.Timeout | undefined;
+        const heard = (): void => {
+            clearTimeout(silence);
+            silence = setTimeout(() => {
+                this.logger.warn(`heard nothing from Wilson in ${silenceLimitMs}ms; treating the connection as dropped`);
+                socket.terminate();
+            }, silenceLimitMs);
+            silence.unref();
+        };
         const executor = new WorkerExecutor(message => this.send(socket, message), {
             ...this.options.executor,
             checkPath: this.roots.checkPath,
@@ -120,10 +158,13 @@ export class WorkerClient {
         });
         this.executor = executor;
 
+        socket.on('ping', heard);
         socket.on('open', () => {
+            heard();
             this.send(socket, { type: 'hello', protocol: WORKER_PROTOCOL_VERSION, workerVersion: this.options.version, platform: process.platform });
         });
         socket.on('message', (data, isBinary) => {
+            heard();
             if (isBinary) return;
             const message = parseFrame(ToWorker, data.toString());
             if (!message) return;
@@ -149,7 +190,8 @@ export class WorkerClient {
             this.logger.warn(`connection error: ${err.message}`);
         });
         socket.on('close', (code, reason) => {
-            executor.killAll();
+            clearTimeout(silence);
+            void executor.killAll();
             this.host = undefined;
             if (this.stopping) return;
             if (code === WorkerCloseCode.BadHello) {

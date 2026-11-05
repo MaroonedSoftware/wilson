@@ -6,8 +6,10 @@ import { LeaseService } from '#modules/lease/lease.service.js';
 import { LOCAL_STAGE_SLOTS } from '#modules/settings/local.stage.slots.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
+import type { ExecutionHost } from './execution.host.js';
+import type { GitTransport } from './git.transport.js';
 import { ProjectClones } from './project.clones.js';
-import { HostConnector } from './host.connector.js';
+import { HostConnector, WorkerNotConnectedError } from './host.connector.js';
 import { HostRepository, type HostProjectRow, type HostRow } from './host.repository.js';
 import { hostSlotKey, localSlotKey, type RemotePlacement } from './placement.js';
 
@@ -117,7 +119,18 @@ export class HostPlacer {
             // Recorded before connecting, and read back: connecting tells a worker its roots, replacing
             // the last list, so that list has to hold this project and any another stage just added.
             if (!listed) await this.hosts.putProject(row.name, serves);
-            const host = this.connector.connect((await this.hosts.find(row.name)) ?? row);
+            // A worker that dropped since its last probe still shows that probe as passed.
+            let host: ExecutionHost;
+            let git: GitTransport;
+            try {
+                host = this.connector.connect((await this.hosts.find(row.name)) ?? row);
+                git = this.connector.gitTransport(row);
+            } catch (err) {
+                await this.leases.release(slotKey, project, cardId);
+                if (!(err instanceof WorkerNotConnectedError)) throw err;
+                reasons.push(`${row.name} has no worker connected`);
+                continue;
+            }
             const reached = await host.exec('true', [], { cwd: '/', env: {}, timeoutMs: REACH_TIMEOUT_MS }).then(
                 () => true,
                 (err: Error) => {
@@ -146,7 +159,7 @@ export class HostPlacer {
             return {
                 hostName: row.name,
                 host,
-                git: this.connector.gitTransport(row),
+                git,
                 codeRoot: serves.codeRoot,
                 worktreeRoot: serves.worktreeRoot,
                 runRoot: serves.runRoot,

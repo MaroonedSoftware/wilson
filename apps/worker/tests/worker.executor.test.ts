@@ -263,8 +263,186 @@ describe('WorkerExecutor', () => {
 
         const running = harness();
         running.executor.handle({ type: 'spawn', id: 'k', command: 'claude', args: [], env: {} });
-        running.executor.killAll();
+        void running.executor.killAll();
         expect(await running.waitFor((m): m is Extract<FromWorker, { type: 'exit' }> => m.type === 'exit')).toMatchObject({ signal: 'SIGTERM' });
+    });
+
+    describe('ending what it started', () => {
+        type Exit = Extract<FromWorker, { type: 'exit' }>;
+        type Result = Extract<FromWorker, { type: 'result' }>;
+
+        /** Whether `pid` is gone, allowing a moment for the signal to land and the process to be reaped. */
+        const gone = async (pid: number): Promise<boolean> => {
+            for (let i = 0; i < 100; i++) {
+                try {
+                    process.kill(pid, 0);
+                } catch {
+                    return true;
+                }
+                await new Promise(resolve => setTimeout(resolve, 20));
+            }
+            return false;
+        };
+
+        /** A stand-in engine: runs `body`, having written `$!` of a background `sleep` to `pidFile`. */
+        const fakeEngine = async (body: string): Promise<{ command: string; pidFile: string }> => {
+            const dir = await mkdtemp(join(root, 'tree-'));
+            const command = join(dir, 'engine');
+            const pidFile = join(dir, 'pid');
+            await writeFile(command, `#!/bin/sh\n${body.replaceAll('PIDFILE', pidFile)}\n`, 'utf8');
+            await chmod(command, 0o755);
+            return { command, pidFile };
+        };
+
+        const readPid = async (pidFile: string): Promise<number> => {
+            for (;;) {
+                const text = await readFile(pidFile, 'utf8').catch(() => '');
+                if (text.endsWith('\n')) return Number(text.trim());
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+        };
+
+        it('ends what an engine started along with the engine', async () => {
+            const { command, pidFile } = await fakeEngine('sleep 60 &\necho $! > PIDFILE\nwait');
+            const { executor, waitFor } = harness({ claudeCommand: command, killGraceMs: 50 });
+
+            executor.handle({ type: 'spawn', id: 'tree', command: 'claude', args: [], env: {} });
+            const pid = await readPid(pidFile);
+            await executor.killAll();
+
+            await waitFor((m): m is Exit => m.type === 'exit' && m.id === 'tree');
+            expect(await gone(pid)).toBe(true);
+        });
+
+        it('ends a command an engine runs in a session of its own, as the real engine does', async () => {
+            // A stand-in that stays alive holding a detached shell, which holds a sleep: no group of the
+            // engine's reaches either of them.
+            const dir = await mkdtemp(join(root, 'session-'));
+            const command = join(dir, 'engine');
+            const pidFile = join(dir, 'pid');
+            const shell = `sleep 60 & echo $! > ${pidFile}; wait`;
+            await writeFile(
+                command,
+                `#!${process.execPath}\nrequire('node:child_process').spawn('sh', ['-c', ${JSON.stringify(shell)}], { detached: true, stdio: 'ignore' });\nsetInterval(() => {}, 1000);\n`,
+                'utf8',
+            );
+            await chmod(command, 0o755);
+            const { executor, waitFor } = harness({ claudeCommand: command, killGraceMs: 50 });
+
+            executor.handle({ type: 'spawn', id: 'session', command: 'claude', args: [], env: {} });
+            const pid = await readPid(pidFile);
+            await executor.killAll();
+
+            await waitFor((m): m is Exit => m.type === 'exit' && m.id === 'session');
+            expect(await gone(pid)).toBe(true);
+        });
+
+        it('ends the tree on a kill from Wilson too', async () => {
+            const { command, pidFile } = await fakeEngine('sleep 60 &\necho $! > PIDFILE\nwait');
+            const { executor, waitFor } = harness({ claudeCommand: command, killGraceMs: 50 });
+
+            executor.handle({ type: 'spawn', id: 'asked', command: 'claude', args: [], env: {} });
+            const pid = await readPid(pidFile);
+            executor.handle({ type: 'kill', id: 'asked' });
+
+            await waitFor((m): m is Exit => m.type === 'exit' && m.id === 'asked');
+            expect(await gone(pid)).toBe(true);
+        });
+
+        it('kills an engine that ignores being told to stop, once its grace is up', async () => {
+            const { command, pidFile } = await fakeEngine("trap '' TERM\nsleep 60 &\necho $! > PIDFILE\nwhile :; do wait; done");
+            const { executor, waitFor } = harness({ claudeCommand: command, killGraceMs: 50 });
+
+            executor.handle({ type: 'spawn', id: 'stubborn', command: 'claude', args: [], env: {} });
+            const pid = await readPid(pidFile);
+            await executor.killAll();
+
+            expect(await waitFor((m): m is Exit => m.type === 'exit' && m.id === 'stubborn')).toMatchObject({ signal: 'SIGKILL' });
+            expect(await gone(pid)).toBe(true);
+        });
+
+        it('kills what outlives an engine that did stop', async () => {
+            const { command, pidFile } = await fakeEngine(
+                // The survivor lets go of the pipes, so the engine's own exit is what Wilson hears first.
+                "(trap '' TERM; exec sleep 60) > /dev/null 2>&1 < /dev/null &\necho $! > PIDFILE\nwait",
+            );
+            const { executor, waitFor } = harness({ claudeCommand: command, killGraceMs: 200 });
+
+            executor.handle({ type: 'spawn', id: 'outlived', command: 'claude', args: [], env: {} });
+            const pid = await readPid(pidFile);
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const ended = executor.killAll();
+
+            await waitFor((m): m is Exit => m.type === 'exit' && m.id === 'outlived');
+            expect(() => process.kill(pid, 0)).not.toThrow();
+            await ended;
+            expect(await gone(pid)).toBe(true);
+        });
+
+        it('cancels a running command and what it started', async () => {
+            const { command, pidFile } = await fakeEngine('sleep 60 &\necho $! > PIDFILE\nwait');
+            const { executor, waitFor } = harness({ killGraceMs: 50 });
+
+            executor.handle({ type: 'call', id: 'suite', call: { op: 'exec', file: command, args: [], options: { cwd: root } } });
+            const pid = await readPid(pidFile);
+            await executor.killAll();
+
+            expect(await waitFor((m): m is Result => m.type === 'result' && m.id === 'suite')).toMatchObject({ ok: false, error: { killed: true } });
+            expect(await gone(pid)).toBe(true);
+        });
+
+        it('ends what a command started when the command times out', async () => {
+            const { command, pidFile } = await fakeEngine('sleep 60 &\necho $! > PIDFILE\nwait');
+            const { call } = harness({ killGraceMs: 50 });
+
+            const result = await call({ op: 'exec', file: command, args: [], options: { cwd: root, timeoutMs: 1_000 } });
+
+            expect(result).toMatchObject({ ok: false, error: { killed: true } });
+            expect(await gone(await readPid(pidFile))).toBe(true);
+        });
+
+        it('stops a command that overflows its buffer, with what it started, keeping what fitted', async () => {
+            const { command, pidFile } = await fakeEngine('sleep 60 &\necho $! > PIDFILE\nprintf 123456\nwait');
+            const { call } = harness({ killGraceMs: 50 });
+
+            const result = await call({ op: 'exec', file: command, args: [], options: { cwd: root, maxBuffer: 4 } });
+
+            expect(result).toMatchObject({
+                ok: false,
+                error: { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER', killed: true, stdout: '1234' },
+            });
+            expect(await gone(await readPid(pidFile))).toBe(true);
+        });
+
+        it('has nothing to wait for when nothing is running', async () => {
+            const { call, executor } = harness();
+
+            await call({ op: 'exec', file: 'true', args: [], options: { cwd: root } });
+
+            const started = Date.now();
+            await executor.killAll();
+            expect(Date.now() - started).toBeLessThan(1_000);
+        });
+    });
+
+    describe('exec failures', () => {
+        it('reports a command that cannot start as execFile does', async () => {
+            const { call } = harness();
+
+            expect(await call({ op: 'exec', file: join(root, 'no-such-command'), args: [], options: { cwd: root } })).toMatchObject({
+                ok: false,
+                error: { code: 'ENOENT' },
+            });
+        });
+
+        it('leaves a command that produces less than its buffer alone', async () => {
+            const { call } = harness();
+
+            expect(await call({ op: 'exec', file: 'printf', args: ['123'], options: { cwd: root, maxBuffer: 4 } })).toMatchObject({
+                ok: true,
+                value: { stdout: '123' },
+            });
+        });
     });
 
     it('signs the engine in with a token Wilson sent, for that process alone', async () => {

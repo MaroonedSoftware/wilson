@@ -20,6 +20,7 @@ import { HostsService } from '#modules/host/hosts.service.js';
 import type { RemotePlacement } from '#modules/host/placement.js';
 import { SshGitTransport } from '#modules/host/ssh.git.transport.js';
 import { LeaseService } from '#modules/lease/lease.service.js';
+import { WorkerConnections } from '#modules/worker/worker.connections.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 
 /**
@@ -352,6 +353,36 @@ describe('HostPlacer', () => {
             const placed = (await defaulting().place(project, '0001', stage('remote'))) as RemotePlacement;
 
             expect(placed.codeRoot).toBe('/opt/agent/TGA');
+        });
+    });
+
+    describe('a worker that dropped since its last probe', () => {
+        const workerPlacer = () => new HostPlacer(hosts, new HostConnector(FAKE_SSH, undefined, new WorkerConnections()), leases, silentLogger);
+
+        const setUpWorker = async () => {
+            const project = uniqueProject();
+            await new ProjectRepository(db).create({ name: project, codeRoot: '/tmp/code', worktreeRoot: '/tmp/wt', runRoot: '/tmp/run' });
+            await insertCard(project, '0001');
+            const name = uniqueProject();
+            await service.create({ name, kind: 'worker' });
+            await service.putProject(name, project, { codeRoot: '/opt/agent/TGA', worktreeRoot: '/opt/agent/wt', runRoot: '/opt/agent/run' });
+            await hosts.recordProbe(name, { probedAt: DateTime.now(), ok: true });
+            return { project, name };
+        };
+
+        it('is passed over with the reason, and its slot given back', async () => {
+            const { project, name } = await setUpWorker();
+
+            const result = await workerPlacer().place(project, '0001', stage('remote'), name);
+
+            expect((result as NoHostAvailable).message).toContain(`${name} has no worker connected`);
+            expect((await leases.list()).some(lease => lease.resourceKey.startsWith(`host:${name}:`))).toBe(false);
+        });
+
+        it('leaves an `any` stage to run here', async () => {
+            const { project, name } = await setUpWorker();
+
+            expect(await workerPlacer().place(project, '0001', stage('any'), name)).toBeUndefined();
         });
     });
 

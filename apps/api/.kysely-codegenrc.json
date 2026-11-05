@@ -13,6 +13,7 @@
             "wilson.hosts.kind": "Generated<'ssh' | 'worker'>",
             "wilson.engine_tokens.provider": "Generated<'anthropic' | 'openai' | 'xai'>",
             "wilson.engine_tokens.kind": "Generated<'subscription' | 'api_key'>",
+            "wilson.mcp_connection_tools.access": "Generated<'read' | 'change' | 'disabled'>",
             "wilson.plan_turns.role": "'user' | 'assistant'",
             "wilson.chat_threads.engine": "'api' | 'cli'",
             "wilson.chat_turn_usage.engine": "'api' | 'cli'",

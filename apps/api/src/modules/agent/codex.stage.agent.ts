@@ -484,13 +484,21 @@ export class CodexStageAgent extends StageAgent {
             return {
                 usage,
                 truncated: true,
-                interrupted: { ...(sessionId && { sessionId }), wallClockMs: Date.now() - startedAt, steps },
+                interrupted: { ...(sessionId && { sessionId }), wallClockMs: Date.now() - startedAt, steps, ...(hostLost && { hostLost }) },
                 ...trace(),
             };
         };
         const interrupt = (): void => stopFor('interrupted');
         if (this.interrupts?.signal.aborted) interrupt();
         this.interrupts?.signal.addEventListener('abort', interrupt, { once: true });
+        // Heard before the engine's exit is acted on, which would otherwise read as the engine failing.
+        // Only named as the cause when nothing has stopped the run already: a shutdown closes worker
+        // connections too, and a stage that has reported has finished whatever its host does next.
+        let hostLost: string | undefined;
+        const stopListeningForHost = host.onLost?.(reason => {
+            if (stoppedBecause === undefined) hostLost = reason;
+            interrupt();
+        });
 
         // Only for a run with nothing reported, as in `CliStageAgent`. A failed write costs the next
         // engine start a refusal, and an error asking again means waiting for what is known.
@@ -653,6 +661,7 @@ export class CodexStageAgent extends StageAgent {
             clearTimeout(wallClock);
             clearTimeout(idle);
             this.interrupts?.signal.removeEventListener('abort', interrupt);
+            stopListeningForHost?.();
             connection.close();
             await Promise.all(recording);
             await host.unlink(join(context.worktreeRoot, REPORT_RESULT_PATH)).catch(() => {});
@@ -712,9 +721,10 @@ const dynamicTools = (schema: z.ZodTypeAny, canWrite: boolean, canAsk: boolean):
 
 const resumePrompt = (context: ToolContext): string =>
     [
-        `The daemon restarted and interrupted this stage. The worktree at ${context.worktreeRoot} is as you`,
-        `left it, but any command in progress when it stopped may not have finished. Check where your`,
-        `last step got to, then carry on with the stage and finish it as you were told to.`,
+        `This stage was interrupted, by a restart or a lost connection rather than anything you did. The`,
+        `worktree at ${context.worktreeRoot} is as you left it, but any command in progress when it stopped`,
+        `may not have finished. Check where your last step got to, then carry on with the stage and finish`,
+        `it as you were told to.`,
     ].join('\n');
 
 const prompt = ({
@@ -734,7 +744,7 @@ const prompt = ({
     [
         ...(resume
             ? [
-                  `An earlier attempt at this stage was interrupted by a restart, and its uncommitted work is`,
+                  `An earlier attempt at this stage was interrupted, and its uncommitted work is`,
                   `still in the worktree. Check it before building on it.`,
                   '',
               ]

@@ -395,11 +395,13 @@ export class ChatService {
         const { provider, model } = await this.choose();
         const projects = (await this.projects.list()).map(row => row.name);
         const [goal] = await this.goals.list({ threadId: thread.id });
+        const external = await this.catalog.external(this.container, session);
         const context: ChatTurnContext = {
             threadId: thread.id,
             container: this.container,
             logger: this.logger,
             session,
+            external,
             operations: [],
             proposed: [],
             asked: [],
@@ -413,7 +415,13 @@ export class ChatService {
                 history: await this.withImages(thread, history),
                 text,
                 images,
-                system: chatSystemPrompt({ projects, currentProject: project, threadId: thread.id, goal }),
+                system: chatSystemPrompt({
+                    projects,
+                    currentProject: project,
+                    threadId: thread.id,
+                    goal,
+                    outsideServices: [...new Set(external.map(tool => tool.name.split('.')[0]!))],
+                }),
                 tools: chatTools(this.catalog, context),
                 provider,
                 model,

@@ -1,7 +1,8 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
-import { KEEPALIVE_MS, MAX_MISSED_PONGS, WorkerConnection } from '#modules/worker/worker.connection.js';
+import { WORKER_KEEPALIVE_MS as KEEPALIVE_MS, WORKER_MAX_MISSED_PONGS as MAX_MISSED_PONGS } from '@wilson/worker-protocol';
+import { WorkerConnection } from '#modules/worker/worker.connection.js';
 
 class FakeSocket extends EventEmitter {
     ping = vi.fn();

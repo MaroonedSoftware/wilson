@@ -368,10 +368,30 @@ A worker confines file primitives to its host's project roots, as the latest `we
 guardrail in the sense the note atop `command.allowlist.ts` uses the word: a command run inside a
 root can reach past it. The boundary is the machine, which is why a worker belongs on one kept for it.
 
-A dropped connection fails whatever was waiting on it as a lost host, which the queue retries, and
-the worker kills every process the dropped connection started before it reconnects. A daemon restart
-still ends the stages running at the time, since the agent loop lives in the daemon. Moving the
-loop onto the worker would fix that, at the cost of running the guard beside the code it guards.
+A dropped connection interrupts the stage rather than failing it. The agent hears it from the host's
+`onLost`, the card records `stage.interrupted` with `hostLost`, no retry is spent, and the job comes back
+after 30 seconds to reopen the tree and continue the session, as a clean shutdown's does below. The third
+loss on one tree (`MAX_HOST_LOSS_RESUMES`) becomes a lost host instead, since an interruption charges
+nothing, and a lost host has its own limit, below. The worker ends everything the connection started before it reconnects: the engine, the commands
+it ran in sessions of their own, and anything those started, with `SIGKILL` five seconds later for
+whatever is left.
+
+A drop after the stage has reported, or during verification, stays a lost host and starts a new session.
+A lost host spends no retry: `CardStageJob` sends the stage again after 30 seconds, doubling to at most 5
+minutes, and flags the card for a person after six in a row (`MAX_HOST_LOSSES`), leaving it in its stage. The
+next attempt saves the tree's uncommitted work to the patch path when it cuts a new tree, so that work is
+not lost. A worker still away when the job comes back is passed over: a `remote`
+stage is deferred and an `any` stage runs elsewhere, and either starts a new session.
+
+A 2026-11-05 run against a real engine on a worker container went through all of these. A drop resumed the
+same session with no retry spent and nothing left running, and a replaced container, with its transcript
+gone, started a new session in the same tree. A network cut that closes nothing is found from both ends:
+Wilson after four unanswered pings, about a minute, and the worker by hearing no ping for 75 seconds, which
+it then treats as a drop. The worker waits longer than Wilson so a stall it recovers from costs no stage
+that Wilson was still prepared to wait for. That run predates the lost-host limit and these two waits.
+
+A daemon restart still interrupts the stages running at the time, since the agent loop lives in the daemon.
+Moving the loop onto the worker would fix that, at the cost of running the guard beside the code it guards.
 
 **A clean shutdown interrupts a stage rather than failing it.** On shutdown `StageInterrupt` stops
 each `cli` engine, the card records `stage.interrupted`, and the handler sends the stage again and
@@ -392,8 +412,8 @@ verified until the stage finishes, so a resumed run is held to the same exit con
 
 **So a deploy does not have to wait.** A restart costs a running `cli` stage a pause of about a minute
 rather than its work: a 2026-11-02 run against a real engine stopped in under a second, resumed the same
-session, re-ran the tool the restart killed, and passed with no retry spent. Placed stages have not been
-through this against a real worker yet.
+session, re-ran the tool the restart killed, and passed with no retry spent. Reopening a tree on a worker
+has since been proven by dropped connections, but no daemon restart has been run with one connected.
 
 **Drain when a restart must not interrupt anything.** That is a deploy that changes what a running stage
 depends on (its tools, its result contract, or how a resumed run behaves), one where a command stage,
@@ -1621,6 +1641,27 @@ only when retrying cannot help.
   token per trust level is what limits the damage. Removing a token here stops it being sent, and does
   not revoke it with Anthropic. Wilson and its workers must be the same protocol version, so update
   them together.
+
+- **Secrets.** Wilson holds named values in `wilson.secrets`, encrypted under the same key (`wilson secret
+set|list|remove`). Saving or removing one takes a recently proved factor (`wilson.step.up`), so a leaked API
+  key cannot replace one. No operation returns a value, and none is reachable by MCP. `SecretsService.resolve`
+  is the only way to read one back. `SecretsService.redactor` replaces exact values in text from outside
+  Wilson, so it stops an accident and not a value that was encoded or split. Removing one does not revoke it
+  with whoever issued it.
+
+- **MCP connections.** Wilson is the only client of outside MCP servers (`wilson mcp add|list|tools|review|refresh|remove`,
+  `wilson.mcp_connections`), so a server's credential is a saved secret that never reaches whatever calls its tools. Only
+  Streamable HTTP with a bearer token is supported, a redirect is refused, and engines are never given the server's
+  config. A connection's tools are unusable until a person reviews them: `read` runs without asking, `change` runs only once
+  a person confirms it, and `disabled` is never offered. A server's `readOnlyHint` is shown and never trusted. A model only
+  ever sees the stored text a person reviewed. Each call lists the tools again and refuses one whose name, description,
+  schema or hints changed, until it is reviewed again. That cannot catch a server that changes what a tool does and keeps
+  describing it the same way. Plain `http` is allowed for a server on the local network, with a warning when a secret goes
+  over it. Every saved secret's value is taken out of results and failures by exact match.
+  In the chat, a reviewed tool is an operation named `<connection>.<tool>`, found and read through the same meta tools
+  as Wilson's own, and a `change` tool goes through the same confirmation. A read takes `wilson.view` and a change
+  `wilson.manage`. A wake-up (`orchestratorSession`) is offered none and refused all, reads included, since nobody asked
+  for that turn and what a tool answers is untrusted. Stages and operator apps cannot reach these tools.
 
 ### Moving the board to the server
 

@@ -277,4 +277,87 @@ describe('WorkerExecutionHost when the worker goes away', () => {
             await lostServer.close();
         }
     });
+
+    describe('onLost', () => {
+        /** A host on a worker of its own, and how to drop its connection, on a server the test closes. */
+        const lostHost = async () => {
+            const lostServer = await startWorkerServer({
+                token: workerRow('flaky', [{ project: 'p', codeRoot: root, worktreeRoot: root, runRoot: root }]),
+            });
+            const worker = await connectLoopbackWorker(lostServer.apiUrl, 'token', { claudeCommand: fakeClaude });
+            await eventually(() => lostServer.connections.get('flaky') !== undefined);
+            return { lostServer, worker, lost: new WorkerExecutionHost(lostServer.connections.get('flaky')!) };
+        };
+
+        it('says why, once, when the connection goes', async () => {
+            const { lostServer, worker, lost } = await lostHost();
+            try {
+                const reasons: string[] = [];
+                lost.onLost(reason => reasons.push(reason));
+
+                worker.stop();
+
+                await eventually(() => reasons.length > 0);
+                expect(reasons).toEqual([expect.stringContaining('closed with 1000')]);
+            } finally {
+                await lostServer.close();
+            }
+        });
+
+        it('says so at once when the connection has already gone', async () => {
+            const { lostServer, worker, lost } = await lostHost();
+            try {
+                await new Promise<void>(resolve => {
+                    lost.onLost(() => resolve());
+                    worker.stop();
+                });
+
+                const reasons: string[] = [];
+                lost.onLost(reason => reasons.push(reason));
+
+                expect(reasons).toHaveLength(1);
+            } finally {
+                await lostServer.close();
+            }
+        });
+
+        it('stays quiet for a listener that stopped listening', async () => {
+            const { lostServer, worker, lost } = await lostHost();
+            try {
+                const stopped: string[] = [];
+                const stop = lost.onLost(reason => stopped.push(reason));
+                stop();
+                const kept = new Promise<void>(resolve => lost.onLost(() => resolve()));
+
+                worker.stop();
+                await kept;
+
+                expect(stopped).toEqual([]);
+            } finally {
+                await lostServer.close();
+            }
+        });
+
+        it('is heard before anything awaiting the engine’s end carries on', async () => {
+            const { lostServer, worker, lost } = await lostHost();
+            try {
+                const heard: string[] = [];
+                const engine = lost.spawnClaude({ command: 'claude', args: [], cwd: root, env: {} });
+                const ended = new Promise<void>(resolve => engine.once('exit', () => resolve())).then(() => heard.push('engine ended'));
+                const failed = lost
+                    .readFile(join(root, 'never-answered.txt'))
+                    .catch(() => {})
+                    .then(() => heard.push('call failed'));
+                lost.onLost(() => heard.push('lost'));
+
+                lostServer.connections.closeAll('dropped');
+                await Promise.all([ended, failed]);
+
+                expect(heard[0]).toBe('lost');
+            } finally {
+                worker.stop();
+                await lostServer.close();
+            }
+        });
+    });
 });

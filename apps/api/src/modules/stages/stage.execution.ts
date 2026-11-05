@@ -126,12 +126,14 @@ export const executeStage = async (deps: StageExecutionDeps, input: StageExecuti
         ...(interrupted && { resume: interrupted.sessionId ? { sessionId: interrupted.sessionId } : {} }),
     });
     if (run.interrupted) {
-        const { sessionId, wallClockMs, steps } = run.interrupted;
+        const { sessionId, wallClockMs, steps, hostLost } = run.interrupted;
+        const hostLosses = (interrupted?.hostLosses ?? 0) + (hostLost ? 1 : 0);
         const attempt: InterruptedAttempt = {
             baseSha: worktree.baseSha,
             ...(worktree.placement && { host: worktree.placement.hostName }),
             ...(sessionId && { sessionId }),
             ...(stage.depth && { depth: stage.depth }),
+            ...(hostLosses > 0 && { hostLosses }),
             spent: {
                 wallClockMs: (interrupted?.spent?.wallClockMs ?? 0) + wallClockMs,
                 steps: (interrupted?.spent?.steps ?? 0) + steps,
@@ -141,7 +143,7 @@ export const executeStage = async (deps: StageExecutionDeps, input: StageExecuti
         if (run.usageLimit) {
             throw new StageHeldError(card.frontmatter.id, stage.name, run.usage, attempt, run.usageLimit, run.heldUntil ?? run.usageLimit.resetsAt);
         }
-        throw new StageInterruptedError(card.frontmatter.id, stage.name, run.usage, attempt);
+        throw new StageInterruptedError(card.frontmatter.id, stage.name, run.usage, attempt, hostLost);
     }
 
     // A question ends the run with nothing to verify: the stage said it could not finish, and why.

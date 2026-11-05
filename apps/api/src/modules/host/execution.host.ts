@@ -85,6 +85,15 @@ export interface ExecutionHost {
     engineAccount?(): Promise<EngineAccount>;
 
     /**
+     * Called once, with the reason, when this host can no longer be reached; immediately if that has
+     * already happened. Present on a host that can tell. Absent, a lost host shows only as its calls
+     * failing. It says nothing about what was running there, which the host ends when it notices.
+     *
+     * @returns stops listening.
+     */
+    onLost?(listener: (reason: string) => void): () => void;
+
+    /**
      * Clone `url` to `path` on this host, reading it with `token`, which is not kept there. Present on
      * a host that can make its own clones; elsewhere a clone is the operator's to put in place.
      */
