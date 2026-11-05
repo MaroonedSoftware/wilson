@@ -26,6 +26,8 @@ import { OnboardingRouter } from '#src/routes/onboarding.router.js';
 import { ProjectsRouter } from '#src/routes/projects.router.js';
 import { ReviewRouter } from '#src/routes/review.router.js';
 import { RulesRouter } from '#src/routes/rules.router.js';
+import { McpConnectionsRouter } from '#src/routes/mcp.connections.router.js';
+import { SecretsRouter } from '#src/routes/secrets.router.js';
 import { SettingsRouter } from '#src/routes/settings.router.js';
 import { StagesRouter } from '#src/routes/stages.router.js';
 
@@ -57,11 +59,13 @@ const ROUTERS = [
     HealthRouter,
     HostsRouter,
     LearningsRouter,
+    McpConnectionsRouter,
     EvalsRouter,
     OnboardingRouter,
     ProjectsRouter,
     ReviewRouter,
     RulesRouter,
+    SecretsRouter,
     SettingsRouter,
     StagesRouter,
 ];
@@ -122,6 +126,12 @@ describe('the MCP operation catalog', () => {
         for (const name of ['list_cards', 'get_card', 'list_card_events', 'get_card_diff', 'list_lanes', 'list_projects']) {
             expect(readOnly(tools, name), name).toBe(true);
         }
+    });
+
+    it('holds no name with a dot, which is how the chat tells an outside tool from these', async () => {
+        const tools = await catalog();
+
+        expect([...tools.keys()].filter(name => name.includes('.'))).toEqual([]);
     });
 
     it('marks every change as not read-only, whatever its method', async () => {

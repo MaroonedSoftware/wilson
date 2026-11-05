@@ -16,10 +16,12 @@ import com.maroonedsoftware.wilson.sdk.clients.GoalsClient
 import com.maroonedsoftware.wilson.sdk.clients.HealthClient
 import com.maroonedsoftware.wilson.sdk.clients.HostsClient
 import com.maroonedsoftware.wilson.sdk.clients.LearningsClient
+import com.maroonedsoftware.wilson.sdk.clients.McpConnectionsClient
 import com.maroonedsoftware.wilson.sdk.clients.OnboardingClient
 import com.maroonedsoftware.wilson.sdk.clients.ProjectsClient
 import com.maroonedsoftware.wilson.sdk.clients.ReviewClient
 import com.maroonedsoftware.wilson.sdk.clients.RulesClient
+import com.maroonedsoftware.wilson.sdk.clients.SecretsClient
 import com.maroonedsoftware.wilson.sdk.clients.SettingsClient
 import com.maroonedsoftware.wilson.sdk.clients.StagesClient
 import com.maroonedsoftware.wilson.sdk.runtime.SdkConfig
@@ -48,10 +50,12 @@ class WilsonSdk(config: SdkConfig) : AutoCloseable {
     val health: HealthClient = HealthClient(http)
     val hosts: HostsClient = HostsClient(http)
     val learnings: LearningsClient = LearningsClient(http)
+    val mcpConnections: McpConnectionsClient = McpConnectionsClient(http)
     val onboarding: OnboardingClient = OnboardingClient(http)
     val projects: ProjectsClient = ProjectsClient(http)
     val review: ReviewClient = ReviewClient(http)
     val rules: RulesClient = RulesClient(http)
+    val secrets: SecretsClient = SecretsClient(http)
     val settings: SettingsClient = SettingsClient(http)
     val stages: StagesClient = StagesClient(http)
 
