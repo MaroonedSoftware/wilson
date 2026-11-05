@@ -57,6 +57,7 @@ describe('CodexStageAgent', () => {
             interrupts,
             spawn,
             accounts,
+            onLost,
         }: {
             stageOver?: Partial<StageConfig>;
             policy?: 'widen' | 'kickback';
@@ -64,6 +65,7 @@ describe('CodexStageAgent', () => {
             interrupts?: StageInterrupt;
             spawn?: () => unknown;
             accounts?: unknown;
+            onLost?: (listener: (reason: string) => void) => () => void;
         } = {},
     ) => {
         const spawnCodex = vi.fn(spawn ?? (() => server.process));
@@ -88,6 +90,7 @@ describe('CodexStageAgent', () => {
                 removeTree: localHost.removeTree.bind(localHost),
                 realpath: localHost.realpath.bind(localHost),
                 spawnCodex,
+                ...(onLost && { onLost }),
             },
         } as unknown as ToolContext;
         const agent = new CodexStageAgent(logger as never, interrupts, accounts as never);
@@ -990,7 +993,7 @@ describe('CodexStageAgent', () => {
             await run(server, { resume: { sessionId: 'earlier' } });
 
             expect(startOf(server, 'thread/resume')).toMatchObject({ threadId: 'earlier', approvalPolicy: 'untrusted', approvalsReviewer: 'user' });
-            expect(JSON.stringify(startOf(server, 'turn/start').input)).toMatch(/daemon restarted/);
+            expect(JSON.stringify(startOf(server, 'turn/start').input)).toMatch(/This stage was interrupted/);
         });
 
         it('starts a new thread when the old one cannot be resumed', async () => {
@@ -1017,6 +1020,113 @@ describe('CodexStageAgent', () => {
             expect(output.truncated).toBe(true);
             expect(output.interrupted).toMatchObject({ sessionId: 'thread-1' });
             expect(output.engineFailure).toBeUndefined();
+        });
+
+        describe('when its host is lost', () => {
+            /** A host's `onLost` that can be fired by hand, and how many are still listening. */
+            const losable = () => {
+                const listeners = new Set<(reason: string) => void>();
+                return {
+                    listeners,
+                    lose: (reason: string) => [...listeners].forEach(listener => listener(reason)),
+                    onLost: (listener: (reason: string) => void) => {
+                        listeners.add(listener);
+                        return () => listeners.delete(listener);
+                    },
+                };
+            };
+
+            it('stops the engine and says why, keeping the thread to resume', async () => {
+                const { lose, onLost } = losable();
+                const { output } = await run(
+                    new SimulatedCodexServer(async () => {
+                        lose('closed with 1006');
+                    }),
+                    { onLost },
+                );
+
+                expect(output.interrupted).toMatchObject({ sessionId: 'thread-1', hostLost: 'closed with 1006' });
+                expect(output.engineFailure).toBeUndefined();
+            });
+
+            it('is not read as the engine failing when the engine’s exit comes first in the same tick', async () => {
+                const { lose, onLost } = losable();
+                const { output } = await run(
+                    new SimulatedCodexServer(async server => {
+                        server.exit(null);
+                        lose('closed with 1006');
+                    }),
+                    { onLost },
+                );
+
+                expect(output.interrupted?.hostLost).toBe('closed with 1006');
+                expect(output.engineFailure).toBeUndefined();
+                expect(eventsOf('engine.failed')).toEqual([]);
+            });
+
+            it('keeps the thread it was resuming when the host goes during the resume', async () => {
+                const { lose, onLost } = losable();
+                const server = new SimulatedCodexServer();
+                server.threadId = 'earlier';
+                server.stdin.on('data', (chunk: Buffer) => {
+                    if (!chunk.toString().includes('thread/resume')) return;
+                    server.exit(null);
+                    lose('closed with 1006');
+                });
+
+                const { output, spawnCodex } = await run(server, { resume: { sessionId: 'earlier' }, onLost });
+
+                expect(output.interrupted).toMatchObject({ sessionId: 'earlier', hostLost: 'closed with 1006' });
+                expect(output.resumeFailed).toBeUndefined();
+                expect(spawnCodex).toHaveBeenCalledTimes(1);
+            });
+
+            it('stops at once on a host already lost when the run starts', async () => {
+                const { output } = await run(new SimulatedCodexServer(async () => new Promise(() => {})), {
+                    onLost: listener => {
+                        listener('gone already');
+                        return () => {};
+                    },
+                });
+
+                expect(output.interrupted?.hostLost).toBe('gone already');
+            });
+
+            it('does not blame the host for a shutdown that closed its connection', async () => {
+                const interrupts = new StageInterrupt();
+                const { lose, onLost } = losable();
+                const { output } = await run(
+                    new SimulatedCodexServer(async () => {
+                        interrupts.interrupt();
+                        lose('the server is shutting down');
+                    }),
+                    { interrupts, onLost },
+                );
+
+                expect(output.interrupted).toBeDefined();
+                expect(output.interrupted).not.toHaveProperty('hostLost');
+            });
+
+            it('leaves a stage that has reported as finished', async () => {
+                const { lose, onLost } = losable();
+                const { output } = await run(
+                    new SimulatedCodexServer(async server => {
+                        await report(server);
+                        lose('closed with 1006');
+                    }),
+                    { onLost },
+                );
+
+                expect(output.result).toEqual({ summary: 'done' });
+                expect(output.interrupted).toBeUndefined();
+            });
+
+            it('stops listening once the run is over', async () => {
+                const { listeners, onLost } = losable();
+                await run(new SimulatedCodexServer(report), { onLost });
+
+                expect(listeners.size).toBe(0);
+            });
         });
     });
 
