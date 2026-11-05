@@ -304,6 +304,8 @@ export interface StageOutcome {
     transitionedTo?: string;
     /** Whether this transition flagged the card for a human. `decideChain` checks this before re-enqueuing. */
     needsHuman?: boolean;
+    /** The verifier's `needsHumanReason`: flag the card with this, whatever retries it has left. */
+    needsHumanReason?: string;
     /**
      * Set on a failing outcome when the failure says nothing about the code: a step, wall-clock or
      * token budget cutoff, an engine that stopped responding, a run that never called the report

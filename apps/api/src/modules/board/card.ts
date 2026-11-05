@@ -338,6 +338,27 @@ export const expectedAssertionDrop = (card: Card): number | undefined => {
     return undefined;
 };
 
+/** An `Expected secret: path (reason)` bullet, matched case-insensitively. The reason is required. */
+const EXPECTED_SECRET = /^Expected secret:\s*(\S+)\s+\(\s*[^\s)]/i;
+
+/**
+ * The files a plan says may hold something shaped like a credential, from `Constraints` bullets:
+ * `Expected secret: path (reason)`, one bullet per file, an exact path with no spaces. A bullet with no
+ * reason does not count.
+ *
+ * A path rather than `expectedAssertionDrop`'s count, because a count could be spent on a real key in
+ * any file, where a path can only excuse the fixture it names. Like that one it comes from the plan and
+ * nowhere else, since the stage's own `caveats` are the agent excusing its own work.
+ */
+export const expectedSecretPaths = (card: Card): string[] => {
+    const raw = card.sections['Constraints'];
+    if (!raw) return [];
+    return splitBullets(raw).flatMap(bullet => {
+        const path = EXPECTED_SECRET.exec(bullet)?.[1];
+        return path ? [path] : [];
+    });
+};
+
 export const acceptanceCriteria = (card: Card): { id: string; text: string }[] => {
     const raw = card.sections['Acceptance criteria'];
     if (!raw) return [];

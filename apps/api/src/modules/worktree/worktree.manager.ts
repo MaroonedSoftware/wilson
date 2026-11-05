@@ -9,6 +9,7 @@ import type { ExecutionHost } from '#modules/host/execution.host.js';
 import { localHost } from '#modules/host/local.execution.host.js';
 import type { RemotePlacement } from '#modules/host/placement.js';
 import { LeaseService } from '#modules/lease/lease.service.js';
+import { addedLinesFromPatch, type AddedLine } from './added.lines.js';
 import { codeRootLock } from './code.root.lock.js';
 
 /** The size of a diff, in lines. */
@@ -945,6 +946,42 @@ export class WorktreeManager {
         }
 
         return [...changes].map(([path, status]) => ({ path, status })).sort((a, b) => (a.path < b.path ? -1 : 1));
+    }
+
+    /**
+     * Every line the card has added since the branch was cut, by file, uncommitted work included. Same
+     * basis as {@link pathChanges}. A binary file has no lines, and neither does anything ignored, which
+     * `commit`'s `git add -A` will not pick up either.
+     *
+     * Untracked files go through `git diff --no-index` rather than a read, so a symlink is its target's
+     * name and not whatever it points at, and git rather than this code decides what is binary. That
+     * form exits 1 when the sides differ, which here they always do.
+     */
+    async addedLines(worktree: Worktree): Promise<{ path: string; lines: AddedLine[] }[]> {
+        const host = worktreeHost(worktree);
+        const diff = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '--unified=0'];
+        const list = async (args: string[]): Promise<string[]> => (await gitOn(host, worktree.path, args)).stdout.split('\0').filter(Boolean);
+
+        const tracked = await list(['diff', '--no-renames', '--name-only', '--diff-filter=d', '-z', worktree.baseSha, '--']);
+        const untracked = await list(['ls-files', '--others', '--exclude-standard', '-z']);
+
+        const files: { path: string; lines: AddedLine[] }[] = [];
+        for (const path of tracked) {
+            const { stdout } = await gitOn(host, worktree.path, [...diff, worktree.baseSha, '--', path]);
+            files.push({ path, lines: addedLinesFromPatch(stdout) });
+        }
+        for (const path of untracked) {
+            const patch = await gitOn(host, worktree.path, [...diff, '--no-index', '--', '/dev/null', path]).then(
+                ({ stdout }) => stdout,
+                (err: Error) => {
+                    const cause = err.cause as { code?: number | string; stdout?: string } | undefined;
+                    if (cause?.code === 1 && cause.stdout !== undefined) return cause.stdout;
+                    throw err;
+                },
+            );
+            files.push({ path, lines: addedLinesFromPatch(patch) });
+        }
+        return files;
     }
 
     /** A file as it was when the branch was cut, read on the worktree's own host. Throws if it did not exist then. */

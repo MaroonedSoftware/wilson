@@ -428,8 +428,8 @@ job is to add files nobody could have declared in advance.
 | parking lot | — | none | never dispatched | promote (human only) |
 | planning | manual | none | a person approves, then the `scope-check` step passes | backlog |
 | backlog | manual | none | picked up by the poller | implementing |
-| implementing | agent | rw | build passes, diff non-empty, diff within scope | testing |
-| testing | agent | rw | suite green, test count non-decreasing, no new skips, no weakened tests, new tests fail against the pre-change tree | review |
+| implementing | agent | rw | build passes, diff non-empty, diff within scope, no credential added | testing |
+| testing | agent | rw | suite green, test count non-decreasing, no new skips, no weakened tests, new tests fail against the pre-change tree, no credential added | review |
 | review | agent | readonly | findings schema valid, every finding cites a file:line in the card's diff, severity in enum; rule judges' failures are merged in; a `revise` then has to survive the `challenge` step | ready |
 | ready | manual | none | human approval | merge, then `done` |
 | done | — | — | never dispatched | — |
@@ -441,6 +441,19 @@ and the like are not flagged. It does not depend on `baselineCheck`, and a lane 
 `assertionCheck: false`. A card with a good reason declares it as a plan Constraint,
 `Expected assertion drop: N (reason)`, whose `N` covers drops and new tautologies together; a stage's
 `caveats` do not count. Other languages' test files are not read.
+
+Implementing and testing also fail on a credential in the card's diff: a private key with its body,
+a GitHub token, an AWS access key, or an Anthropic or OpenAI key, on any line added since the fork
+point. Each format must also look random, so a header in a parser, the AWS documentation key and
+`ghp_xxxx` pass. Failures name the file, line and kind and never the value. It measures the card's whole
+diff, and flags a person at once rather than kicking back, because nothing a retry can do settles it: a
+real key has to be rotated, and a second attempt that deleted it would pass and advance with nobody
+told. With no retry there is also nothing to get stuck on inherited work (see "Whose work a stage is
+judged on"). The value stays in the worktree, and the next run saves it to the failed-attempt patch,
+which that run can read. A fixture is declared in the plan, one file to a bullet, as a Constraint
+`Expected secret: path (reason)`; a path and not a count, since a count could be spent on a real key
+anywhere. It reads text only, decodes nothing, and looks at no intermediate history. Command output and
+run traces are not redacted, so a value a command prints can still reach `stage.failed`.
 
 A lane can hold **steps**: runs of their own, with their own prompt, verifier and budgets, on the
 lane's provider, model and routes, with the card staying in the lane throughout. `planning` runs
