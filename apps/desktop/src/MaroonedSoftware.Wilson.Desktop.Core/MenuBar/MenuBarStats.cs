@@ -15,7 +15,9 @@ public sealed record MenuBarReading(
     IReadOnlyList<Host>? Hosts = null,
     LocalStageSlots? LocalSlots = null,
     IReadOnlyList<EngineLimit>? Limits = null,
-    IReadOnlyList<EngineTokenSummary>? Tokens = null);
+    IReadOnlyList<EngineTokenSummary>? Tokens = null,
+    IReadOnlyList<EngineAccountUsage>? AccountUsage = null,
+    int Days = 0);
 
 /// <summary>One day across every project, with its bar's share of the tallest day.</summary>
 public sealed record MenuBarDay(string Date, long OutputTokens, long InputTokens, long Attempts, long Failed, double Share);
@@ -80,7 +82,7 @@ public static class MenuBarStats
                 project.Cards.Count(card => card.NeedsHuman),
                 project.Stats.Days.Count > 0 ? project.Stats.Days[^1].OutputTokens : 0))],
             [.. (reading.Hosts ?? []).Select(host => new MenuBarHostLine(host.Name, host.Running.Count, host.Slots, HostRules.State(host)))],
-            AccountRules.Lines(reading.Tokens, reading.Limits ?? [], now));
+            AccountRules.Lines(reading.Tokens, reading.Limits ?? [], now, reading.AccountUsage, reading.Days));
     }
 
     /// <summary>`part` of `whole` as a whole percentage, or nothing when there is no `whole`.</summary>

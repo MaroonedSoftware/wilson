@@ -213,4 +213,24 @@ public sealed class AccountRulesTests
         var lines = AccountRules.Lines(null, [Limit(AccountRules.LocalAccount, Now.AddHours(1)), Limit("pool-a", Now.AddHours(-1))], Now);
         Assert.Equal([new AccountLine("This server", "Weekly limit, back 1:00 PM", Limited: true)], lines);
     }
+
+    [Fact]
+    public void Spend_is_today_and_the_window_in_short_numbers()
+    {
+        var usage = new EngineAccountUsage { Account = "pool-a", TodayOutputTokens = 120_400, OutputTokens = 1_400_000, InputTokens = 9, CachedInputTokens = 1 };
+
+        Assert.Equal("120.4K today, 1.4M in 14 days", AccountRules.DescribeSpend(usage, 14));
+        Assert.Equal("Nothing in 14 days", AccountRules.DescribeSpend(null, 14));
+    }
+
+    [Fact]
+    public void Lines_carry_each_account_spend_when_it_was_read()
+    {
+        EngineAccountUsage Spent(string account, long output) => new() { Account = account, TodayOutputTokens = output, OutputTokens = output, InputTokens = 0, CachedInputTokens = 0 };
+
+        var lines = AccountRules.Lines([Token("a"), Token("b", priority: 1)], [Limit("a", Now.AddHours(1))], Now, [Spent("a", 3000), Spent("local", 9)], 14);
+
+        Assert.Equal(["3K today, 3K in 14 days", "Nothing in 14 days"], lines.Select(line => line.Spend));
+        Assert.All(AccountRules.Lines([Token("a")], [], Now), line => Assert.Null(line.Spend));
+    }
 }

@@ -332,7 +332,7 @@ public sealed partial class MachineSignInControl(Func<WilsonSdk> sdk) : Observab
 }
 
 /// <summary>A saved account, as drawn: what it is and what is using it, never the token. Keeps its own errors, so a refusal appears on the account it is about.</summary>
-public sealed partial class AccountRow(EngineTokenSummary token, bool next, string? limit, long joinPriority, IReadOnlyList<PriorityChange> moveUp, IReadOnlyList<PriorityChange> moveDown, AccountsControl control) : ObservableObject
+public sealed partial class AccountRow(EngineTokenSummary token, bool next, string? limit, string? spend, long joinPriority, IReadOnlyList<PriorityChange> moveUp, IReadOnlyList<PriorityChange> moveDown, AccountsControl control) : ObservableObject
 {
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanSaveReplacement))]
@@ -356,6 +356,9 @@ public sealed partial class AccountRow(EngineTokenSummary token, bool next, stri
     public string Name => token.Name;
 
     public string Type => AccountRules.TypeOf(token);
+
+    /// <summary>Its kind of account and, when it was read, what it spent: "Claude subscription · 120K today, 1.4M in 30 days".</summary>
+    public string Detail => spend is null ? Type : $"{Type} · {spend}";
 
     public bool Next => next;
 
@@ -522,7 +525,7 @@ public sealed partial class AccountsControl(Func<WilsonSdk> sdk, MachineSignInCo
         {
             var tokens = await sdk().EngineTokens.ListEngineTokensAsync(cancellationToken);
             var limits = await sdk().EngineTokens.ListEngineLimitsAsync(cancellationToken);
-            Draw(tokens, limits, DateTimeOffset.Now);
+            Draw(tokens, limits, await SpendAsync(cancellationToken), DateTimeOffset.Now);
         }
         catch (HttpRequestException failure)
         {
@@ -530,7 +533,24 @@ public sealed partial class AccountsControl(Func<WilsonSdk> sdk, MachineSignInCo
         }
     }
 
-    private void Draw(List<EngineTokenSummary> tokens, List<EngineLimit> limits, DateTimeOffset now)
+    /// <summary>How many days of spend each account shows.</summary>
+    public const int SpendDays = 30;
+
+    /// <summary>What each account spent, or nothing from a server too old to say, which leaves the rest of the section as it was.</summary>
+    private async Task<List<EngineAccountUsage>?> SpendAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await sdk().EngineTokens.ListEngineAccountUsageAsync(new EngineAccountUsageQuery { Days = SpendDays }, cancellationToken);
+        }
+        catch (HttpRequestException failure)
+        {
+            Trace.WriteLine($"accounts: no spend: {failure.Message}");
+            return null;
+        }
+    }
+
+    private void Draw(List<EngineTokenSummary> tokens, List<EngineLimit> limits, List<EngineAccountUsage>? spend, DateTimeOffset now)
     {
         _tokens = tokens;
         OnPropertyChanged(nameof(NameTaken));
@@ -552,6 +572,7 @@ public sealed partial class AccountsControl(Func<WilsonSdk> sdk, MachineSignInCo
                 token,
                 isNext,
                 Limit(token.Name),
+                spend is null ? null : AccountRules.DescribeSpend(spend.Find(row => row.Account == token.Name), SpendDays),
                 join,
                 order is null ? [] : AccountRules.MovedPriorities(order, index, -1),
                 order is null ? [] : AccountRules.MovedPriorities(order, index, 1),

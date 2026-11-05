@@ -51,11 +51,17 @@ internal static class Steps
         Walker.Sql(
             "insert into wilson.engine_limits (account, limit_type, resets_at) values "
             + "('walk-pool-a', 'seven_day', now() + interval '5 hours'), ('local', 'seven_day', now() + interval '2 hours')");
+        // Spend charged to the second account, today and a week ago, so its row says what it spent.
+        Walker.Sql(
+            "insert into wilson.card_events (project, card_id, stage, type, payload, created_at) "
+            + $"select '{project}', '{card}', 'implementing', 'stage.passed', "
+            + "jsonb_build_object('account', 'walk-second', 'usage', jsonb_build_object('inputTokens', 1000, 'outputTokens', spent)), at "
+            + "from (values (42000, now()), (1300000, now() - interval '7 days')) as spend(spent, at)");
         try
         {
             panel.Shown();
-            await walk.UntilAsync("the accounts in rotation", () => panel.Accounts.Any(account => account.Label == "walk-second"));
-            Console.WriteLine($"     accounts: {string.Join("; ", panel.Accounts.Select(account => $"{account.Label} = {account.Value}"))}");
+            await walk.UntilAsync("the accounts in rotation, with what they spent", () => panel.Accounts.Any(account => account.Name == "walk-second" && account.Spend?.Contains("today", StringComparison.Ordinal) == true));
+            Console.WriteLine($"     accounts: {string.Join("; ", panel.Accounts.Select(account => $"{account.Name} = {account.Status} ({account.Spend})"))}");
             walk.ShotOf(new MenuBarView { DataContext = panel }, "menubar-accounts", 300, 720);
             panel.Hidden();
         }
@@ -63,6 +69,7 @@ internal static class Steps
         {
             Walker.Sql("delete from wilson.engine_limits where account in ('walk-pool-a', 'local')");
             Walker.Sql("delete from wilson.engine_tokens where name in ('walk-pool-a', 'walk-second')");
+            Walker.Sql("delete from wilson.card_events where payload->>'account' = 'walk-second'");
         }
     }
 

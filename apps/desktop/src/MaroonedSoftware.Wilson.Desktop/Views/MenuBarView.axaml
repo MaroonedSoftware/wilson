@@ -32,6 +32,15 @@
                 <TextBlock Classes="quiet" Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
             </DockPanel>
         </DataTemplate>
+        <DataTemplate DataType="vm:MenuBarAccountRow">
+            <StackPanel Margin="0,1,0,3">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Right" FontWeight="Medium" Classes.warns="{Binding Limited}" Text="{Binding Status}" Margin="12,0,0,0" />
+                    <TextBlock Classes="quiet" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                </DockPanel>
+                <TextBlock Classes="quiet" FontSize="11" Text="{Binding Spend}" IsVisible="{Binding Spend, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            </StackPanel>
+        </DataTemplate>
         <DataTemplate DataType="vm:MenuBarRing">
             <StackPanel Spacing="4" ToolTip.Tip="{Binding Detail}">
                 <Panel Width="{Binding $parent[ContentControl].Tag}" Height="{Binding $parent[ContentControl].Tag}" HorizontalAlignment="Center">
