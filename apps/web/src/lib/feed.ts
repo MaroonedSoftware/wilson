@@ -79,6 +79,8 @@ interface CardActivityValue {
     /** Ticks every `ACTIVITY_TICK_MS` — read this instead of `new Date()` so a relative age re-renders
      * without a refetch. */
     now: Date;
+    /** Counts board changes, `tool.*` events aside. Only the fact of a change, for `useBoardChanges`. */
+    changes: number;
 }
 
 const EMPTY_TOOL_LOG: FeedToolEvent[] = [];
@@ -89,7 +91,7 @@ const EMPTY_TOOL_LOG: FeedToolEvent[] = [];
  * `EventSource` (this card's Constraints: "one feed connection"). Provided once, from the single
  * `useCardFeed` call in `__root.tsx`, the same way the feed's `status`/`reconnect` already are.
  */
-export const CardActivityContext = createContext<CardActivityValue>({ activity: {}, toolLog: {}, now: new Date(0) });
+export const CardActivityContext = createContext<CardActivityValue>({ activity: {}, toolLog: {}, now: new Date(0), changes: 0 });
 
 /** The latest feed event `cardId` has published, or `undefined` before any has arrived. */
 export const useCardActivity = (cardId: string): CardActivity | undefined => useContext(CardActivityContext).activity[cardId];
@@ -100,6 +102,9 @@ export const useCardToolLog = (cardId: string): FeedToolEvent[] => useContext(Ca
 
 /** The shared clock — ticks every ten seconds, see `ACTIVITY_TICK_MS` above. */
 export const useActivityNow = (): Date => useContext(CardActivityContext).now;
+
+/** Goes up each time something on this project's board changes. Only the fact of a change: read the board for what. */
+export const useBoardChanges = (): number => useContext(CardActivityContext).changes;
 
 /**
  * `useCardFeed`'s return value (card 0173). `status` is exactly what this hook always returned —
@@ -122,6 +127,8 @@ export interface CardFeed {
     activity: Record<string, CardActivity>;
     toolLog: Record<string, FeedToolEvent[]>;
     now: Date;
+    /** Counts board changes, `tool.*` events aside. Only the fact of a change, for `useBoardChanges`. */
+    changes: number;
 }
 
 /**
@@ -190,6 +197,7 @@ export const useCardFeed = (project?: string): CardFeed => {
     // app, independent of `project`/`generation`, so switching projects or reconnecting never resets
     // it and nothing here opens a second interval.
     const [now, setNow] = useState(() => new Date());
+    const [changes, setChanges] = useState(0);
     useEffect(() => {
         const id = setInterval(() => setNow(new Date()), ACTIVITY_TICK_MS);
         return () => clearInterval(id);
@@ -235,6 +243,7 @@ export const useCardFeed = (project?: string): CardFeed => {
             // Card 0274: a `tool.*` event changes nothing `CardSummary` carries — see this hook's own
             // doc comment above and `TOOL_EVENT_TYPES`'s.
             if (TOOL_EVENT_TYPES.has(type)) return;
+            setChanges(current => current + 1);
             void queryClient.invalidateQueries({ queryKey: cardsQueryKey });
             if (project) {
                 void queryClient.invalidateQueries({ queryKey: ['cards'] });
@@ -252,7 +261,7 @@ export const useCardFeed = (project?: string): CardFeed => {
         setGeneration(generationValue => generationValue + 1);
     }, [queryClient]);
 
-    return { status, reconnect, activity, toolLog, now };
+    return { status, reconnect, activity, toolLog, now, changes };
 };
 
 /** Card 0274. `raw.data` is the JSON text `openCardFeedStream` wrote for a `card` SSE event

@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import { createElement } from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MantineProvider } from '@mantine/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AppFrame } from '#src/components/AppFrame.js';
+import type { AppGrant } from '@wilson/sdk';
+import { APP_CHANGE_SETTLE_MS, AppFrame } from '#src/components/AppFrame.js';
 import { APP_CONNECT_MESSAGE, APP_CONTENT_SECURITY_POLICY, appDocument } from '#src/lib/apps.js';
+import { CardActivityContext } from '#src/lib/feed.js';
 import { wilson } from '#src/lib/sdk.js';
 import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
 
@@ -13,19 +15,22 @@ import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
  * page asks the browser for. That the browser does it has to be checked in a real one.
  */
 
-const renderFrame = (html = '<h1>hello</h1>') =>
-    render(
-        createElement(
-            MantineProvider,
-            null,
-            createElement(WilsonSdkProvider, {
+const frameTree = (changes: number, grants: AppGrant[], html: string) =>
+    createElement(
+        MantineProvider,
+        null,
+        createElement(CardActivityContext.Provider, {
+            value: { activity: {}, toolLog: {}, now: new Date(0), changes },
+            children: createElement(WilsonSdkProvider, {
                 client: wilson,
-                children: createElement(AppFrame, { name: 'Burndown', html, project: 'demo', grants: ['board.read'] }),
+                children: createElement(AppFrame, { name: 'Burndown', html, project: 'demo', grants }),
             }),
-        ),
+        }),
     );
 
-const CONTEXT = { project: 'demo', grants: [] };
+const renderFrame = (html = '<h1>hello</h1>') => render(frameTree(0, ['board.read'], html));
+
+const CONTEXT = { project: 'demo', grants: [], colorScheme: 'light' as const };
 
 const frame = () => screen.getByTitle('Burndown') as HTMLIFrameElement;
 
@@ -65,7 +70,7 @@ describe('appDocument', () => {
     });
 
     it('cannot be broken out of by what it is told about', () => {
-        const doc = appDocument('', { project: '</script><img src=x>', grants: [] });
+        const doc = appDocument('', { ...CONTEXT, project: '</script><img src=x>' });
 
         expect(doc).not.toContain('</script><img');
     });
@@ -105,7 +110,7 @@ describe('AppFrame', () => {
         renderFrame();
 
         expect(frame().getAttribute('sandbox')).toBe('allow-scripts');
-        expect(frame().getAttribute('srcdoc')).toBe(appDocument('<h1>hello</h1>', { project: 'demo', grants: ['board.read'] }));
+        expect(frame().getAttribute('srcdoc')).toBe(appDocument('<h1>hello</h1>', { project: 'demo', grants: ['board.read'], colorScheme: 'light' }));
         expect(frame().getAttribute('referrerpolicy')).toBe('no-referrer');
     });
 
@@ -156,5 +161,70 @@ describe('AppFrame', () => {
         fireEvent.load(frame());
 
         expect(frame()).toBeTruthy();
+    });
+});
+
+describe('what an app is told', () => {
+    /**
+     * Collect what reaches the app's end of its port, once jsdom has loaded the frame. It fires that
+     * load itself, a moment after rendering, so firing another here would read as the app navigating.
+     */
+    const connect = async () => {
+        const post = vi.spyOn(frame().contentWindow!, 'postMessage').mockImplementation(() => {});
+        await waitFor(() => expect(post).toHaveBeenCalled());
+        const [, , transfer] = post.mock.calls[0] as unknown as [string, string, MessagePort[]];
+        const events: unknown[] = [];
+        transfer[0]!.onmessage = ({ data }) => events.push(data);
+        // The colour scheme arrives on connecting, which is what shows the port is live.
+        await waitFor(() => expect(events).toContainEqual({ event: 'colorScheme', colorScheme: 'light' }));
+        return events;
+    };
+
+    const settle = () => new Promise(resolve => setTimeout(resolve, APP_CHANGE_SETTLE_MS + 100));
+
+    it('gives the document the colour scheme, and the same on connecting', async () => {
+        renderFrame();
+
+        expect(frame().getAttribute('srcdoc')).toContain('let colorScheme = "light"');
+
+        await connect();
+    });
+
+    it('tells an app with a grant that the board changed, carrying nothing else', async () => {
+        const { rerender } = render(frameTree(0, ['board.read'], ''));
+        const events = await connect();
+
+        rerender(frameTree(1, ['board.read'], ''));
+
+        await waitFor(() => expect(events).toContainEqual({ event: 'change' }));
+    });
+
+    it('tells an app with no grants nothing about the board', async () => {
+        const { rerender } = render(frameTree(0, [], ''));
+        const events = await connect();
+
+        rerender(frameTree(1, [], ''));
+        await settle();
+
+        expect(events).not.toContainEqual({ event: 'change' });
+    });
+
+    it('turns a burst of changes into one', async () => {
+        const { rerender } = render(frameTree(0, ['board.read'], ''));
+        const events = await connect();
+
+        for (const changes of [1, 2, 3, 4]) rerender(frameTree(changes, ['board.read'], ''));
+        await settle();
+
+        expect(events.filter(event => (event as { event: string }).event === 'change')).toHaveLength(1);
+    });
+
+    it('does not reload the frame when told of a change', async () => {
+        const { rerender } = render(frameTree(0, ['board.read'], ''));
+        const first = frame().getAttribute('srcdoc');
+
+        rerender(frameTree(1, ['board.read'], ''));
+
+        expect(frame().getAttribute('srcdoc')).toBe(first);
     });
 });

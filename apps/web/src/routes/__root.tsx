@@ -115,7 +115,7 @@ function Shell() {
 
     return (
         <WilsonSdkProvider client={wilson}>
-            <CardActivityContext.Provider value={{ activity: feed.activity, toolLog: feed.toolLog, now: feed.now }}>
+            <CardActivityContext.Provider value={{ activity: feed.activity, toolLog: feed.toolLog, now: feed.now, changes: feed.changes }}>
                 <AppShell
                     header={{ height: 48 }}
                     aside={{ width: dock.width, breakpoint: 'sm', collapsed: { desktop: !right, mobile: true } }}

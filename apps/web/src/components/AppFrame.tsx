@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Box, Button } from '@mantine/core';
+import { Alert, Box, Button, useComputedColorScheme } from '@mantine/core';
 import type { AppGrant } from '@wilson/sdk';
 import { serveApp } from '#src/lib/app.broker.js';
-import { APP_CONNECT_MESSAGE, appDocument, APP_SANDBOX } from '#src/lib/apps.js';
+import { APP_CONNECT_MESSAGE, appDocument, APP_SANDBOX, type AppEvent } from '#src/lib/apps.js';
+import { useBoardChanges } from '#src/lib/feed.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
+
+/** How long the board has to stay quiet before an app is told it changed. */
+export const APP_CHANGE_SETTLE_MS = 300;
 
 /**
  * One operator app, running in a sandboxed iframe. The sandbox gives it an opaque origin, so it can
@@ -16,6 +20,10 @@ import { useWilsonSdk } from '#src/lib/sdk-context.js';
  * `vite.config.ts`), and the attempt still fires a load. An app has one document for its whole life, so
  * a second load means it tried: the port is closed before whatever loaded could ask for anything, and
  * the frame is taken away.
+ *
+ * The app is told when the board changes and when the colour scheme does, both over the port. A change
+ * goes only to an app with a grant, since even its timing says something about the board. The scheme
+ * in the document stays the one it started with, because changing `srcDoc` would reload the frame.
  */
 export function AppFrame({ name, html, project, grants }: { name: string; html: string; project: string; grants: readonly AppGrant[] }) {
     const client = useWilsonSdk();
@@ -23,8 +31,28 @@ export function AppFrame({ name, html, project, grants }: { name: string; html: 
     const port = useRef<MessagePort | undefined>(undefined);
     const [left, setLeft] = useState(false);
     const [attempt, setAttempt] = useState(0);
+    // Not in an effect, or the first render reports 'light' and an app on a dark page starts light.
+    const colorScheme = useComputedColorScheme('light', { getInitialValueInEffect: false });
+    const [firstColorScheme] = useState(colorScheme);
+    const changes = useBoardChanges();
+    const seenChanges = useRef(changes);
+    const mayHearChanges = grants.length > 0;
+
+    const tell = (event: AppEvent) => port.current?.postMessage(event);
 
     useEffect(() => () => port.current?.close(), []);
+
+    useEffect(() => {
+        tell({ event: 'colorScheme', colorScheme });
+    }, [colorScheme]);
+
+    // Trailing, because a feed that has just connected replays one event per card.
+    useEffect(() => {
+        if (!mayHearChanges || changes === seenChanges.current) return;
+        seenChanges.current = changes;
+        const timer = setTimeout(() => tell({ event: 'change' }), APP_CHANGE_SETTLE_MS);
+        return () => clearTimeout(timer);
+    }, [changes, mayHearChanges]);
 
     const onLoad = (frame: HTMLIFrameElement) => {
         loads.current += 1;
@@ -39,6 +67,7 @@ export function AppFrame({ name, html, project, grants }: { name: string; html: 
         // '*' because the frame's origin is opaque and no other value can name it. Only the first load
         // reaches this line, when the frame still holds the document it was given.
         frame.contentWindow?.postMessage(APP_CONNECT_MESSAGE, '*', [channel.port2]);
+        tell({ event: 'colorScheme', colorScheme });
     };
 
     const reopen = () => {
@@ -65,10 +94,10 @@ export function AppFrame({ name, html, project, grants }: { name: string; html: 
             key={attempt}
             title={name}
             sandbox={APP_SANDBOX}
-            srcDoc={appDocument(html, { project, grants })}
+            srcDoc={appDocument(html, { project, grants, colorScheme: firstColorScheme })}
             referrerPolicy="no-referrer"
             onLoad={event => onLoad(event.currentTarget)}
-            style={{ flex: 1, width: '100%', minHeight: 0, border: 0, background: 'white' }}
+            style={{ flex: 1, width: '100%', minHeight: 0, border: 0, colorScheme }}
         />
     );
 }

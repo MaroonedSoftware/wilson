@@ -60,31 +60,63 @@ export const APP_SANDBOX = 'allow-scripts';
 /** What the host says to an app's frame when it hands over the app's port. */
 export const APP_CONNECT_MESSAGE = 'wilson.connect';
 
+/** The colour scheme an app is told to draw in: always the one Wilson is showing, never `auto`. */
+export type AppColorScheme = 'light' | 'dark';
+
 /** What an app is told about where it is running. */
 export interface AppContext {
     project: string;
     grants: readonly AppGrant[];
+    colorScheme: AppColorScheme;
 }
+
+/** What the host tells an app unasked. A change carries no detail, so it holds nothing to grant. */
+export type AppEvent = { event: 'change' } | { event: 'colorScheme'; colorScheme: AppColorScheme };
 
 /** JSON that is safe inside a script element: no `<`, so nothing in it can end the element. */
 const scriptJson = (value: unknown): string => JSON.stringify(value).replaceAll('<', '\\u003c');
 
 /**
- * `window.wilson` as an app sees it: a promise-returning function per method, plus the project and
- * grants. Calls made before the host connects wait for it. This is a convenience for the app and
- * enforces nothing, since the app's own code can replace it, and the host checks every request.
+ * `window.wilson` as an app sees it: a promise-returning function per method, the project and grants,
+ * and `onChange` and `onColorSchemeChange`, each returning a function that stops listening. Calls made
+ * before the host connects wait for it. This is a convenience for the app and enforces nothing, since
+ * the app's own code can replace it, and the host checks every request.
+ *
+ * It also sets the document's `color-scheme`, so an app with no styles of its own still matches.
  */
-const appClient = ({ project, grants }: AppContext): string =>
+const appClient = ({ project, grants, colorScheme }: AppContext): string =>
     `(() => {
 const names = ${scriptJson(APP_METHOD_NAMES)};
 const waiting = new Map();
 const early = [];
+const changeListeners = new Set();
+const schemeListeners = new Set();
+let colorScheme = ${scriptJson(colorScheme)};
 let port;
 let next = 0;
+const listen = listeners => listener => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+};
+const applyScheme = () => {
+    document.documentElement.style.colorScheme = colorScheme;
+};
+applyScheme();
 addEventListener('message', event => {
     if (port || event.source !== parent || event.data !== ${scriptJson(APP_CONNECT_MESSAGE)} || !event.ports[0]) return;
     port = event.ports[0];
     port.onmessage = ({ data }) => {
+        if (data.event === 'change') {
+            for (const listener of [...changeListeners]) listener();
+            return;
+        }
+        if (data.event === 'colorScheme') {
+            if (data.colorScheme === colorScheme) return;
+            colorScheme = data.colorScheme;
+            applyScheme();
+            for (const listener of [...schemeListeners]) listener(colorScheme);
+            return;
+        }
         const call = waiting.get(data.id);
         if (!call) return;
         waiting.delete(data.id);
@@ -103,6 +135,11 @@ const method = name => (...args) =>
 window.wilson = Object.freeze({
     project: ${scriptJson(project)},
     grants: Object.freeze(${scriptJson(grants)}),
+    get colorScheme() {
+        return colorScheme;
+    },
+    onChange: listen(changeListeners),
+    onColorSchemeChange: listen(schemeListeners),
     ...Object.fromEntries(names.map(name => [name, method(name)])),
 });
 })();`;
