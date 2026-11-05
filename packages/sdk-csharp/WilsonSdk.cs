@@ -34,6 +34,7 @@ public sealed class WilsonSdk : IDisposable
         Health = new HealthClient(Http);
         Hosts = new HostsClient(Http);
         Learnings = new LearningsClient(Http);
+        McpConnections = new McpConnectionsClient(Http);
         Onboarding = new OnboardingClient(Http);
         Projects = new ProjectsClient(Http);
         Review = new ReviewClient(Http);
@@ -74,6 +75,8 @@ public sealed class WilsonSdk : IDisposable
     public HostsClient Hosts { get; }
 
     public LearningsClient Learnings { get; }
+
+    public McpConnectionsClient McpConnections { get; }
 
     public OnboardingClient Onboarding { get; }
 

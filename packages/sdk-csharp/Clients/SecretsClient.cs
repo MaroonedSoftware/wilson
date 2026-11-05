@@ -49,7 +49,7 @@ public sealed class SecretsClient(SdkHttp http)
     /// Remove secret
     /// Forget a secret. This does not revoke it with whoever issued it.
     /// </summary>
-    /// <exception cref="SdkException">On 404.</exception>
+    /// <exception cref="SdkException">On 404, 409.</exception>
     public async Task RemoveSecretAsync(string name, CancellationToken cancellationToken = default)
     {
         await http.ExecuteAsync(

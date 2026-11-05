@@ -14,6 +14,7 @@ export * from './goals.js';
 export * from './health.js';
 export * from './hosts.js';
 export * from './learnings.js';
+export * from './mcp.connections.js';
 export * from './onboarding.js';
 export * from './passkey.types.js';
 export * from './projects.js';

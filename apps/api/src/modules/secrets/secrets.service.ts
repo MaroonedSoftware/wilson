@@ -36,11 +36,14 @@ export class SecretsService {
         // A pipe or a paste brings a trailing newline, which would otherwise become part of the value.
         const trimmed = value.trim();
         if (trimmed.length === 0) throw httpError(400).withDetails({ reason: 'a secret cannot be empty' });
-        return this.secrets.put(name, this.encryption.encrypt(trimmed));
+        await this.secrets.put(name, this.encryption.encrypt(trimmed));
+        return (await this.secrets.list()).find(secret => secret.name === name)!;
     }
 
-    /** Forget `name`. Never decrypts it, so this still works after the key is lost. Refuses an unknown name with 404. */
+    /** Forget `name`. Never decrypts it, so this still works after the key is lost. Refuses an unknown name with 404, and one in use with 409. */
     async remove(name: string): Promise<void> {
+        const inUse = (await this.secrets.list()).find(secret => secret.name === name)?.connections ?? [];
+        if (inUse.length > 0) throw httpError(409).withDetails({ reason: `"${name}" is used by ${inUse.join(', ')}` });
         if (!(await this.secrets.remove(name))) {
             throw httpError(404).withDetails({ reason: `no secret is saved as "${name}"` });
         }
@@ -61,22 +64,22 @@ export class SecretsService {
     }
 
     /**
-     * `text` with every saved secret's value replaced by {@link REDACTED}, for text that came from
-     * outside Wilson and is about to be shown or stored. Matches the exact value only, so it stops an
-     * accident and not a value that was encoded or split. A row that will not decrypt is skipped: it
-     * has nothing left to redact with, and that must not make the text unreadable.
+     * A function that replaces every saved secret's value in a text with {@link REDACTED}, for text that
+     * came from outside Wilson and is about to be shown or stored. Matches the exact value only, so it
+     * stops an accident and not a value that was encoded or split. A row that will not decrypt is
+     * skipped: it has nothing left to redact with, and that must not make the text unreadable.
      */
-    async redact(text: string): Promise<string> {
-        let redacted = text;
+    async redactor(): Promise<(text: string) => string> {
+        const values: string[] = [];
         for (const ciphertext of await this.secrets.allCiphertext()) {
-            let value: string;
             try {
-                value = this.encryption.decrypt(ciphertext);
+                values.push(this.encryption.decrypt(ciphertext));
             } catch {
                 continue;
             }
-            redacted = redacted.replaceAll(value, REDACTED);
         }
-        return redacted;
+        // Longest first, so a value that holds another is not left half redacted.
+        values.sort((a, b) => b.length - a.length);
+        return text => values.reduce((redacted, value) => redacted.replaceAll(value, REDACTED), text);
     }
 }

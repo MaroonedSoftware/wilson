@@ -1604,9 +1604,19 @@ only when retrying cannot help.
 - **Secrets.** Wilson holds named values in `wilson.secrets`, encrypted under the same key (`wilson secret
 set|list|remove`). Saving or removing one takes a recently proved factor (`wilson.step.up`), so a leaked API
   key cannot replace one. No operation returns a value, and none is reachable by MCP. `SecretsService.resolve`
-  is the only way to read one back. `SecretsService.redact` replaces exact values in text from outside
+  is the only way to read one back. `SecretsService.redactor` replaces exact values in text from outside
   Wilson, so it stops an accident and not a value that was encoded or split. Removing one does not revoke it
   with whoever issued it.
+
+- **MCP connections.** Wilson is the only client of outside MCP servers (`wilson mcp add|list|tools|review|refresh|remove`,
+  `wilson.mcp_connections`), so a server's credential is a saved secret that never reaches whatever calls its tools. Only
+  Streamable HTTP with a bearer token is supported, a redirect is refused, and engines are never given the server's
+  config. A connection's tools are unusable until a person reviews them: `read` runs without asking, `change` runs only once
+  a person confirms it, and `disabled` is never offered. A server's `readOnlyHint` is shown and never trusted. A model only
+  ever sees the stored text a person reviewed. Each call lists the tools again and refuses one whose name, description,
+  schema or hints changed, until it is reviewed again. That cannot catch a server that changes what a tool does and keeps
+  describing it the same way. Plain `http` is allowed for a server on the local network, with a warning when a secret goes
+  over it. Every saved secret's value is taken out of results and failures by exact match.
 
 ### Moving the board to the server
 

@@ -58,6 +58,18 @@ describe('SecretsService', () => {
         await expect(secrets.remove(name)).rejects.toMatchObject({ statusCode: 404 });
     });
 
+    it('refuses to forget a secret a connection uses, and says which', async () => {
+        const [name, connection] = [uniqueName(), uniqueName()];
+        await secrets.put(name, { value: 'x' });
+        await db.insertInto('wilson.mcpConnections').values({ name: connection, url: 'http://localhost/mcp', secret: name }).execute();
+
+        expect((await secrets.list()).find(secret => secret.name === name)?.connections).toEqual([connection]);
+        await expect(secrets.remove(name)).rejects.toMatchObject({ statusCode: 409, details: { reason: expect.stringContaining(connection) } });
+
+        await db.deleteFrom('wilson.mcpConnections').where('name', '=', connection).execute();
+        await secrets.remove(name);
+    });
+
     it('says so when a value will not decrypt, rather than answering nothing', async () => {
         const name = uniqueName();
         await new SecretsService(new SecretRepository(db), new EncryptionProvider(randomBytes(32))).put(name, { value: 'x' });
@@ -73,10 +85,9 @@ describe('SecretsService', () => {
         await secrets.put(second, { value: `${value}-other` });
         await new SecretsService(new SecretRepository(db), new EncryptionProvider(randomBytes(32))).put(foreign, { value: 'x' });
 
-        const redacted = await secrets.redact(`token=${value} and ${value}-other`);
+        const redacted = (await secrets.redactor())(`token=${value} and ${value}-other`);
 
-        expect(redacted).not.toContain(value);
-        expect(redacted).toContain(REDACTED);
+        expect(redacted).toBe(`token=${REDACTED} and ${REDACTED}`);
         await db.deleteFrom('wilson.secrets').where('name', 'in', [first, second, foreign]).execute();
     });
 });

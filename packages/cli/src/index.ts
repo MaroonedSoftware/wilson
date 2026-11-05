@@ -51,6 +51,12 @@ import hostSetCommand from './commands/host/set.command.js';
 import hostTokenCommand from './commands/host/token.command.js';
 import hostUnserveCommand from './commands/host/unserve.command.js';
 import projectCreateCommand from './commands/project/create.command.js';
+import mcpAddCommand from './commands/mcp/add.command.js';
+import mcpListCommand from './commands/mcp/list.command.js';
+import mcpRefreshCommand from './commands/mcp/refresh.command.js';
+import mcpRemoveCommand from './commands/mcp/remove.command.js';
+import mcpReviewCommand from './commands/mcp/review.command.js';
+import mcpToolsCommand from './commands/mcp/tools.command.js';
 import secretListCommand from './commands/secret/list.command.js';
 import secretRemoveCommand from './commands/secret/remove.command.js';
 import secretSetCommand from './commands/secret/set.command.js';
@@ -151,6 +157,12 @@ const app = await createCliApp({
         reg(['secret', 'list'], secretListCommand),
         reg(['secret', 'set'], secretSetCommand),
         reg(['secret', 'remove'], secretRemoveCommand),
+        reg(['mcp', 'add'], mcpAddCommand),
+        reg(['mcp', 'list'], mcpListCommand),
+        reg(['mcp', 'tools'], mcpToolsCommand),
+        reg(['mcp', 'review'], mcpReviewCommand),
+        reg(['mcp', 'refresh'], mcpRefreshCommand),
+        reg(['mcp', 'remove'], mcpRemoveCommand),
         reg(['host', 'probe'], hostProbeCommand),
         reg(['server', 'drain'], serverDrainCommand),
         reg(['server', 'resume'], serverResumeCommand),

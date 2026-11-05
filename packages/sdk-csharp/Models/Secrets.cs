@@ -22,6 +22,10 @@ public sealed record SecretSummary
 
     [JsonPropertyName("updatedAt")]
     public required DateTimeOffset UpdatedAt { get; init; }
+
+    /// <summary>The MCP connections using it, name ascending. A secret in use cannot be removed.</summary>
+    [JsonPropertyName("connections")]
+    public required List<string> Connections { get; init; }
 }
 
 public sealed record PutSecretRequest

@@ -19,6 +19,8 @@ contract SecretSummary: {
     name: string
     createdAt: datetime
     updatedAt: datetime
+    # The MCP connections using it, name ascending. A secret in use cannot be removed.
+    connections: array(string)
 }
 
 contract PutSecretRequest: {
@@ -69,6 +71,8 @@ operation /api/secrets/{name}: {
         response: {
             204:
             404:
+            # An MCP connection uses it.
+            409:
         }
     }
 }

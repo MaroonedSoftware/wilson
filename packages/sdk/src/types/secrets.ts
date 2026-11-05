@@ -16,6 +16,8 @@ export interface SecretSummary {
     name: string;
     createdAt: DateTime;
     updatedAt: DateTime;
+    /** The MCP connections using it, name ascending. A secret in use cannot be removed. */
+    connections: string[];
 }
 
 /** Rehydrates every wire-encoded scalar in a SecretSummary into its runtime type. Mutates and returns `raw`. */

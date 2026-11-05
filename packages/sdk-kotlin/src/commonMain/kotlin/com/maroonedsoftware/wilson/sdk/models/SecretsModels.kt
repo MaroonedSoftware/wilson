@@ -10,6 +10,8 @@ data class SecretSummary(
     val name: String,
     val createdAt: Instant,
     val updatedAt: Instant,
+    /** The MCP connections using it, name ascending. A secret in use cannot be removed. */
+    val connections: List<String>,
 )
 
 @Serializable

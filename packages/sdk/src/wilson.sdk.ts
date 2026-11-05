@@ -15,6 +15,7 @@ import { GoalsClient } from './goals.client.js';
 import { HealthClient } from './health.client.js';
 import { HostsClient } from './hosts.client.js';
 import { LearningsClient } from './learnings.client.js';
+import { McpConnectionsClient } from './mcp.connections.client.js';
 import { OnboardingClient } from './onboarding.client.js';
 import { ProjectsClient } from './projects.client.js';
 import { ReviewClient } from './review.client.js';
@@ -39,6 +40,7 @@ export class WilsonSdk {
     readonly health: HealthClient;
     readonly hosts: HostsClient;
     readonly learnings: LearningsClient;
+    readonly mcpConnections: McpConnectionsClient;
     readonly onboarding: OnboardingClient;
     readonly projects: ProjectsClient;
     readonly review: ReviewClient;
@@ -64,6 +66,7 @@ export class WilsonSdk {
         this.health = new HealthClient(sdkFetch);
         this.hosts = new HostsClient(sdkFetch);
         this.learnings = new LearningsClient(sdkFetch);
+        this.mcpConnections = new McpConnectionsClient(sdkFetch);
         this.onboarding = new OnboardingClient(sdkFetch);
         this.projects = new ProjectsClient(sdkFetch);
         this.review = new ReviewClient(sdkFetch);

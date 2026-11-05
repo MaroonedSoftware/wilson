@@ -7,7 +7,8 @@ const command: CommandModule = {
         const secrets = await api.secrets.listSecrets();
         if (secrets.length === 0) ctx.logger.info('no secrets yet: `wilson secret set <name>` saves one');
         for (const secret of secrets) {
-            ctx.logger.info(`${secret.name}  saved ${secret.updatedAt.toUTC().toISO({ suppressMilliseconds: true })}`);
+            const used = secret.connections.length > 0 ? `  used by ${secret.connections.join(', ')}` : '';
+            ctx.logger.info(`${secret.name}  saved ${secret.updatedAt.toUTC().toISO({ suppressMilliseconds: true })}${used}`);
         }
         return 0;
     }),

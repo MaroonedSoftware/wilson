@@ -14,6 +14,7 @@ export const SecretSummary = z.strictObject({
     name: z.string(),
     createdAt: _ZodDatetime,
     updatedAt: _ZodDatetime,
+    connections: z.array(z.string()).describe('The MCP connections using it, name ascending. A secret in use cannot be removed.'),
 });
 export type SecretSummary = z.infer<typeof SecretSummary>;
 

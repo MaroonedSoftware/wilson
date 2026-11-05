@@ -32,7 +32,7 @@ class SecretsClient(private val http: SdkHttp) {
     /**
      * Remove secret
      * Forget a secret. This does not revoke it with whoever issued it.
-     * @throws SdkError on 404
+     * @throws SdkError on 404, 409
      */
     suspend fun removeSecret(name: String) {
         http.execute(HttpMethod.Delete) {

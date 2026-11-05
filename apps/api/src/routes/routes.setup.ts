@@ -33,6 +33,7 @@ import { CodeRouter } from './code.router.js';
 import { DevicesRouter } from './devices.router.js';
 import { EngineTokensRouter } from './engine.tokens.router.js';
 import { SecretsRouter } from './secrets.router.js';
+import { McpConnectionsRouter } from './mcp.connections.router.js';
 import { FactorsRouter } from './factors.router.js';
 import { GoalsRouter } from './goals.router.js';
 import { ContextRouter } from './context.router.js';
@@ -358,6 +359,7 @@ export const routers = (signal?: AbortSignal) => [
     HostsRouter,
     EngineTokensRouter,
     SecretsRouter,
+    McpConnectionsRouter,
     StagesRouter,
     LearningsRouter,
     RulesRouter,

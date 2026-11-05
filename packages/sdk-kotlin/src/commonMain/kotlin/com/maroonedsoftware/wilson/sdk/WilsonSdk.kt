@@ -16,6 +16,7 @@ import com.maroonedsoftware.wilson.sdk.clients.GoalsClient
 import com.maroonedsoftware.wilson.sdk.clients.HealthClient
 import com.maroonedsoftware.wilson.sdk.clients.HostsClient
 import com.maroonedsoftware.wilson.sdk.clients.LearningsClient
+import com.maroonedsoftware.wilson.sdk.clients.McpConnectionsClient
 import com.maroonedsoftware.wilson.sdk.clients.OnboardingClient
 import com.maroonedsoftware.wilson.sdk.clients.ProjectsClient
 import com.maroonedsoftware.wilson.sdk.clients.ReviewClient
@@ -49,6 +50,7 @@ class WilsonSdk(config: SdkConfig) : AutoCloseable {
     val health: HealthClient = HealthClient(http)
     val hosts: HostsClient = HostsClient(http)
     val learnings: LearningsClient = LearningsClient(http)
+    val mcpConnections: McpConnectionsClient = McpConnectionsClient(http)
     val onboarding: OnboardingClient = OnboardingClient(http)
     val projects: ProjectsClient = ProjectsClient(http)
     val review: ReviewClient = ReviewClient(http)

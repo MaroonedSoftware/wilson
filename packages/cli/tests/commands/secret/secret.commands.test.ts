@@ -29,7 +29,7 @@ const buildCtx = () => {
     return { ctx: { config, env: {}, logger }, logger };
 };
 
-const saved = { name: 'linear', createdAt: '2026-11-05T00:00:00Z', updatedAt: '2026-11-05T00:00:00Z' };
+const saved = { name: 'linear', createdAt: '2026-11-05T00:00:00Z', updatedAt: '2026-11-05T00:00:00Z', connections: ['linear-mcp'] };
 
 describe('wilson secret', () => {
     it('saves a value read from stdin, in the body and never the URL', async () => {
@@ -53,6 +53,7 @@ describe('wilson secret', () => {
         await (listCommand.run as Handler)({}, ctx, []);
 
         expect(logger.info.mock.calls[0]![0]).toContain('linear');
+        expect(logger.info.mock.calls[0]![0]).toContain('used by linear-mcp');
     });
 
     it('says how to save one when there are none', async () => {

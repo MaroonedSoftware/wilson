@@ -10,6 +10,8 @@ export interface SecretRow {
     name: string;
     createdAt: DateTime;
     updatedAt: DateTime;
+    /** The MCP connections using it, name ascending. */
+    connections: string[];
 }
 
 /** `wilson.secrets`, in Postgres. Sees only ciphertext; `SecretsService` holds the key. */
@@ -19,17 +21,26 @@ export class SecretRepository {
 
     /** Every saved secret, name ascending. */
     async list(): Promise<SecretRow[]> {
-        return this.db.selectFrom('wilson.secrets').select(['name', 'createdAt', 'updatedAt']).orderBy('name').execute();
+        const secrets = await this.db.selectFrom('wilson.secrets').select(['name', 'createdAt', 'updatedAt']).orderBy('name').execute();
+        const connections = await this.db
+            .selectFrom('wilson.mcpConnections')
+            .select(['name', 'secret'])
+            .where('secret', 'is not', null)
+            .orderBy('name')
+            .execute();
+        return secrets.map(secret => ({
+            ...secret,
+            connections: connections.filter(connection => connection.secret === secret.name).map(connection => connection.name),
+        }));
     }
 
-    /** Save `ciphertext` under `name`, replacing any saved there, and answer with the row. */
-    async put(name: string, ciphertext: string): Promise<SecretRow> {
-        return this.db
+    /** Save `ciphertext` under `name`, replacing any saved there. */
+    async put(name: string, ciphertext: string): Promise<void> {
+        await this.db
             .insertInto('wilson.secrets')
             .values({ name, ciphertext })
             .onConflict(oc => oc.column('name').doUpdateSet({ ciphertext, updatedAt: sql`now()` }))
-            .returning(['name', 'createdAt', 'updatedAt'])
-            .executeTakeFirstOrThrow();
+            .execute();
     }
 
     /** The stored ciphertext for `name`, or undefined when none is saved. */
