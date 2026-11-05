@@ -11,6 +11,10 @@ to read, with its reasons. Nothing is ticked by default, and you tick what you a
 Installing, replacing and removing all need a recent sign-in. Installed apps are listed under Apps in the header
 of any project, and each opens in the project you opened it from.
 
+You can also ask the chat for a new app. It writes the file and proposes it, and nothing is installed until you
+read the source in the web app, tick what it can read and confirm. Treat that source as you would a file from a
+stranger, since text the chat read could have steered what it wrote. The chat cannot replace or remove an app.
+
 Apps run in the web app and on desktop, which lists and opens them but does not install them. They do not run
 on Android.
 

@@ -27,7 +27,9 @@ options {
 #
 # Deciding a proposal (`POST .../decision`) needs `wilson.manage` like any other change. What the chat
 # can propose is the operation catalog, and nothing gated `wilson.step.up` is in it, so approving a
-# chat action never stands in for a recently proved factor.
+# chat action never stands in for a recently proved factor. The one exception asks for that factor
+# itself: confirming a proposed operator app needs `wilson.step.up`, checked before the action is
+# claimed, so a stale session gets the same 403 a route gives and the action keeps waiting.
 
 contract ChatThread: {
     id: string
@@ -169,6 +171,10 @@ contract ChatTurnResult: {
 
 contract DecideChatActionRequest: {
     decision: enum(confirm, decline)
+    # What a proposed operator app may read, as the person ticked them, and required to confirm one.
+    # Not sent by a client without a review screen for apps, so that client is refused with a reason.
+    # Ignored for any other action.
+    grants?: array(AppGrant)
 }
 
 operation /api/chat/threads: {
@@ -357,6 +363,10 @@ operation /api/chat/actions/{id}/decision: {
             200: {
                 application/json: ChatPendingAction
             }
+            # Confirming a proposed app without `grants`.
+            400:
+            # Confirming a proposed app with an API key, or a session whose factor is older than five minutes.
+            403:
             404:
             409:
         }

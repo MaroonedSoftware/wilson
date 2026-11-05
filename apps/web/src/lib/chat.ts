@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ChatOperation, ChatPendingAction, ChatPendingQuestion, ChatQuestionAnswer, ChatThread, ChatTurnResult } from '@wilson/sdk';
+import type { AppGrant, ChatOperation, ChatPendingAction, ChatPendingQuestion, ChatQuestionAnswer, ChatThread, ChatTurnResult } from '@wilson/sdk';
 import { API_BASE } from './sdk.js';
 import { useWilsonSdk } from './sdk-context.js';
 
@@ -59,8 +59,15 @@ export function useDecideChatAction(threadId: string | undefined) {
     const wilson = useWilsonSdk();
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: ({ actionId, decision }: { actionId: string; decision: 'confirm' | 'decline' }): Promise<ChatPendingAction> =>
-            wilson.chat.decideAChatAction(actionId, { decision }),
+        mutationFn: ({
+            actionId,
+            decision,
+            grants,
+        }: {
+            actionId: string;
+            decision: 'confirm' | 'decline';
+            grants?: AppGrant[];
+        }): Promise<ChatPendingAction> => wilson.chat.decideAChatAction(actionId, { decision, ...(grants ? { grants } : {}) }),
         onSettled: (_result, _error, { decision }) => {
             if (decision === 'confirm') void queryClient.invalidateQueries();
             else if (threadId) void queryClient.invalidateQueries({ queryKey: chatThreadKey(threadId) });

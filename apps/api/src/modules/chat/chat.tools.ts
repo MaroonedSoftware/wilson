@@ -3,6 +3,16 @@ import type { AuthenticationSession } from '@maroonedsoftware/authentication';
 import type { Logger } from '@maroonedsoftware/logger';
 import { Duration } from 'luxon';
 import { z } from 'zod';
+import { APP_SLUG, AppsService } from '#modules/apps/apps.service.js';
+import { ORCHESTRATOR_SUBJECT } from '#modules/goal/orchestrator.session.js';
+import { AppGrant } from '#src/generated/apps.js';
+import {
+    MAX_PROPOSED_APP_HTML_BYTES,
+    PROPOSE_APP_DESCRIPTION,
+    PROPOSED_APP_OPERATION,
+    proposedAppSummary,
+    type ProposedAppArguments,
+} from './chat.app.proposal.js';
 import type { ChatOperation } from './chat.message.repository.js';
 import { ChatPendingActionRepository, type PendingAction } from './chat.pending.action.repository.js';
 import { ChatQuestionRepository, type PendingQuestion } from './chat.question.repository.js';
@@ -77,11 +87,14 @@ const ARGUMENTS = z
     );
 
 /**
- * The five tools the chat's agent gets, in the shape of ats's meta tools: one to find an operation,
- * one to read its input schema, one to run a read, one to propose a change, and one to ask the person
- * a structured question. Nothing here runs a change. `propose_change` stores it as a pending action,
- * and only the person's confirm runs it; `ask_user` stores a pending question the same way, and only
- * their submission answers it.
+ * The tools the chat's agent gets, in the shape of ats's meta tools: one to find an operation, one to
+ * read its input schema, one to run a read, one to propose a change, one to propose an operator app,
+ * and one to ask the person a structured question. Nothing here runs a change. `propose_change` and
+ * `propose_app` store it as a pending action, and only the person's confirm runs it; `ask_user` stores
+ * a pending question the same way, and only their submission answers it.
+ *
+ * A goal's wake-up does not get `propose_app`: nobody asked for that turn, and an app's source is what
+ * a person is asked to read, so it should not arrive unbidden from text the turn read.
  */
 export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatTool[] => {
     const record = (operation: ChatOperation) => {
@@ -89,7 +102,44 @@ export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatT
         context.emit?.({ type: 'operation', operation });
     };
 
+    const proposeApp: ChatTool = {
+        name: 'propose_app',
+        description: PROPOSE_APP_DESCRIPTION,
+        input: z.object({
+            slug: z.string().describe('Lowercase letters, digits and hyphens, starting with a letter or digit, at most 63 characters.'),
+            name: z.string().min(1).max(100).describe('What the app is called in Wilson.'),
+            description: z.string().max(500).optional().describe('One line saying what it shows.'),
+            html: z.string().min(1).describe('The whole file.'),
+            requestedGrants: z.array(AppGrant).describe('What the app uses. The person decides what it gets.'),
+        }),
+        execute: async input => {
+            const { slug, name, description, html, requestedGrants } = input as ProposedAppArguments;
+            if (!APP_SLUG.test(slug))
+                return `"${slug}" is not a slug: use 1 to 63 lowercase letters, digits or hyphens, starting with a letter or digit.`;
+            if (name.trim().length === 0) return 'The name must not be blank.';
+            const bytes = Buffer.byteLength(html, 'utf8');
+            if (bytes > MAX_PROPOSED_APP_HTML_BYTES)
+                return `The file is ${bytes} bytes, and a proposed app may be at most ${MAX_PROPOSED_APP_HTML_BYTES}.`;
+            if (await context.container.get(AppsService).exists(slug))
+                return `An app named "${slug}" is already installed, and this cannot replace one. Pick another slug, or tell the person they can replace it themselves in Settings, then Apps.`;
+            const args: ProposedAppArguments = { slug, name: name.trim(), ...(description ? { description } : {}), html, requestedGrants };
+            const proposals = context.container.get(ChatPendingActionRepository);
+            const waiting = await proposals.findPending(context.threadId, { operation: PROPOSED_APP_OPERATION, arguments: args });
+            if (waiting) return `Already proposed as change ${waiting.id}. It still waits on the person, so do not propose it again.`;
+            const action = await proposals.propose(context.threadId, {
+                operation: PROPOSED_APP_OPERATION,
+                arguments: args,
+                summary: proposedAppSummary(args.name, html),
+                expiresIn: PROPOSAL_TTL,
+            });
+            context.proposed.push(action);
+            context.emit?.({ type: 'proposed', action });
+            return `Proposed as change ${action.id}. It has not been installed. The person will read it and confirm or decline it within ${PROPOSAL_TTL.as('minutes')} minutes.`;
+        },
+    };
+
     return [
+        ...(context.session.subject === ORCHESTRATOR_SUBJECT ? [] : [proposeApp]),
         {
             name: 'discover',
             description:

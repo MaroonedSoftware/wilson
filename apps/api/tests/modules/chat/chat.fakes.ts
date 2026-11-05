@@ -120,6 +120,7 @@ export const fakeQuestions = (): { stored: PendingQuestion[]; repository: ChatQu
 export const fakeContainer = (
     proposals: ChatPendingActionRepository = fakeProposals().repository,
     questions: ChatQuestionRepository = fakeQuestions().repository,
+    configure?: (registry: InjectKitRegistry) => void,
 ): ScopedContainer => {
     const registry = new InjectKitRegistry();
     registry.register(BoardConfig).useValue(new StaticBoardConfig('default-project', '/tmp/code', '/tmp/wt', '/tmp/run'));
@@ -130,6 +131,7 @@ export const fakeContainer = (
     registry.register(ChatPendingActionRepository).useValue(proposals);
     registry.register(ChatQuestionRepository).useValue(questions);
     registry.register(McpConnectionsService).useValue({ usableTools: async () => [] } as unknown as McpConnectionsService);
+    configure?.(registry);
     return registry.build();
 };
 

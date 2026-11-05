@@ -1,11 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { AuthenticationSession } from '@maroonedsoftware/authentication';
 import type { Kysely } from 'kysely';
 import { Duration } from 'luxon';
 import { ConsoleLogger } from '@maroonedsoftware/logger';
+import { PolicyService } from '@maroonedsoftware/policies';
+import { AppsRepository } from '#modules/apps/apps.repository.js';
+import { AppsService } from '#modules/apps/apps.service.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { ApiChatEngine } from '#modules/chat/api.chat.engine.js';
+import { PROPOSED_APP_OPERATION } from '#modules/chat/chat.app.proposal.js';
 import { ChatAttachmentRepository } from '#modules/chat/chat.attachment.repository.js';
 import { onChatEvent, type ChatStreamEvent } from '#modules/chat/chat.feed.js';
 import type { ChatEngineChoice } from '#modules/chat/chat.engine.setting.js';
@@ -667,6 +671,145 @@ describe('ChatService', () => {
             expect(turn.reply).toMatchObject({ role: 'assistant', content: 'Sure, noted.' });
             expect((await service.getThread(thread.id)).questions).toEqual([expect.objectContaining({ id: asked[0]!.id, status: 'dismissed' })]);
         });
+    });
+});
+
+/**
+ * Confirming a proposed app over the real apps table, with the sign-in check faked. The real check is
+ * in `chat.app.proposal.routes.test.ts`.
+ */
+describe('ChatService, confirming a proposed app', () => {
+    const SLUG = `open-cards-${randomUUID().slice(0, 8)}`;
+    const PROPOSED = { slug: SLUG, name: 'Open cards', description: 'What is open', html: '<h1>open</h1>', requestedGrants: ['stats.read'] };
+
+    afterAll(async () => {
+        await db.deleteFrom('wilson.apps').where('slug', '=', SLUG).execute();
+    });
+
+    const setup = (assert: () => Promise<void> = async () => {}) => {
+        const operationCalls: FakeCall[] = [];
+        const actions = new ChatPendingActionRepository(db);
+        const questions = new ChatQuestionRepository(db);
+        const apps = new AppsService(new AppsRepository(db));
+        const container = fakeContainer(actions, questions, registry => {
+            registry.register(PolicyService).useValue({ assert } as unknown as PolicyService);
+            registry.register(AppsService).useValue(apps);
+        });
+        const model = scriptedModel([says(NOTHING_MORE), says(NOTHING_MORE)]);
+        const threads = new ChatThreadRepository(db);
+        const service = new ChatService(
+            container,
+            new ConsoleLogger(),
+            threads,
+            new ChatMessageRepository(db),
+            new ChatAttachmentRepository(db),
+            actions,
+            questions,
+            new ChatUsageRepository(db),
+            new GoalRepository(db),
+            fakeCatalog([fakeHandler('move_card', false, operationCalls, { result: { id: '0007' } })]),
+            container.get(ProjectRepository),
+            { api: new ApiChatEngine(model.registry), cli: undefined },
+            async (): Promise<ChatEngineChoice> => ({ engine: 'api', provider: 'anthropic', model: 'claude-sonnet-5-5' }),
+            () => fakeSession,
+        );
+        const propose = async () => {
+            const thread = await service.startThread();
+            return actions.propose(thread.id, {
+                operation: PROPOSED_APP_OPERATION,
+                arguments: PROPOSED,
+                summary: 'Install Open cards.',
+                expiresIn: Duration.fromObject({ minutes: 10 }),
+            });
+        };
+        return { service, actions, apps, model, propose };
+    };
+
+    afterEach(async () => {
+        await db.deleteFrom('wilson.apps').where('slug', '=', SLUG).execute();
+    });
+
+    it("installs it with the person's grants, not the ones the agent asked for", async () => {
+        const { service, apps, propose } = setup();
+        const action = await propose();
+
+        const decided = await service.decide(action.id, { decision: 'confirm', grants: ['board.read'] });
+        await service.whenIdle();
+
+        expect(decided).toMatchObject({ status: 'done', result: { slug: SLUG, grants: ['board.read'] } });
+        expect(await apps.get(SLUG)).toMatchObject({
+            name: 'Open cards',
+            description: 'What is open',
+            html: '<h1>open</h1>',
+            grants: ['board.read'],
+        });
+    });
+
+    it('installs it with nothing granted when the person ticked nothing', async () => {
+        const { service, apps, propose } = setup();
+
+        await service.decide((await propose()).id, { decision: 'confirm', grants: [] });
+        await service.whenIdle();
+
+        expect((await apps.get(SLUG)).grants).toEqual([]);
+    });
+
+    it('keeps the HTML out of the stored result, which the model is told', async () => {
+        const { service, actions, propose } = setup();
+        const action = await propose();
+
+        await service.decide(action.id, { decision: 'confirm', grants: [] });
+        await service.whenIdle();
+
+        expect(JSON.stringify((await actions.get(action.id))!.result)).not.toContain('<h1>');
+    });
+
+    it('refuses a confirm without grants and leaves the action waiting', async () => {
+        const { service, actions, propose } = setup();
+        const action = await propose();
+
+        const refused = await service.decide(action.id, { decision: 'confirm' }).catch(err => err);
+
+        expect(statusOf(refused)).toBe(400);
+        expect(reasonOf(refused)).toContain('web app');
+        expect((await actions.get(action.id))!.status).toBe('pending');
+    });
+
+    it('leaves the action waiting when the sign-in check refuses, and installs once it passes', async () => {
+        let proved = false;
+        const denied = Object.assign(new Error('Forbidden'), { statusCode: 403 });
+        const { service, actions, apps, propose } = setup(async () => {
+            if (!proved) throw denied;
+        });
+        const action = await propose();
+
+        await expect(service.decide(action.id, { decision: 'confirm', grants: ['board.read'] })).rejects.toBe(denied);
+        expect((await actions.get(action.id))!.status).toBe('pending');
+
+        proved = true;
+        expect(await service.decide(action.id, { decision: 'confirm', grants: ['board.read'] })).toMatchObject({ status: 'done' });
+        await service.whenIdle();
+        expect((await apps.get(SLUG)).grants).toEqual(['board.read']);
+    });
+
+    it('fails rather than replaces when the slug was taken meanwhile', async () => {
+        const { service, apps, propose } = setup();
+        await apps.install(SLUG, { name: 'Already here', html: '<h1>first</h1>', grants: ['stats.read'] });
+
+        const decided = await service.decide((await propose()).id, { decision: 'confirm', grants: ['board.read'] });
+        await service.whenIdle();
+
+        expect(decided).toMatchObject({ status: 'failed', error: `an app named "${SLUG}" is already installed` });
+        expect(await apps.get(SLUG)).toMatchObject({ name: 'Already here', html: '<h1>first</h1>', grants: ['stats.read'] });
+    });
+
+    it('lets a decline through with no grants and no sign-in check', async () => {
+        const { service, apps, propose } = setup(async () => {
+            throw new Error('must not be asked');
+        });
+
+        expect(await service.decide((await propose()).id, { decision: 'decline' })).toMatchObject({ status: 'declined' });
+        expect(statusOf(await apps.get(SLUG).catch(err => err))).toBe(404);
     });
 });
 

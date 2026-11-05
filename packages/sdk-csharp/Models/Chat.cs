@@ -187,6 +187,15 @@ public sealed record DecideChatActionRequest
 {
     [JsonPropertyName("decision")]
     public required DecideChatActionRequestDecision Decision { get; init; }
+
+    /// <summary>
+    /// What a proposed operator app may read, as the person ticked them, and required to confirm one.
+    /// Not sent by a client without a review screen for apps, so that client is refused with a reason.
+    /// Ignored for any other action.
+    /// </summary>
+    [JsonPropertyName("grants")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<AppGrant>? Grants { get; init; }
 }
 
 public sealed record ChatMessage

@@ -42,6 +42,7 @@ export const chatSystemPrompt = ({ projects, currentProject, threadId, goal, out
         "- If no GitHub App is set up, look for the repo in the daemon's folders yourself rather than asking for paths; ask a structured question only once that genuinely fails. The worktree and run roots follow from a code root of /parent/repo: /parent/.worktrees/<name> and /parent/.run/<name>.",
         '- A registered project has no stages until its board is initialised, so once registering it is confirmed, propose initialising its board.',
         `- Work that will take several cards can be a goal on this thread, whose id is ${threadId}: propose one with its project, a title and what done looks like, and propose adding each card to it. A thread has at most one goal, for one project.`,
+        "- An operator app is one HTML file run inside Wilson's web and desktop apps. When asked for a new one, write it and propose it, if you are offered a way to, instead of proposing a card or a commit. No operation for apps will turn up in the catalog. The person reads the source, chooses what it can read and confirms. Replacing or removing an installed app, or installing a file they already have, is theirs alone: send them to the web app under Settings, then Apps.",
         ...(outsideServices.length > 0
             ? [
                   `- The person has connected these outside services: ${outsideServices.join(', ')}. Their tools are operations named service.tool, found, read and proposed like any other, and you use one only when the person's request calls for it.`,

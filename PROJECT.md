@@ -91,8 +91,9 @@ These are settled. Challenge them only if you find a concrete blocker.
     run by the web or desktop app in a sandboxed iframe. It reaches Wilson only by asking its host over a
     private port, and the host answers from a fixed table of read-only calls, each tied to a grant. So the
     grant is enforced in the client, not by the API, and nothing can widen it without replacing the app.
-    Installing takes a recent sign-in (`wilson.step.up`), never a key, and agents have no route to it
-    (decision 8). A grant is what an app could leak, not only what it can read: see Operator apps.
+    Installing takes a recent sign-in (`wilson.step.up`), never a key. The chat may write a new app and
+    propose it, but no agent can install, replace or remove one, or choose its grants (decision 8). A grant
+    is what an app could leak, not only what it can read: see Operator apps.
 
 A retired decision, recorded because its absence is load-bearing: _"state is per-card
 and append-only; no shared index file that every agent touches, so parallel commits
@@ -1411,9 +1412,29 @@ a native view has neither that frame nor the header by default. Measured on macO
 server, WebRTC included. Two of those locks are private WebKit switches, so this is what was measured and not
 a promise, and the boundary above stays what an app can read. `apps/desktop/CLAUDE.md` has the detail.
 
-Write access, an app's own storage, revision history and apps written by agents are all out of scope for
-now. Agents especially: their output is untrusted, and the limit above matters far more for an author the
-operator did not choose.
+### Apps the chat proposes
+
+The chat can write a new app and propose it (`propose_app`), which stores a pending action and nothing else.
+Its output is untrusted: text it read can steer what it writes, and the limit above matters far more for an
+author the operator did not choose. So the person's review is the defence, and this is what bounds the rest:
+
+- **New apps only.** A taken slug is refused when proposing and when confirming, because a replacement would
+  run new code under grants the person already gave. Replacing and removing stay in Settings, then Apps.
+- **The person chooses the grants.** The confirm carries them, nothing starts ticked, and what the chat asked
+  for is only shown beside them.
+- **A recent sign-in, before the claim.** `ChatService.decide` checks `wilson.step.up` itself, so a stale session
+  gets the route's usual 403 and the action keeps waiting. This is the one chat action that needs it.
+- **Outside the catalog.** `apps.ck` stays `mcp: exclude`, so no other agent sees an apps operation, and
+  `propose_change` cannot reach the reserved name.
+- **A person behind the turn.** A goal's wake-up is not offered the tool. Follow-up turns after a person's own
+  confirm or answer are, since they run as that person.
+- **Web only.** The web app has the review screen. Desktop and Android send no grants, so their confirm is
+  refused with a reason and the action keeps waiting; they can decline.
+
+A proposal is capped at 128 KiB, not the 512 KiB of a file a person chooses, because the source stays in the
+action row and in the thread's history, where later turns pay for it.
+
+Write access, an app's own storage and revision history are all out of scope for now.
 
 ## Runner requirements
 

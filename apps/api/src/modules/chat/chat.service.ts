@@ -2,10 +2,14 @@ import type { Container } from 'injectkit';
 import type { AuthenticationSession } from '@maroonedsoftware/authentication';
 import { httpError } from '@maroonedsoftware/errors';
 import type { Logger } from '@maroonedsoftware/logger';
+import { PolicyService } from '@maroonedsoftware/policies';
+import { AppsService } from '#modules/apps/apps.service.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { GoalRepository } from '#modules/goal/goal.repository.js';
 import { parseAttachmentId, type AttachmentImageType } from '#modules/context/attachment.bytes.js';
+import { STEP_UP_POLICY } from '#modules/policy/access.policies.js';
 import { Mutex } from '#shared/mutex.js';
+import type { AppGrant } from '#src/generated/apps.js';
 import type {
     AnswerChatQuestionsRequest,
     ChatPendingAction as WirePendingAction,
@@ -17,6 +21,7 @@ import type {
     RenameChatThreadRequest,
     SendChatMessageRequest,
 } from '#src/generated/chat.js';
+import { PROPOSED_APP_OPERATION, ProposedAppArguments } from './chat.app.proposal.js';
 import { ChatAttachmentRepository, type StoredChatAttachment, type StoredChatAttachmentWithBytes } from './chat.attachment.repository.js';
 import { ChatCatalog, explainError } from './chat.catalog.js';
 import { publishChat, toStreamEvent } from './chat.feed.js';
@@ -118,7 +123,7 @@ const threadLock = (threadId: string): Mutex => {
 };
 
 /**
- * The chat (`chat.ck`). A turn stores the person's message, runs the thread's engine with the five
+ * The chat (`chat.ck`). A turn stores the person's message, runs the thread's engine with the
  * chat tools (`chatTools`), and stores its answer with the operations it ran. A change the answer
  * proposed runs only through {@link decide}, and a question it asked only through
  * {@link answerQuestions} — both as the person's own act, never guessed on their behalf.
@@ -228,31 +233,53 @@ export class ChatService {
         );
     }
 
-    async decide(id: string, { decision }: DecideChatActionRequest): Promise<WirePendingAction> {
+    async decide(id: string, { decision, grants }: DecideChatActionRequest): Promise<WirePendingAction> {
         const action = await this.actions.get(id);
         if (!action) throw httpError(404).withDetails({ reason: `chat action ${id} not found` });
+
+        const session = this.session();
+        const proposedApp = action.operation === PROPOSED_APP_OPERATION;
+        // Before the claim, so a refusal leaves the action waiting: the person can prove a factor and
+        // confirm again, which a claimed action could not do.
+        if (proposedApp && decision === 'confirm' && action.status === 'pending') {
+            if (!grants)
+                throw httpError(400).withDetails({ reason: 'review this app in the web app to choose what it can read, then confirm it there' });
+            await this.container.get(PolicyService).assert(STEP_UP_POLICY, { session });
+        }
 
         const decided = decision === 'decline' ? await this.actions.decline(id) : await this.actions.claim(id);
         if (!decided) throw httpError(409).withDetails({ reason: this.whyUndecidable(action) });
         if (decision === 'decline') return toWireAction(decided);
 
-        const session = this.session();
         let finished: PendingAction | undefined;
         try {
-            const result = await this.catalog.run(
-                this.container,
-                this.logger,
-                session,
-                action.operation,
-                action.arguments as Record<string, unknown>,
-                action.project,
-            );
+            const result = proposedApp
+                ? await this.installProposedApp(action, grants ?? [])
+                : await this.catalog.run(
+                      this.container,
+                      this.logger,
+                      session,
+                      action.operation,
+                      action.arguments as Record<string, unknown>,
+                      action.project,
+                  );
             finished = await this.actions.finish(id, { result });
         } catch (err) {
             finished = await this.actions.finish(id, { error: explainError(err) });
         }
         if (finished) this.followUp(finished, session);
         return toWireAction(finished ?? decided);
+    }
+
+    /**
+     * Install a confirmed app with the grants the person chose, never the ones the agent asked for.
+     * Answers without the HTML, since the result is stored and passed on to the model
+     * ({@link followUpNote}).
+     */
+    private async installProposedApp(action: PendingAction, grants: AppGrant[]): Promise<{ slug: string; name: string; grants: AppGrant[] }> {
+        const { slug, name, description, html } = ProposedAppArguments.parse(action.arguments);
+        const app = await this.container.get(AppsService).create(slug, { name, ...(description ? { description } : {}), html, grants });
+        return { slug: app.slug, name: app.name, grants: app.grants };
     }
 
     /**

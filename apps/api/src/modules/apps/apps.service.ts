@@ -1,7 +1,7 @@
 import { Injectable } from 'injectkit';
 import { httpError } from '@maroonedsoftware/errors';
 import { AppGrant, type App, type AppSummary, type InstallAppRequest } from '../../generated/apps.js';
-import { AppsRepository, type AppRow } from './apps.repository.js';
+import { AppsRepository, type AppRow, type AppValues } from './apps.repository.js';
 
 /**
  * The most HTML an app may hold, in UTF-8 bytes. Half the body parser's 1 MB limit for JSON, so that
@@ -9,7 +9,8 @@ import { AppsRepository, type AppRow } from './apps.repository.js';
  */
 export const MAX_APP_HTML_BYTES = 512 * 1024;
 
-const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
+/** What an app's slug must match. */
+export const APP_SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 /**
  * A stored grant this build no longer knows is dropped, not an error. An app then loses that access
@@ -29,6 +30,31 @@ const toSummary = (row: Omit<AppRow, 'html'>): AppSummary => ({
 });
 
 const toApp = (row: AppRow): App => ({ ...toSummary(row), html: row.html });
+
+/** What an install writes, once its slug, name, size and API version pass. */
+const validated = (slug: string, request: InstallAppRequest): AppValues => {
+    if (!APP_SLUG.test(slug)) {
+        throw httpError(400).withDetails({ reason: 'a slug is 1 to 63 lowercase letters, digits or hyphens, starting with a letter or digit' });
+    }
+    const name = request.name.trim();
+    if (name.length === 0) throw httpError(400).withDetails({ reason: 'name must not be blank' });
+    const bytes = Buffer.byteLength(request.html, 'utf8');
+    if (bytes > MAX_APP_HTML_BYTES) {
+        throw httpError(400).withDetails({ reason: `html must be at most ${MAX_APP_HTML_BYTES} bytes, got ${bytes}` });
+    }
+    const apiVersion = request.apiVersion ?? 1;
+    if (apiVersion < 1) throw httpError(400).withDetails({ reason: 'apiVersion must be 1 or more' });
+    const version = request.version?.trim();
+    return {
+        slug,
+        name,
+        description: request.description?.trim() ?? '',
+        html: request.html,
+        grants: [...new Set(request.grants)],
+        version: version ? version : null,
+        apiVersion,
+    };
+};
 
 /**
  * The installed operator apps (`apps.ck`). This stores them and says what they were granted. Running
@@ -50,28 +76,22 @@ export class AppsService {
     }
 
     async install(slug: string, request: InstallAppRequest): Promise<App> {
-        if (!SLUG.test(slug)) {
-            throw httpError(400).withDetails({ reason: 'a slug is 1 to 63 lowercase letters, digits or hyphens, starting with a letter or digit' });
-        }
-        const name = request.name.trim();
-        if (name.length === 0) throw httpError(400).withDetails({ reason: 'name must not be blank' });
-        const bytes = Buffer.byteLength(request.html, 'utf8');
-        if (bytes > MAX_APP_HTML_BYTES) {
-            throw httpError(400).withDetails({ reason: `html must be at most ${MAX_APP_HTML_BYTES} bytes, got ${bytes}` });
-        }
-        const apiVersion = request.apiVersion ?? 1;
-        if (apiVersion < 1) throw httpError(400).withDetails({ reason: 'apiVersion must be 1 or more' });
-        const version = request.version?.trim();
-        const row = await this.apps.upsert({
-            slug,
-            name,
-            description: request.description?.trim() ?? '',
-            html: request.html,
-            grants: [...new Set(request.grants)],
-            version: version ? version : null,
-            apiVersion,
-        });
+        return toApp(await this.apps.upsert(validated(slug, request)));
+    }
+
+    /**
+     * Install an app under a slug nothing holds. A proposal from the chat comes through here, not
+     * {@link install}: replacing an app would run new code under grants the person already gave.
+     */
+    async create(slug: string, request: InstallAppRequest): Promise<App> {
+        const row = await this.apps.insert(validated(slug, request));
+        if (!row) throw httpError(409).withDetails({ reason: `an app named "${slug}" is already installed` });
         return toApp(row);
+    }
+
+    /** Whether an app is installed under this slug. */
+    async exists(slug: string): Promise<boolean> {
+        return (await this.apps.find(slug)) !== undefined;
     }
 
     async remove(slug: string): Promise<void> {

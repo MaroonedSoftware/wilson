@@ -128,7 +128,7 @@ class ChatClient(private val http: SdkHttp) {
      * Confirm runs the proposed operation, at most once however many times it is sent, and answers with
      * how it went: a failed operation is a 200 with `status: failed` and its `error`, since the decision
      * itself succeeded. A proposal already decided, or expired, is a 409.
-     * @throws SdkError on 404, 409
+     * @throws SdkError on 400, 403, 404, 409
      */
     suspend fun decideAChatAction(id: String, body: DecideChatActionRequest): ChatPendingAction {
         val response = http.execute(HttpMethod.Post) {

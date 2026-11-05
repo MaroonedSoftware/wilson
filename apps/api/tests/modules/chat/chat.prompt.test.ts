@@ -75,6 +75,14 @@ describe('the chat system prompt', () => {
         expect(prompt).toContain('propose initialising its board');
     });
 
+    it('has the chat propose a new operator app, and leaves replacing or removing one to the person', () => {
+        const prompt = chatSystemPrompt({ threadId: '7', projects: [] });
+
+        expect(prompt).toContain('When asked for a new one, write it and propose it');
+        expect(prompt).toContain('No operation for apps will turn up in the catalog');
+        expect(prompt).toContain('Settings, then Apps');
+    });
+
     it('asks for follow-ups to end the answer with', () => {
         expect(chatSystemPrompt({ threadId: '7', projects: [] })).toContain('<suggestions>');
     });

@@ -1,10 +1,25 @@
 import { describe, expect, it } from 'vitest';
+import type { AuthenticationSession } from '@maroonedsoftware/authentication';
+import { AppsService, MAX_APP_HTML_BYTES } from '#modules/apps/apps.service.js';
+import { MAX_PROPOSED_APP_HTML_BYTES, PROPOSE_APP_DESCRIPTION, PROPOSED_APP_OPERATION } from '#modules/chat/chat.app.proposal.js';
+import { orchestratorSession } from '#modules/goal/orchestrator.session.js';
+import { AppGrant } from '#src/generated/apps.js';
 import { QUESTION_TTL } from '#modules/chat/chat.questions.js';
 import { chatTools, PROPOSAL_TTL, RESULT_CAP, type ChatTool, type ChatToolEvent } from '#modules/chat/chat.tools.js';
-import { fakeCatalog, fakeContainer, fakeHandler, fakeProposals, fakeQuestions, refusal, turnContext, type FakeCall } from './chat.fakes.js';
+import {
+    fakeCatalog,
+    fakeContainer,
+    fakeHandler,
+    fakeProposals,
+    fakeQuestions,
+    fakeSession,
+    refusal,
+    turnContext,
+    type FakeCall,
+} from './chat.fakes.js';
 
 /**
- * The five tools the chat's agent gets. The rule they enforce is the chat's whole safety model: the
+ * The tools the chat's agent gets. The rule they enforce is the chat's whole safety model: the
  * agent may run a read, but a change only ever becomes a pending action and a question only ever a
  * pending question, both for the person alone to decide.
  */
@@ -26,12 +41,12 @@ describe('the chat tools', () => {
         return { tool, context, events, proposals, questions, calls };
     };
 
-    it('offers exactly five tools, none of which makes a change', () => {
+    it('offers exactly these tools, none of which makes a change', () => {
         expect(
             chatTools(fakeCatalog([]), turnContext(fakeContainer()))
                 .map(tool => tool.name)
                 .sort(),
-        ).toEqual(['ask_user', 'describe', 'discover', 'dispatch_readonly', 'propose_change']);
+        ).toEqual(['ask_user', 'describe', 'discover', 'dispatch_readonly', 'propose_app', 'propose_change']);
     });
 
     it('finds operations by keyword, saying which are reads', async () => {
@@ -182,5 +197,85 @@ describe('the chat tools', () => {
         );
         expect(schema.safeParse({ questions: [{ ...oneQuestion, header: 'x'.repeat(61) }] }).success).toBe(false);
         expect(questions.stored).toEqual([]);
+    });
+});
+
+describe('propose_app', () => {
+    const ARGS = { slug: 'open-cards', name: ' Open cards ', description: 'What is open', html: '<h1>open</h1>', requestedGrants: ['board.read'] };
+
+    const setup = (installed: string[] = [], session: AuthenticationSession = fakeSession) => {
+        const proposals = fakeProposals();
+        const container = fakeContainer(proposals.repository, undefined, registry => {
+            registry.register(AppsService).useValue({ exists: async (slug: string) => installed.includes(slug) } as unknown as AppsService);
+        });
+        const context = { ...turnContext(container, '42'), session };
+        const tools = chatTools(fakeCatalog([]), context);
+        return { tools, tool: tools.find(candidate => candidate.name === 'propose_app'), proposals, context };
+    };
+
+    it('stores a pending action under the reserved operation, with its own summary, and installs nothing', async () => {
+        const { tool, proposals, context } = setup();
+
+        const answer = await tool!.execute(ARGS);
+
+        expect(answer).toContain('has not been installed');
+        expect(proposals.stored).toEqual([
+            expect.objectContaining({
+                threadId: '42',
+                operation: PROPOSED_APP_OPERATION,
+                arguments: { ...ARGS, name: 'Open cards' },
+                summary: 'Install a new app, "Open cards" (1 KiB).',
+                status: 'pending',
+            }),
+        ]);
+        expect(context.proposed).toEqual(proposals.stored);
+    });
+
+    it('does not hand the HTML back to the model', async () => {
+        expect(await setup().tool!.execute(ARGS)).not.toContain('<h1>');
+    });
+
+    it('refuses a slug that is taken, since it cannot replace an app', async () => {
+        const { tool, proposals } = setup(['open-cards']);
+
+        expect(await tool!.execute(ARGS)).toContain('already installed');
+        expect(proposals.stored).toEqual([]);
+    });
+
+    it('refuses a malformed slug', async () => {
+        const { tool, proposals } = setup();
+
+        expect(await tool!.execute({ ...ARGS, slug: 'Open Cards' })).toContain('is not a slug');
+        expect(proposals.stored).toEqual([]);
+    });
+
+    it('refuses a file over the proposal limit, which is below the limit for an uploaded one', async () => {
+        const { tool, proposals } = setup();
+
+        expect(await tool!.execute({ ...ARGS, html: 'x'.repeat(MAX_PROPOSED_APP_HTML_BYTES + 1) })).toContain('at most');
+        expect(proposals.stored).toEqual([]);
+        expect(MAX_PROPOSED_APP_HTML_BYTES).toBeLessThan(MAX_APP_HTML_BYTES);
+    });
+
+    it('is not offered to a goal wake-up, which nobody asked for', () => {
+        const { tools } = setup([], orchestratorSession());
+
+        expect(tools.map(({ name }) => name)).not.toContain('propose_app');
+        expect(tools.map(({ name }) => name)).toContain('propose_change');
+    });
+
+    it('tells the agent every grant there is, and the calls that need none', () => {
+        for (const grant of AppGrant.options) expect(PROPOSE_APP_DESCRIPTION).toContain(grant);
+        expect(PROPOSE_APP_DESCRIPTION).toContain('wilson.openCard(id) needs no grant');
+    });
+
+    it('cannot be reached through propose_change', async () => {
+        const { tools, proposals } = setup();
+        const change = tools.find(candidate => candidate.name === 'propose_change')!;
+
+        const answer = await change.execute({ name: PROPOSED_APP_OPERATION, arguments: ARGS, summary: 'Install it.' });
+
+        expect(answer).toContain('There is no operation named');
+        expect(proposals.stored).toEqual([]);
     });
 });
