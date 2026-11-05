@@ -83,6 +83,16 @@ describe('an app page', () => {
         expect(frame.getAttribute('srcdoc')).toContain('<h1>hello</h1>');
     });
 
+    it('does not run an app written for an app API this Wilson does not offer', async () => {
+        vi.spyOn(wilson.apps, 'getApp').mockResolvedValue({ ...burndown, apiVersion: 2 });
+
+        renderAt('/projects/wilson/apps/burndown');
+
+        expect(await screen.findByText('Burndown needs a newer Wilson')).toBeTruthy();
+        expect(screen.getByText(/version 2 of the app API/)).toBeTruthy();
+        expect(screen.queryByTitle('Burndown')).toBeNull();
+    });
+
     it('says so when no such app is installed', async () => {
         vi.spyOn(wilson.apps, 'getApp').mockRejectedValue(new SdkError(404, 'Not Found', {}, new Headers()));
 

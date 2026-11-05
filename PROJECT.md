@@ -1393,6 +1393,11 @@ reach apps until it is added here. An activity event has no `payload`, and a sto
 wants more than that can call `wilson.openCard(id)`, which needs no grant and opens the card's page, closing
 the app.
 
+Each app records the version of the app API it was written for (`wilson.apps.api_version`, 1 for apps that
+did not say). The web and desktop apps each list the versions they offer (`APP_API_VERSIONS`,
+`AppDocument.ApiVersions`, held equal by `app-host.json`) and do not open an app written for another. A version
+is never changed once offered: a breaking change is a new set of routes and contracts under the next number.
+
 So the boundary is what an app can read, not where it can send it. Your session and anything ungranted stay
 out of reach, and what you grant could leave. Safari and Firefox are unmeasured.
 

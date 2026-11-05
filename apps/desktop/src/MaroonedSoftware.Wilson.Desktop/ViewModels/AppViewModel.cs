@@ -108,6 +108,14 @@ public sealed partial class AppViewModel(ShellViewModel shell, string project, s
             return;
         }
 
+        // Not opened at all, as the answers it would get are not the ones it was written for.
+        if (AppDocument.UnsupportedApiVersion(_app.ApiVersion) is { } unsupported)
+        {
+            Error = $"{_app.Name} needs a newer Wilson. {unsupported}";
+            _app = null;
+            return;
+        }
+
         if (Application.Current is { } application)
         {
             application.ActualThemeVariantChanged += TellColorScheme;

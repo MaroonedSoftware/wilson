@@ -3,6 +3,7 @@
     "sandbox": "allow-scripts",
     "connectMessage": "wilson.connect",
     "maxRequestsInFlight": 16,
+    "apiVersions": [1],
     "methods": [
         {
             "name": "listCards",

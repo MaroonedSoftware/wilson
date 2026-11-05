@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { AppGrant } from '@wilson/sdk';
 import { answerAppRequest, APP_METHOD_NAMES, MAX_APP_REQUESTS_IN_FLIGHT, type AppBrokerClient } from '#src/lib/app.broker.js';
-import { APP_CONNECT_MESSAGE, APP_CONTENT_SECURITY_POLICY, APP_SANDBOX, appDocument, type AppColorScheme } from '#src/lib/apps.js';
+import { APP_API_VERSIONS, APP_CONNECT_MESSAGE, APP_CONTENT_SECURITY_POLICY, APP_SANDBOX, appDocument, type AppColorScheme } from '#src/lib/apps.js';
 
 /**
  * The desktop app hosts operator apps too and reads this same file (`AppHostFixtureTests`), so a change
@@ -14,6 +14,7 @@ const fixture = JSON.parse(readFileSync(new URL('./fixtures/app-host.json', impo
     sandbox: string;
     connectMessage: string;
     maxRequestsInFlight: number;
+    apiVersions: number[];
     methods: { name: string; grant?: AppGrant }[];
     html: string;
     context: { project: string; grants: AppGrant[]; colorScheme: AppColorScheme };
@@ -33,6 +34,10 @@ describe('what the web and desktop hosts share', () => {
 
     it('is the same limit on waiting requests', () => {
         expect(MAX_APP_REQUESTS_IN_FLIGHT).toBe(fixture.maxRequestsInFlight);
+    });
+
+    it('offers the same versions of the app API', () => {
+        expect(APP_API_VERSIONS).toEqual(fixture.apiVersions);
     });
 
     it('is the same methods, in the same order', () => {

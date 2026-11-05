@@ -34,6 +34,17 @@ public class AppHostFixtureTests
     }
 
     [Fact]
+    public void TheApiVersionsAreTheWebApps() =>
+        Assert.Equal(Fixture.GetProperty("apiVersions").EnumerateArray().Select(version => version.GetInt64()), AppDocument.ApiVersions);
+
+    [Fact]
+    public void AnAppForAnotherApiVersionIsToldWhy()
+    {
+        Assert.Null(AppDocument.UnsupportedApiVersion(1));
+        Assert.Contains("version 2 of the app API", AppDocument.UnsupportedApiVersion(2), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TheMethodsAreTheWebApps()
     {
         var names = Fixture.GetProperty("methods").EnumerateArray().Select(method => method.GetProperty("name").GetString()!);
