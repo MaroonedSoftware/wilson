@@ -789,6 +789,25 @@ describe('TestingVerifier — red-suite failure names failing tests (card 0246)'
         expect(archivedAt.startsWith(join(base, 'run', 'cards', '0001', 'test-reports'))).toBe(true);
         expect(JSON.parse(await readFile(archivedAt, 'utf8'))).toEqual(report);
     });
+
+    it("kills the suite at the lane's testTimeoutMs and says so", async () => {
+        const worktree = await manager.create('0001', 'card/0001-thing');
+        await writeFile(join(worktree.path, 'slow-suite.cjs'), 'setTimeout(() => {}, 30_000);\n', 'utf8');
+
+        const stage = makeStage({
+            testCommand: `node ${join(worktree.path, 'slow-suite.cjs')}`,
+            testReportPath: 'report.json',
+            testTimeoutMs: 1000,
+            baselineCheck: false,
+        });
+
+        const startedAt = Date.now();
+        const outcome = await verifier.verify(verifyInput(worktree, stage));
+
+        expect(Date.now() - startedAt).toBeLessThan(15_000);
+        expect(outcome.passed).toBe(false);
+        expect(outcome.failures.join('\n')).toContain('timed out after 1s');
+    });
 });
 
 /**

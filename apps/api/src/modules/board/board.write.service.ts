@@ -1076,7 +1076,7 @@ export class BoardWriteService {
 
                 if (!stage.testCommand) return { ok: false, reason: 'no testCommand configured: the suite could not be proven' };
 
-                const run = await runConfiguredCommand(worktree.path, stage.testCommand, undefined, undefined, host);
+                const run = await runConfiguredCommand(worktree.path, stage.testCommand, stage.testTimeoutMs, undefined, host);
                 if (!run) return { ok: true };
 
                 return await this.judgeFailedMergeSuite(id, worktree, stage, run);
@@ -1121,7 +1121,7 @@ export class BoardWriteService {
         const rerun = await runConfiguredCommand(
             worktree.path,
             `${stage.testCommand} ${files.join(' ')}`,
-            undefined,
+            stage.testTimeoutMs,
             undefined,
             worktreeHost(worktree),
         );
