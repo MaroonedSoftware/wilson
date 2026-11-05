@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { DateTime } from 'luxon';
 import { createElement } from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
@@ -101,5 +101,39 @@ describe('the way there from Settings', () => {
 
         await screen.findByText('Burndown');
         expect(screen.queryByRole('link', { name: 'Open' })).toBeNull();
+    });
+});
+
+describe('the apps list', () => {
+    it('is linked from the header of a project', async () => {
+        vi.spyOn(wilson.apps, 'listApps').mockResolvedValue([]);
+
+        renderAt('/projects/wilson/apps');
+
+        const link = (await screen.findByRole('link', { name: 'Apps' })) as HTMLAnchorElement;
+        expect(link.getAttribute('href')).toBe('/projects/wilson/apps');
+    });
+
+    it('opens each app in this project, without fetching its HTML', async () => {
+        const { html: _html, ...summary } = burndown;
+        vi.spyOn(wilson.apps, 'listApps').mockResolvedValue([{ ...summary, description: 'Cards left', grants: ['board.read'] }]);
+        const getApp = vi.spyOn(wilson.apps, 'getApp');
+
+        renderAt('/projects/wilson/apps');
+
+        const open = (await screen.findByRole('link', { name: 'Burndown' })) as HTMLAnchorElement;
+        expect(open.getAttribute('href')).toBe('/projects/wilson/apps/burndown');
+        expect(screen.getByText('Cards left')).toBeTruthy();
+        expect(screen.getByText('Board')).toBeTruthy();
+        expect(getApp).not.toHaveBeenCalled();
+    });
+
+    it('says where to install one when there are none', async () => {
+        vi.spyOn(wilson.apps, 'listApps').mockResolvedValue([]);
+
+        renderAt('/projects/wilson/apps');
+
+        const empty = await screen.findByText(/No apps installed/);
+        expect(within(empty).getByRole('link', { name: 'Settings' }).getAttribute('href')).toContain('/settings?project=wilson');
     });
 });

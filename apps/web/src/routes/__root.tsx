@@ -4,6 +4,7 @@ import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { Notifications } from '@mantine/notifications';
 import {
     IconActivity,
+    IconApps,
     IconChartBar,
     IconLayoutKanban,
     IconLogout,
@@ -165,6 +166,15 @@ function Shell() {
                                         <Link to="/projects/$project/stats" params={{ project }} aria-label="Stats">
                                             <ActionIcon component="span" variant="subtle">
                                                 <IconChartBar size={18} />
+                                            </ActionIcon>
+                                        </Link>
+                                    </Tooltip>
+                                )}
+                                {project && (
+                                    <Tooltip label="Apps">
+                                        <Link to="/projects/$project/apps" params={{ project }} aria-label="Apps">
+                                            <ActionIcon component="span" variant="subtle">
+                                                <IconApps size={18} />
                                             </ActionIcon>
                                         </Link>
                                     </Tooltip>

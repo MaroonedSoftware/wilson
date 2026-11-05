@@ -82,6 +82,13 @@ These are settled. Challenge them only if you find a concrete blocker.
     is a principal the API checks, not an assumption about who is on the network. See
     Authentication.
 
+11. **An operator app holds no credential.** An app is one HTML file the operator installs (`wilson.apps`),
+    run by the web app in a sandboxed iframe. It reaches Wilson only by asking the web app over a private
+    port, and the web app answers from a fixed table of read-only calls, each tied to a grant. So the grant
+    is enforced in the browser, not by the API, and nothing can widen it without replacing the app.
+    Installing takes a recent sign-in (`wilson.step.up`), never a key, and agents have no route to it
+    (decision 8). A grant is what an app could leak, not only what it can read: see Operator apps.
+
 A retired decision, recorded because its absence is load-bearing: _"state is per-card
 and append-only; no shared index file that every agent touches, so parallel commits
 merge clean."_ That was a constraint imposed by git's merge semantics. Rows do not
@@ -1065,6 +1072,33 @@ executes. Treat it as data, always:
 
 Worth stating plainly because this is the one feature that opens the pipeline to
 input the operator did not write.
+
+## Operator apps
+
+Small HTML apps inside the web app, for views of a project that do not belong in Wilson itself. Writing one
+is in `apps/web/examples/apps/README.md`. They are read-only, web-only, and installed for the whole server,
+and the URL an app is opened at says which project it reads.
+
+An app's frame has `sandbox="allow-scripts"`, so its origin is opaque, under a policy placed ahead of its
+HTML (`appDocument`, `apps/web/src/lib/apps.ts`). The page hosting it is sent `frame-src 'none'`, by
+`deploy/web.nginx.conf` and the Vite dev server. Serving the web app any other way loses that header.
+
+Measured in Brave and Chromium on 2026-11-05, with an app built to escape and a logging server:
+
+- Ordinary requests were refused, and none reached the server. So were cookies, storage, the parent page,
+  popups, top navigation, form posts, `eval`, workers and nested frames.
+- A frame navigating itself gets out without the host page's header, with data in the URL. With it, the
+  request never arrives. The built-in browser pane of the Claude desktop app stops this navigation whatever
+  the policy, so it cannot test it.
+- WebRTC gets out regardless: STUN packets reached a server the app named, because Chromium ignores the
+  CSP `webrtc` directive. No fix is known that an app could not get around.
+
+So the boundary is what an app can read, not where it can send it. Your session and anything ungranted stay
+out of reach, and what you grant could leave. Safari and Firefox are unmeasured.
+
+Write access, an app's own storage, revision history and apps written by agents are all out of scope for
+now. Agents especially: their output is untrusted, and the limit above matters far more for an author the
+operator did not choose.
 
 ## Runner requirements
 
