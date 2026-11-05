@@ -1,3 +1,4 @@
+using MaroonedSoftware.Wilson.Desktop.Core.Apps;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
 using MaroonedSoftware.Wilson.Sdk;
 using MaroonedSoftware.Wilson.Sdk.Runtime;
@@ -36,13 +37,10 @@ public sealed class ServerConnection : IDisposable
     public SessionManager Session { get; }
 
     /// <summary>A client scoped to one project. Its `X-Wilson-Project` is fixed, so a change of project builds another.</summary>
-    public WilsonSdk ForProject(string project) =>
-        new(new SdkOptions
-        {
-            BaseUrl = Origin,
-            HttpClient = _http,
-            Headers = _ => new ValueTask<IReadOnlyDictionary<string, string>>(new Dictionary<string, string> { [ProjectHeader] = project }),
-        });
+    public WilsonSdk ForProject(string project) => new(ProjectOptions(project));
+
+    /// <summary>What an operator app can have read for it, in one project. Its header is fixed too, so the app cannot name another.</summary>
+    public IAppReads AppReadsFor(string project) => new ServerAppReads(new SdkHttp(ProjectOptions(project)));
 
     /// <summary>
     /// Holds an event stream open until cancelled, reconnecting after any drop and resuming from the
@@ -106,6 +104,13 @@ public sealed class ServerConnection : IDisposable
             // Leaving the screen is how a stream ends.
         }
     }
+
+    private SdkOptions ProjectOptions(string project) => new()
+    {
+        BaseUrl = Origin,
+        HttpClient = _http,
+        Headers = _ => new ValueTask<IReadOnlyDictionary<string, string>>(new Dictionary<string, string> { [ProjectHeader] = project }),
+    };
 
     public void Dispose()
     {
