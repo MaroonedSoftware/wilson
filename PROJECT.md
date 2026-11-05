@@ -365,9 +365,9 @@ stage is deferred and an `any` stage runs elsewhere, and either starts a new ses
 
 A 2026-11-05 run against a real engine on a worker container went through all of these. A drop resumed the
 same session with no retry spent and nothing left running, and a replaced container, with its transcript
-gone, started a new session in the same tree. Worker hosts have no check of their own on the connection,
-so one cut silently stays stranded until traffic returns: Wilson noticed in 16 seconds, and the worker had
-not noticed when the test ended 105 seconds in.
+gone, started a new session in the same tree. A network cut that closes nothing is found from both ends:
+Wilson by a missing pong, in 16 seconds in that run, and the worker by hearing no ping for 45 seconds,
+which it then treats as a drop.
 
 A daemon restart still interrupts the stages running at the time, since the agent loop lives in the daemon.
 Moving the loop onto the worker would fix that, at the cost of running the guard beside the code it guards.

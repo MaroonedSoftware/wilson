@@ -30,6 +30,12 @@ export const WorkerCloseCode = {
     Superseded: 4409,
 } as const;
 
+/**
+ * How often Wilson pings a worker's connection. A worker that has heard nothing for several of these
+ * knows the connection is gone, even when nothing has closed it.
+ */
+export const WORKER_KEEPALIVE_MS = 15_000;
+
 /** A failure, shaped as `execFile`'s errors are, so Wilson can rebuild one its callers already handle. */
 export const WorkerError = z.object({
     message: z.string(),

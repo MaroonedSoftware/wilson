@@ -2,7 +2,16 @@ import type { EngineAccount } from '#modules/host/execution.host.js';
 import { randomUUID } from 'node:crypto';
 import { DateTime } from 'luxon';
 import type { WebSocket } from 'ws';
-import { parseFrame, FromWorker, type CallOp, type CallResults, type ToWorker, type WorkerError, type WorkerStats } from '@wilson/worker-protocol';
+import {
+    parseFrame,
+    FromWorker,
+    WORKER_KEEPALIVE_MS,
+    type CallOp,
+    type CallResults,
+    type ToWorker,
+    type WorkerError,
+    type WorkerStats,
+} from '@wilson/worker-protocol';
 import type { ExecFailure } from '#modules/host/execution.host.js';
 
 /** What a worker said about itself in its `hello`. */
@@ -13,9 +22,6 @@ export interface WorkerHello {
 
 /** A spawned process's output or end, as the worker reports it. */
 export type WorkerStreamMessage = Extract<FromWorker, { type: 'out' } | { type: 'exit' }>;
-
-/** How often a connection is pinged, and how long a missing pong is tolerated: one interval. */
-const KEEPALIVE_MS = 15_000;
 
 /**
  * Rebuild the `execFile`-shaped failure a worker described, so callers handle a failure on a worker
@@ -79,15 +85,16 @@ export class WorkerConnection {
         });
         socket.on('close', (code, reason) => this.closed(`closed with ${code}${reason.length > 0 ? ` (${reason.toString()})` : ''}`));
         socket.on('error', err => this.closed(err.message));
+        // A missing pong is tolerated for one interval.
         this.keepalive = setInterval(() => {
             if (!this.alive) {
                 socket.terminate();
-                this.closed(`no answer to a keepalive ping in ${KEEPALIVE_MS / 1000}s`);
+                this.closed(`no answer to a keepalive ping in ${WORKER_KEEPALIVE_MS / 1000}s`);
                 return;
             }
             this.alive = false;
             socket.ping();
-        }, KEEPALIVE_MS);
+        }, WORKER_KEEPALIVE_MS);
         this.keepalive.unref();
     }
 
