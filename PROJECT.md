@@ -832,9 +832,10 @@ plan beside a chat panel and streams the agent's output as it writes.
 
 ## Orchestration
 
-Planned, and built in steps; this section is the intended shape until those steps land. Today the
-chat acts only when spoken to, and the deterministic poller and `decideChain` are the only things
-that move work along.
+Built in steps, and this section is the intended shape until they have all landed. Goals and read-only
+watching exist today, off per project until `ORCHESTRATOR_ENABLED` is set (`wilson.settings`, or Goals
+in web Settings). A wake-up reports and proposes. Delegation does not exist yet, so the deterministic
+poller and `decideChain` are still the only things that move work along.
 
 - **A goal is one thread and one project.** One project is one board (decision 9), so a goal spans
   a single board. Its cards are linked to it, and a piece split from a linked card stays in the goal.
