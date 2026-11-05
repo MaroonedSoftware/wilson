@@ -14,8 +14,16 @@ export interface WorkerHello {
 /** A spawned process's output or end, as the worker reports it. */
 export type WorkerStreamMessage = Extract<FromWorker, { type: 'out' } | { type: 'exit' }>;
 
-/** How often a connection is pinged, and how long a missing pong is tolerated: one interval. */
-const KEEPALIVE_MS = 15_000;
+/** How often a connection is pinged. */
+export const KEEPALIVE_MS = 15_000;
+
+/**
+ * How many pings in a row may go unanswered before a connection is closed. Closing one ends every stage
+ * running on that worker, and a worker that is only busy answers late rather than never: its pong waits
+ * for its event loop, which a machine short of CPU or memory can hold up for tens of seconds. So a
+ * worker that has really gone is noticed a minute later, rather than a busy one being cut off.
+ */
+export const MAX_MISSED_PONGS = 4;
 
 /**
  * Rebuild the `execFile`-shaped failure a worker described, so callers handle a failure on a worker
@@ -58,7 +66,7 @@ export class WorkerConnection {
     private readonly pending = new Map<string, Pending>();
     private readonly streams = new Map<string, (message: WorkerStreamMessage) => void>();
     private closedWith?: string;
-    private alive = true;
+    private missedPongs = 0;
     private readonly keepalive: NodeJS.Timeout;
     private readonly closeListeners = new Set<(reason: string) => void>();
     readonly connectedAt = DateTime.now();
@@ -71,21 +79,23 @@ export class WorkerConnection {
         private readonly socket: WebSocket,
     ) {
         socket.on('message', (data, isBinary) => {
+            // Anything from the worker shows it is there, whatever became of the last pong.
+            this.missedPongs = 0;
             if (isBinary) return;
             this.receive(data.toString());
         });
         socket.on('pong', () => {
-            this.alive = true;
+            this.missedPongs = 0;
         });
         socket.on('close', (code, reason) => this.closed(`closed with ${code}${reason.length > 0 ? ` (${reason.toString()})` : ''}`));
         socket.on('error', err => this.closed(err.message));
         this.keepalive = setInterval(() => {
-            if (!this.alive) {
+            if (this.missedPongs >= MAX_MISSED_PONGS) {
                 socket.terminate();
-                this.closed(`no answer to a keepalive ping in ${KEEPALIVE_MS / 1000}s`);
+                this.closed(`no answer to a keepalive ping in ${(KEEPALIVE_MS * MAX_MISSED_PONGS) / 1000}s`);
                 return;
             }
-            this.alive = false;
+            this.missedPongs += 1;
             socket.ping();
         }, KEEPALIVE_MS);
         this.keepalive.unref();

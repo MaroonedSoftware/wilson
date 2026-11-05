@@ -308,6 +308,9 @@ before placement will choose it. A worker probes itself each time it connects. A
 `projectsRoot` also takes on any project with a GitHub repository: the first stage placed there adds
 its paths under that folder, and a worker clones it through the GitHub App.
 
+A worker is closed after four unanswered keepalive pings, about a minute, because a busy machine
+answers late rather than never.
+
 Only the work moves. Everything above the `ExecutionHost` seam (`execution.host.ts`) stays in the
 daemon: the Agent SDK's loop, the tool guard and its denials, budgets, verification, the commit,
 merges and the board. A host does what the seam asks of it (read and write files in the worktree,
