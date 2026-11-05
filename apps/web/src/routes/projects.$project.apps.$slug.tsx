@@ -1,8 +1,9 @@
 import { useMemo } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Loader, Stack, Title } from '@mantine/core';
 import { AppFrame } from '#src/components/AppFrame.js';
+import { unsupportedApiVersion } from '#src/lib/apps.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 import { wilsonForProject } from '#src/lib/sdk.js';
 import { useWilsonSdk, WilsonSdkProvider } from '#src/lib/sdk-context.js';
@@ -22,6 +23,7 @@ function ProjectAppRoute() {
     const sdk = useWilsonSdk();
     const app = useQuery({ queryKey: ['apps', slug], queryFn: () => sdk.apps.getApp(slug) });
     const client = useMemo(() => wilsonForProject(project), [project]);
+    const navigate = useNavigate();
 
     return (
         <Stack gap="sm" h={`calc(100dvh - ${SHELL_OFFSET})`}>
@@ -36,7 +38,12 @@ function ProjectAppRoute() {
                 </Alert>
             )}
             {app.isPending && <Loader size="sm" />}
-            {app.data && (
+            {app.data && unsupportedApiVersion(app.data.apiVersion) && (
+                <Alert color="yellow" title={`${app.data.name} needs a newer Wilson`}>
+                    {unsupportedApiVersion(app.data.apiVersion)}
+                </Alert>
+            )}
+            {app.data && !unsupportedApiVersion(app.data.apiVersion) && (
                 <>
                     <Title order={4} fw={500}>
                         {app.data.name}
@@ -48,6 +55,7 @@ function ProjectAppRoute() {
                             html={app.data.html}
                             project={project}
                             grants={app.data.grants}
+                            openCard={cardId => void navigate({ to: '/projects/$project/cards/$cardId', params: { project, cardId } })}
                         />
                     </WilsonSdkProvider>
                 </>

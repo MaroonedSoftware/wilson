@@ -22,6 +22,8 @@ const toSummary = (row: Omit<AppRow, 'html'>): AppSummary => ({
     name: row.name,
     description: row.description,
     grants: knownGrants(row.grants),
+    ...(row.version === null ? {} : { version: row.version }),
+    apiVersion: row.apiVersion,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
 });
@@ -57,12 +59,17 @@ export class AppsService {
         if (bytes > MAX_APP_HTML_BYTES) {
             throw httpError(400).withDetails({ reason: `html must be at most ${MAX_APP_HTML_BYTES} bytes, got ${bytes}` });
         }
+        const apiVersion = request.apiVersion ?? 1;
+        if (apiVersion < 1) throw httpError(400).withDetails({ reason: 'apiVersion must be 1 or more' });
+        const version = request.version?.trim();
         const row = await this.apps.upsert({
             slug,
             name,
             description: request.description?.trim() ?? '',
             html: request.html,
             grants: [...new Set(request.grants)],
+            version: version ? version : null,
+            apiVersion,
         });
         return toApp(row);
     }

@@ -80,6 +80,7 @@ export interface WilsonApiKeys {
 }
 
 export interface WilsonApps {
+  apiVersion: Generated<number>;
   createdAt: Generated<DateTime>;
   description: Generated<string>;
   grants: Generated<string[]>;
@@ -87,6 +88,7 @@ export interface WilsonApps {
   name: string;
   slug: string;
   updatedAt: Generated<DateTime>;
+  version: string | null;
 }
 
 export interface WilsonCacheEntries {

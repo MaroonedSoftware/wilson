@@ -1,6 +1,19 @@
 import type { AppGrant } from '@wilson/sdk';
 import { APP_METHOD_NAMES } from './app.broker.js';
 
+/**
+ * The versions of the app API (`app.api.ck`) this host offers. An app written for another is not opened,
+ * since the answers it would get are not the ones it was written for. The desktop app keeps the same list
+ * (`AppDocument.ApiVersions`), held to it by `app-host.json`.
+ */
+export const APP_API_VERSIONS: readonly number[] = [1];
+
+/** Why an app cannot be opened here, or undefined when it can. */
+export const unsupportedApiVersion = (apiVersion: number): string | undefined =>
+    APP_API_VERSIONS.includes(apiVersion)
+        ? undefined
+        : `It was written for version ${apiVersion} of the app API, and this Wilson offers ${APP_API_VERSIONS.map(String).join(' and ')}. Updating Wilson may be all it needs.`;
+
 /** The API's limit on an app's HTML (`apps.service.ts`), here so a large file is refused before it is sent. */
 export const MAX_APP_HTML_BYTES = 512 * 1024;
 
@@ -12,19 +25,6 @@ export const APP_GRANTS: readonly { grant: AppGrant; label: string; detail: stri
 ];
 
 export const grantLabel = (grant: AppGrant): string => APP_GRANTS.find(known => known.grant === grant)?.label ?? grant;
-
-/** The slug a file suggests: `Burn Down.html` is `burn-down`. Empty when the name has nothing usable. */
-export const slugFromFilename = (filename: string): string =>
-    filename
-        .replace(/\.html?$/i, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 63)
-        .replace(/-+$/, '');
-
-/** The name a file suggests: the file's own name without its extension. */
-export const nameFromFilename = (filename: string): string => filename.replace(/\.html?$/i, '');
 
 /** The grants `next` holds that `current` does not: what replacing an app would newly hand it. */
 export const addedGrants = (current: readonly AppGrant[], next: readonly AppGrant[]): AppGrant[] => next.filter(grant => !current.includes(grant));

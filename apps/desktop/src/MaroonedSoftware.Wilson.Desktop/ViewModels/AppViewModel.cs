@@ -63,7 +63,11 @@ public sealed partial class AppViewModel(ShellViewModel shell, string project, s
         CloseApp();
 
         var view = new MacAppWebView(AppDocument.Build(app.Html, project, app.Grants, ColorScheme), ColorScheme);
-        var broker = new AppBroker(app.Grants, shell.Connection!.AppReadsFor(project), answer => Dispatcher.UIThread.Post(() => view.Send(answer)));
+        var broker = new AppBroker(
+            app.Grants,
+            shell.Connection!.AppReadsFor(project),
+            answer => Dispatcher.UIThread.Post(() => view.Send(answer)),
+            card => Dispatcher.UIThread.Post(() => shell.Push(new CardViewModel(shell, project, card))));
         view.Received += message => _ = broker.ReceiveAsync(message);
 
         // Posted, as these arrive inside WebKit's own call and answering them takes the view away.
@@ -101,6 +105,14 @@ public sealed partial class AppViewModel(ShellViewModel shell, string project, s
         catch (HttpRequestException failure)
         {
             Error = $"Cannot load this app: {ApiError.Reason(failure)}";
+            return;
+        }
+
+        // Not opened at all, as the answers it would get are not the ones it was written for.
+        if (AppDocument.UnsupportedApiVersion(_app.ApiVersion) is { } unsupported)
+        {
+            Error = $"{_app.Name} needs a newer Wilson. {unsupported}";
+            _app = null;
             return;
         }
 

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MAX_APP_HTML_BYTES } from '#modules/apps/apps.service.js';
 import { clearAccounts, holdAccounts } from '#tests/support/test.accounts.js';
+import { uniqueProject } from '#tests/support/test.db.js';
 import { onboardAndSignIn, request, startTestServer, type TestServer } from '#tests/support/test.server.js';
 
 /** Installed apps over real HTTP (`startTestServer`): who may install them, and what is stored. */
@@ -65,6 +66,31 @@ describe('apps', () => {
             createdAt: first.createdAt,
         });
         expect(await server.db.selectFrom('wilson.apps').select('slug').execute()).toHaveLength(1);
+    });
+
+    it('stores the app version and the API version it was written for', async () => {
+        const res = await install('burndown', { ...APP, version: ' 1.2.0 ', apiVersion: 1 });
+
+        expect(await res.json()).toMatchObject({ version: '1.2.0', apiVersion: 1 });
+    });
+
+    it('takes an app that says neither as written for API version 1, with no version', async () => {
+        const app = (await (await install('burndown')).json()) as Record<string, unknown>;
+
+        expect(app.apiVersion).toBe(1);
+        expect(app).not.toHaveProperty('version');
+    });
+
+    it('refuses an API version below 1', async () => {
+        expect((await install('burndown', { ...APP, apiVersion: 0 })).status).toBe(400);
+    });
+
+    it('lists each app with its versions', async () => {
+        await install('burndown', { ...APP, version: '2.0.0', apiVersion: 3 });
+
+        const [app] = (await (await request(server, 'GET', '/api/apps', { token: session })).json()) as Record<string, unknown>[];
+
+        expect(app).toMatchObject({ version: '2.0.0', apiVersion: 3 });
     });
 
     it('stores a repeated grant once', async () => {
@@ -146,5 +172,52 @@ describe('apps', () => {
         it('refuses anything without a credential', async () => {
             expect((await request(server, 'GET', '/api/apps')).status).toBe(401);
         });
+    });
+});
+
+describe('what apps read', () => {
+    it('sends a card with the v1 fields and not the board row', async () => {
+        const created = await request(server, 'POST', '/api/cards', { token: session, body: { title: 'For an app', body: 'Some text' } });
+        expect(created.status).toBe(201);
+        const { id } = (await created.json()) as { id: string };
+
+        const list = await request(server, 'GET', '/api/app-api/v1/cards', { token: session });
+        const one = await request(server, 'GET', `/api/app-api/v1/cards/${id}`, { token: session });
+
+        expect(list.status).toBe(200);
+        const card = ((await list.json()) as Record<string, unknown>[]).find(row => row.id === id);
+        expect(card).toMatchObject({ id, title: 'For an app', needsHuman: false });
+        expect(card).not.toHaveProperty('resolvedBranch');
+        expect(await one.json()).toMatchObject({ id, body: expect.stringContaining('Some text') });
+    });
+
+    it('answers a card that is not there with a 404', async () => {
+        const res = await request(server, 'GET', '/api/app-api/v1/cards/9999', { token: session });
+
+        expect(res.status).toBe(404);
+    });
+
+    it('reads the columns, activity and stats', async () => {
+        // A project of its own, as the columns need lanes and other suites rely on the default project having none.
+        const project = uniqueProject();
+        const created = await request(server, 'POST', '/api/projects', {
+            token: session,
+            body: { name: project, codeRoot: `/tmp/${project}/code`, worktreeRoot: `/tmp/${project}/wt`, runRoot: `/tmp/${project}/run` },
+        });
+        expect(created.status).toBe(201);
+        const headers = { 'x-wilson-project': project };
+        expect((await request(server, 'POST', '/api/board/init', { token: session, headers })).status).toBe(201);
+
+        for (const path of ['columns', 'activity?limit=1', 'stats?days=1']) {
+            const res = await request(server, 'GET', `/api/app-api/v1/${path}`, { token: session, headers });
+
+            expect(res.status).toBe(200);
+        }
+    });
+
+    it('takes a view key, which is all a person needs to look at the board', async () => {
+        const res = await request(server, 'GET', '/api/app-api/v1/cards', { token: await mintKey('view') });
+
+        expect(res.status).toBe(200);
     });
 });

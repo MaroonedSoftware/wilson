@@ -38,6 +38,10 @@ data class AppSummary(
     val name: String,
     val description: String,
     val grants: List<AppGrant>,
+    /** The app's own label for what is installed. Absent for an app that did not say. */
+    val version: String? = null,
+    /** The version of the app API (`app.api.ck`) the app was written for. */
+    val apiVersion: Long,
     val createdAt: Instant,
     val updatedAt: Instant,
 )
@@ -49,6 +53,10 @@ data class App(
     val name: String,
     val description: String,
     val grants: List<AppGrant>,
+    /** The app's own label for what is installed. Absent for an app that did not say. */
+    val version: String? = null,
+    /** The version of the app API (`app.api.ck`) the app was written for. */
+    val apiVersion: Long,
     val html: String,
     val createdAt: Instant,
     val updatedAt: Instant,
@@ -63,4 +71,8 @@ data class InstallAppRequest(
     val html: String,
     /** Replaces whatever grants the app had before. */
     val grants: List<AppGrant>,
+    /** The app's own label for this version. Unset means it did not say. Replaces any version stored before. */
+    val version: String? = null,
+    /** The version of the app API it was written for. Unset means 1, the only one before apps said. */
+    val apiVersion: Long? = null,
 )

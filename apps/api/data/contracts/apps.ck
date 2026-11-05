@@ -25,6 +25,10 @@ contract AppSummary: {
     name: string
     description: string
     grants: array(AppGrant)
+    # The app's own label for what is installed. Absent for an app that did not say.
+    version?: string
+    # The version of the app API (`app.api.ck`) the app was written for.
+    apiVersion: int
     createdAt: datetime
     updatedAt: datetime
 }
@@ -35,6 +39,10 @@ contract App: {
     name: string
     description: string
     grants: array(AppGrant)
+    # The app's own label for what is installed. Absent for an app that did not say.
+    version?: string
+    # The version of the app API (`app.api.ck`) the app was written for.
+    apiVersion: int
     html: string
     createdAt: datetime
     updatedAt: datetime
@@ -48,6 +56,10 @@ contract InstallAppRequest: {
     html: string(min=1)
     # Replaces whatever grants the app had before.
     grants: array(AppGrant)
+    # The app's own label for this version. Unset means it did not say. Replaces any version stored before.
+    version?: string(min=1, max=50)
+    # The version of the app API it was written for. Unset means 1, the only one before apps said.
+    apiVersion?: int
 }
 
 operation /api/apps: {
@@ -101,7 +113,8 @@ operation /api/apps/{slug}: {
             200: {
                 application/json: App
             }
-            # A malformed slug, a blank name, a grant outside the list, or HTML over 512 KiB.
+            # A malformed slug, a blank name, a grant outside the list, an API version below 1, or HTML
+            # over 512 KiB.
             400:
             401:
             # Called with an API key, or a session whose factor is older than five minutes. Sign in.

@@ -1,14 +1,21 @@
 import type { AppGrant, WilsonSdk } from '@wilson/sdk';
 import { reasonFor } from './mutations.js';
 
-/** The part of the SDK an app can ever reach. Nothing else is in scope here to be asked for. */
+/**
+ * The part of the SDK an app can ever reach, and the one thing it can ask the host to do: open a card's
+ * page, which ends the app. Nothing else is in scope here to be asked for.
+ */
 export type AppBrokerClient = {
-    board: Pick<WilsonSdk['board'], 'listCards' | 'getCard' | 'listBoardColumns' | 'listProjectActivity' | 'getProjectStats'>;
+    openCard: (id: string) => void;
+    appApi: Pick<WilsonSdk['appApi'], 'listCardsV1' | 'getCardV1' | 'listBoardColumnsV1' | 'listProjectActivityV1' | 'getProjectStatsV1'>;
 };
 
-/** One thing an app can ask for: the grant it takes, and how arguments from the app become a call. */
+/**
+ * One thing an app can ask for: the grant it takes, and how arguments from the app become a call. A
+ * method with no grant reads nothing, so any app may ask for it.
+ */
 interface AppMethod {
-    grant: AppGrant;
+    grant?: AppGrant;
     run: (client: AppBrokerClient, args: readonly unknown[]) => Promise<unknown>;
 }
 
@@ -58,26 +65,37 @@ const METHODS = new Map<string, AppMethod>([
             grant: 'board.read',
             run: (client, args) => {
                 noArguments(args);
-                return client.board.listCards();
+                return client.appApi.listCardsV1();
             },
         },
     ],
-    ['getCard', { grant: 'board.read', run: (client, args) => client.board.getCard(cardId(args)) }],
+    ['getCard', { grant: 'board.read', run: (client, args) => client.appApi.getCardV1(cardId(args)) }],
     [
         'listBoardColumns',
         {
             grant: 'board.read',
             run: (client, args) => {
                 noArguments(args);
-                return client.board.listBoardColumns();
+                return client.appApi.listBoardColumnsV1();
             },
         },
     ],
     [
         'listProjectActivity',
-        { grant: 'activity.read', run: (client, args) => client.board.listProjectActivity(wholeNumbers(args, ['limit', 'before'])) },
+        { grant: 'activity.read', run: (client, args) => client.appApi.listProjectActivityV1(wholeNumbers(args, ['limit', 'before'])) },
     ],
-    ['getProjectStats', { grant: 'stats.read', run: (client, args) => client.board.getProjectStats(wholeNumbers(args, ['days'])) }],
+    ['getProjectStats', { grant: 'stats.read', run: (client, args) => client.appApi.getProjectStatsV1(wholeNumbers(args, ['days'])) }],
+    [
+        // No grant, as it reads nothing and answers the same whether the card exists or not. Opening the
+        // page takes the app away, so an app cannot use this to keep moving the person around.
+        'openCard',
+        {
+            run: (client, args) => {
+                client.openCard(cardId(args));
+                return Promise.resolve(null);
+            },
+        },
+    ],
 ]);
 
 /** The method names `window.wilson` offers, granted or not. */
@@ -103,7 +121,7 @@ export const answerAppRequest = async (data: unknown, grants: readonly AppGrant[
     const { id, method: name, args } = data;
     const method = METHODS.get(name);
     if (!method) return { id, ok: false, error: `no method "${name}"` };
-    if (!grants.includes(method.grant))
+    if (method.grant && !grants.includes(method.grant))
         return { id, ok: false, error: `${name} needs the ${method.grant} grant, which this app was not installed with` };
     try {
         return { id, ok: true, result: JSON.parse(JSON.stringify(await method.run(client, args))) as unknown };

@@ -23,6 +23,10 @@ export const AppSummary = z.strictObject({
     name: z.string(),
     description: z.string(),
     grants: z.array(AppGrant),
+    version: z.string().optional().describe("The app's own label for what is installed. Absent for an app that did not say."),
+    apiVersion: z
+        .preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int())
+        .describe('The version of the app API (`app.api.ck`) the app was written for.'),
     createdAt: _ZodDatetime,
     updatedAt: _ZodDatetime,
 });
@@ -37,6 +41,10 @@ export const App = z.strictObject({
     name: z.string(),
     description: z.string(),
     grants: z.array(AppGrant),
+    version: z.string().optional().describe("The app's own label for what is installed. Absent for an app that did not say."),
+    apiVersion: z
+        .preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int())
+        .describe('The version of the app API (`app.api.ck`) the app was written for.'),
     html: z.string(),
     createdAt: _ZodDatetime,
     updatedAt: _ZodDatetime,
@@ -51,5 +59,15 @@ export const InstallAppRequest = z.strictObject({
     description: z.string().max(500).optional().describe('Unset means no description.'),
     html: z.string().min(1).describe('The whole app, at most 512 KiB once encoded as UTF-8.'),
     grants: z.array(AppGrant).describe('Replaces whatever grants the app had before.'),
+    version: z
+        .string()
+        .min(1)
+        .max(50)
+        .optional()
+        .describe("The app's own label for this version. Unset means it did not say. Replaces any version stored before."),
+    apiVersion: z
+        .preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int())
+        .optional()
+        .describe('The version of the app API it was written for. Unset means 1, the only one before apps said.'),
 });
 export type InstallAppRequest = z.infer<typeof InstallAppRequest>;

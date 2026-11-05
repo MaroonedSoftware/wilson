@@ -24,6 +24,10 @@ export interface AppSummary {
     name: string;
     description: string;
     grants: AppGrant[];
+    /** The app's own label for what is installed. Absent for an app that did not say. */
+    version?: string;
+    /** The version of the app API (`app.api.ck`) the app was written for. */
+    apiVersion: number;
     createdAt: DateTime;
     updatedAt: DateTime;
 }
@@ -45,6 +49,10 @@ export interface App {
     name: string;
     description: string;
     grants: AppGrant[];
+    /** The app's own label for what is installed. Absent for an app that did not say. */
+    version?: string;
+    /** The version of the app API (`app.api.ck`) the app was written for. */
+    apiVersion: number;
     html: string;
     createdAt: DateTime;
     updatedAt: DateTime;
@@ -69,4 +77,8 @@ export interface InstallAppRequest {
     html: string;
     /** Replaces whatever grants the app had before. */
     grants: AppGrant[];
+    /** The app's own label for this version. Unset means it did not say. Replaces any version stored before. */
+    version?: string;
+    /** The version of the app API it was written for. Unset means 1, the only one before apps said. */
+    apiVersion?: number;
 }

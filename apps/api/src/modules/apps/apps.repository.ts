@@ -12,9 +12,11 @@ export interface AppValues {
     description: string;
     html: string;
     grants: string[];
+    version: string | null;
+    apiVersion: number;
 }
 
-const SUMMARY_COLUMNS = ['slug', 'name', 'description', 'grants', 'createdAt', 'updatedAt'] as const;
+const SUMMARY_COLUMNS = ['slug', 'name', 'description', 'grants', 'version', 'apiVersion', 'createdAt', 'updatedAt'] as const;
 
 /** `wilson.apps`. Deployment-scoped, so nothing here reads the current project. */
 @Injectable()
@@ -41,6 +43,8 @@ export class AppsRepository {
                     description: values.description,
                     html: values.html,
                     grants: values.grants,
+                    version: values.version,
+                    apiVersion: values.apiVersion,
                     updatedAt: sql`NOW()`,
                 }),
             )
