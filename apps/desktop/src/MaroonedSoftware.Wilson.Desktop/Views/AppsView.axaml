@@ -1,0 +1,33 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.AppsView"
+    x:DataType="vm:AppsViewModel">
+    <DockPanel Margin="16">
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+            <Button Content="Back" Command="{Binding Shell.BackCommand}" Margin="0,0,10,0" />
+            <TextBlock Classes="title" Text="Apps" />
+        </DockPanel>
+        <TextBlock DockPanel.Dock="Top" Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,0,0,8" />
+        <TextBlock DockPanel.Dock="Top" Classes="quiet" FontSize="14" Text="No apps installed. You can install one in Settings on the web app." IsVisible="{Binding Empty}" />
+        <ScrollViewer>
+            <ItemsControl ItemsSource="{Binding Apps}" Margin="0,0,12,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:AppRow">
+                        <Border BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="4" Padding="12" Margin="0,0,0,8">
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Content="Open" Command="{Binding Page.OpenCommand}" CommandParameter="{Binding Slug}" VerticalAlignment="Center" Margin="12,0,0,0" AutomationProperties.Name="{Binding Name}" />
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="{Binding Name}" FontWeight="Medium" />
+                                    <TextBlock Classes="quiet" Text="{Binding Description}" IsVisible="{Binding HasDescription}" TextWrapping="Wrap" />
+                                    <TextBlock Classes="quiet" Text="{Binding Reads}" />
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

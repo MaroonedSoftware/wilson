@@ -42,6 +42,15 @@ public static class AppDocument
         _ => null,
     };
 
+    /// <summary>What a person is told a grant lets an app read, in `lib/apps.ts`'s words.</summary>
+    public static string GrantLabel(AppGrant grant) => grant switch
+    {
+        AppGrant.BoardRead => "Board",
+        AppGrant.ActivityRead => "Activity",
+        AppGrant.StatsRead => "Stats",
+        _ => "Unknown",
+    };
+
     /// <summary>The scheme as `window.wilson.colorScheme` spells it.</summary>
     public static string SchemeName(AppColorScheme scheme) => scheme == AppColorScheme.Dark ? "dark" : "light";
 

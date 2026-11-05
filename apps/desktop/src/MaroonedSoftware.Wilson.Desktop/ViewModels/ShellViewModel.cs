@@ -162,6 +162,16 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         }
     }
 
+    /// <summary>The installed apps, each to open in the project in front. Back returns to the page they were opened from.</summary>
+    [RelayCommand]
+    public void ShowApps()
+    {
+        if (Feed?.Project is { } project)
+        {
+            Push(new AppsViewModel(this, project));
+        }
+    }
+
     /// <summary>The cards needing a human: the board narrowed to them, as the web app's flagged page is.</summary>
     [RelayCommand]
     public void ShowFlagged()
