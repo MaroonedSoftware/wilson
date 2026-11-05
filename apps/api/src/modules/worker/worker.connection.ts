@@ -147,10 +147,21 @@ export class WorkerConnection {
         this.socket.send(JSON.stringify(message));
     }
 
-    /** Called once, with the reason, when the connection closes. Immediately if it already has. */
-    onClose(listener: (reason: string) => void): void {
-        if (this.closedWith !== undefined) listener(this.closedWith);
-        else this.closeListeners.add(listener);
+    /**
+     * Called once, with the reason, when the connection closes. Immediately if it already has.
+     *
+     * @returns stops listening, for a caller that finishes before the connection does: a connection
+     * outlives the stages run over it, and would otherwise hold on to every listener they left.
+     */
+    onClose(listener: (reason: string) => void): () => void {
+        if (this.closedWith !== undefined) {
+            listener(this.closedWith);
+            return () => {};
+        }
+        this.closeListeners.add(listener);
+        return () => {
+            this.closeListeners.delete(listener);
+        };
     }
 
     /** Close the connection with `code`, failing everything still waiting on it. */

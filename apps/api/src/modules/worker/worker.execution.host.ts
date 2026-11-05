@@ -48,6 +48,15 @@ export class WorkerExecutionHost implements ExecutionHost {
         this.name = `worker:${connection.hostName}`;
     }
 
+    /**
+     * A host is bound to the connection it was made with, and a worker that reconnects gets a new one,
+     * so this hears the end of this host for good. Listeners run in the same tick that fails the
+     * connection's calls and ends its engines, so they hear of it before anything awaiting those does.
+     */
+    onLost(listener: (reason: string) => void): () => void {
+        return this.connection.onClose(listener);
+    }
+
     async engineAccount(): Promise<EngineAccount> {
         return this.account ? this.account() : { name: this.name };
     }
