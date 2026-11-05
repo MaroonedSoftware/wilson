@@ -91,6 +91,56 @@ describe('CliChatEngine', () => {
         await expect(turn({})).rejects.toThrow('Failed to authenticate');
     });
 
+    describe("onlyOwnTools: 'ran'", () => {
+        const own = 'mcp__wilson-chat__list_cards';
+        const init = (tools: string[]) => ({ type: 'system', subtype: 'init', tools, session_id: 's-1' });
+        const calls = (name: string) => ({
+            type: 'assistant',
+            session_id: 's-1',
+            message: { content: [{ type: 'tool_use', id: 'call-1', name, input: {} }] },
+        });
+        const answered = (result: object) => ({
+            type: 'user',
+            session_id: 's-1',
+            message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call-1', ...result }] },
+        });
+        const done = { type: 'assistant', session_id: 's-1', message: { content: [{ type: 'text', text: 'Carried on.' }] } };
+        const finished = { type: 'result', subtype: 'success', is_error: false, session_id: 's-1' };
+
+        it('lets a call the engine refused pass, and says which', async () => {
+            engineReplying([
+                init([own]),
+                calls('dispatch_readonly_placeholder'),
+                answered({ is_error: true, content: 'No such tool' }),
+                done,
+                finished,
+            ]);
+
+            const output = await turn({ onlyOwnTools: 'ran' });
+
+            expect(output.text).toContain('Carried on.');
+            expect(output.refusedTools).toEqual(['dispatch_readonly_placeholder']);
+        });
+
+        it('fails a foreign call that ran', async () => {
+            engineReplying([init([own]), calls('Bash'), answered({ content: 'file contents' }), done, finished]);
+
+            await expect(turn({ onlyOwnTools: 'ran' })).rejects.toThrow('ran a tool it was not given: Bash');
+        });
+
+        it('fails when the engine offers a foreign tool, whether or not it is called', async () => {
+            engineReplying([init([own, 'Bash']), done, finished]);
+
+            await expect(turn({ onlyOwnTools: 'ran' })).rejects.toThrow('offered a tool it was not given: Bash');
+        });
+
+        it('says nothing of its own tools, and reports nothing refused', async () => {
+            engineReplying([init([own]), calls(own), answered({ content: '[]' }), done, finished]);
+
+            expect((await turn({ onlyOwnTools: 'ran' })).refusedTools).toBeUndefined();
+        });
+    });
+
     it('takes a step limit, and reports what the turn cost', async () => {
         engineReplying([
             {

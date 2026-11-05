@@ -358,14 +358,14 @@ describe('ChatService', () => {
         });
     });
 
-    it('holds every turn to its own tools, so an engine that reaches for another fails it', async () => {
+    it('holds every turn to its own tools, so an engine that offers or runs another fails it', async () => {
         const turn = vi.spyOn(ApiChatEngine.prototype, 'turn');
         const { service } = setup([says('Two cards.')]);
         const thread = await service.startThread();
 
         await service.sendMessage(thread.id, { text: 'What is in review?' });
 
-        expect(turn.mock.calls.map(([input]) => input.onlyOwnTools)).toEqual([true]);
+        expect(turn.mock.calls.map(([input]) => input.onlyOwnTools)).toEqual(['ran']);
         turn.mockRestore();
     });
 

@@ -391,8 +391,8 @@ export class ChatService {
                 provider,
                 model,
                 // What keeps a turn from changing anything is that it holds only `chatTools`, so a turn
-                // whose engine offers or attempts anything else fails rather than carrying on.
-                onlyOwnTools: true,
+                // whose engine offers anything else, or runs it, fails rather than carrying on.
+                onlyOwnTools: 'ran',
                 maxSteps,
                 onText: delta => publishChat(thread.id, { event: 'delta', data: delta }),
             });
@@ -401,6 +401,11 @@ export class ChatService {
             return fail(`the chat could not answer: ${explainError(err)}`);
         }
 
+        if (output.refusedTools) {
+            this.logger.warn(
+                `chat thread ${thread.id}: the model named tools it does not have, and the engine refused: ${output.refusedTools.join(', ')}`,
+            );
+        }
         if (output.usage) {
             // Recorded before anything below can stop the turn, because a silent turn stores no message.
             // The answer is already paid for, so failing to count it must not lose it.
