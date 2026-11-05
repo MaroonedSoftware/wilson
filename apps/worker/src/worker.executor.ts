@@ -16,6 +16,7 @@ import {
     type WorkerError,
     type WorkerStats,
 } from '@wilson/worker-protocol';
+import { endProcessTree, PROCESS_TREE_OPTIONS, startCommand, type RunningCommand } from './worker.process.tree.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -50,6 +51,8 @@ export interface WorkerExecutorOptions {
     claudeCommand?: string;
     /** The `codex` binary, for a test to replace. */
     codexCommand?: string;
+    /** How long a process tree has to end once it is told to before `SIGKILL`. A test shortens it. */
+    killGraceMs?: number;
     /**
      * Refuses a file path before anything touches it, with the reason; undefined lets it through. The
      * worker program passes one that keeps every path inside its host's project roots.
@@ -70,11 +73,13 @@ const refuseWith = (refusal: string | undefined, path: string): void => {
  * worker behaves as it would on Wilson's own machine, and each `spawn` as a child process whose stdio
  * streams back as `out` messages.
  *
- * It holds the processes it started, so a lost connection can end them all ({@link killAll}): a test
- * suite left running on a worker after the stage that started it is gone would only hold the machine.
+ * It holds the engines and commands it started, so a lost connection can end them all ({@link killAll}),
+ * along with anything they started: a test suite left running on a worker after the stage that started
+ * it is gone would hold the machine, and could write to a worktree the stage's next attempt is using.
  */
 export class WorkerExecutor {
     private readonly processes = new Map<string, ChildProcessWithoutNullStreams>();
+    private readonly commands = new Set<RunningCommand>();
     private readonly env: Env;
     private readonly claudeCommand: string;
     private readonly codexCommand: string;
@@ -106,17 +111,27 @@ export class WorkerExecutor {
             case 'stdin-end':
                 this.processes.get(message.id)?.stdin.end();
                 return;
-            case 'kill':
-                this.processes.get(message.id)?.kill((message.signal as NodeJS.Signals | undefined) ?? 'SIGTERM');
+            case 'kill': {
+                const child = this.processes.get(message.id);
+                if (child) void endProcessTree(child, message.signal as NodeJS.Signals | undefined, this.options.killGraceMs);
                 return;
+            }
             case 'welcome':
                 return;
         }
     }
 
-    /** End every process this executor started: the connection that asked for them is gone. */
-    killAll(): void {
-        for (const child of this.processes.values()) child.kill('SIGTERM');
+    /**
+     * End every engine and command this executor started, with whatever they started: the connection
+     * that asked for them is gone.
+     *
+     * @returns once the last signal has been sent, and at once when nothing was running.
+     */
+    async killAll(): Promise<void> {
+        await Promise.all([
+            ...[...this.processes.values()].map(child => endProcessTree(child, 'SIGTERM', this.options.killGraceMs)),
+            ...[...this.commands].map(command => command.cancel()),
+        ]);
     }
 
     private async answer(id: string, run: () => Promise<unknown>): Promise<void> {
@@ -180,14 +195,20 @@ export class WorkerExecutor {
                 const { options } = call;
                 // Only the options Wilson set, for the reason `LocalHost.exec` gives: an explicit
                 // `maxBuffer: undefined` would replace execFile's 1 MiB cap with none.
-                const { stdout, stderr } = await execFileAsync(call.file, call.args, {
+                const command = startCommand(call.file, call.args, {
                     cwd: options.cwd,
-                    ...(options.timeoutMs !== undefined && { timeout: options.timeoutMs }),
+                    ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
                     ...(options.maxBuffer !== undefined && { maxBuffer: options.maxBuffer }),
+                    ...(this.options.killGraceMs !== undefined && { graceMs: this.options.killGraceMs }),
                     env:
                         options.env !== undefined ? commandEnvironment(options.env, options.hostEnv ?? [], this.env) : inheritedEnvironment(this.env),
                 });
-                return { stdout, stderr };
+                this.commands.add(command);
+                try {
+                    return await command.result;
+                } finally {
+                    this.commands.delete(command);
+                }
             }
             case 'clone':
                 this.guard(call.path);
@@ -280,6 +301,7 @@ export class WorkerExecutor {
             ...(message.cwd && { cwd: message.cwd }),
             env: codex ? codexEnvironment(this.env) : engineEnvironment(message.env, this.env, message.engineToken, message.engineTokenVariable),
             stdio: ['pipe', 'pipe', 'pipe'],
+            ...PROCESS_TREE_OPTIONS,
         });
         this.processes.set(message.id, child);
         const forward = (stream: 'stdout' | 'stderr') => (chunk: Buffer) =>

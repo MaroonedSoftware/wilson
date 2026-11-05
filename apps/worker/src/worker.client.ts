@@ -50,8 +50,8 @@ export class WorkerStoppedError extends Error {
 /**
  * A worker's connection to Wilson, kept open: connect, say hello, carry out whatever arrives, and
  * reconnect with backoff whenever the connection drops. Each connection gets a fresh executor, and a
- * drop kills every process the last one started, since the stage that wanted them can no longer hear
- * them and will be retried.
+ * drop ends every process the last one started and everything those started, since the stage that
+ * wanted them can no longer hear them and will be retried.
  *
  * It stops for good only when reconnecting cannot help: the token is refused (401), Wilson does not
  * speak this protocol version, or another worker has connected as the same host.
@@ -91,13 +91,17 @@ export class WorkerClient {
         return this.host;
     }
 
-    /** Close the connection, end every process it started, and stop reconnecting. */
+    /**
+     * Close the connection, end every process it started, and stop reconnecting. `run` resolves only
+     * once those have had their last signal, since they are in process groups of their own and would
+     * outlive a worker that exited first.
+     */
     stop(): void {
         this.stopping = true;
         if (this.retryTimer) clearTimeout(this.retryTimer);
-        this.executor?.killAll();
+        const ended = this.executor?.killAll() ?? Promise.resolve();
         this.socket?.close(1000, 'worker stopping');
-        this.settle?.resolve();
+        void ended.finally(() => this.settle?.resolve());
     }
 
     /** An engine token came over this connection. Once, since each engine start brings one. */
@@ -149,7 +153,7 @@ export class WorkerClient {
             this.logger.warn(`connection error: ${err.message}`);
         });
         socket.on('close', (code, reason) => {
-            executor.killAll();
+            void executor.killAll();
             this.host = undefined;
             if (this.stopping) return;
             if (code === WorkerCloseCode.BadHello) {
