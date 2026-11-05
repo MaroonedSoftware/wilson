@@ -48,6 +48,16 @@ export class AppsRepository {
             .executeTakeFirstOrThrow();
     }
 
+    /** Insert the app unless its slug is taken, which answers undefined and changes nothing. */
+    async insert(values: AppValues): Promise<AppRow | undefined> {
+        return this.db
+            .insertInto('wilson.apps')
+            .values(values)
+            .onConflict(conflict => conflict.column('slug').doNothing())
+            .returningAll()
+            .executeTakeFirst();
+    }
+
     /** Whether there was an app to delete. */
     async delete(slug: string): Promise<boolean> {
         const result = await this.db.deleteFrom('wilson.apps').where('slug', '=', slug).executeTakeFirst();

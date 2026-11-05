@@ -1,4 +1,6 @@
 import { DateTime } from 'luxon';
+import type { AppGrant } from './apps.js';
+
 import type { JsonValue } from '../sdk-options.js';
 
 const __dt = (v: unknown, path: string): DateTime => {
@@ -154,6 +156,12 @@ export interface SendChatMessageRequest {
  */
 export interface DecideChatActionRequest {
     decision: 'confirm' | 'decline';
+    /**
+     * What a proposed operator app may read, as the person ticked them, and required to confirm one.
+     * Not sent by a client without a review screen for apps, so that client is refused with a reason.
+     * Ignored for any other action.
+     */
+    grants?: AppGrant[];
 }
 
 /**

@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { PROPOSED_APP_OPERATION } from '#modules/chat/chat.app.proposal.js';
 
 /**
  * The operation catalog the chat proposes actions from (`McpModule`) must hold nothing that hands
@@ -43,6 +44,13 @@ describe('the operation catalog', () => {
     it('finds the routes and the catalog it is checking', async () => {
         expect((await routes()).length).toBeGreaterThan(40);
         expect((await catalogued()).size).toBeGreaterThan(20);
+    });
+
+    it('does not hold the operation a proposed app is stored under, so propose_change cannot reach it', async () => {
+        const dir = join(ROOT, 'modules', 'mcp', 'generated');
+        for (const file of await readdir(dir)) {
+            expect(await readFile(join(dir, file), 'utf8'), file).not.toContain(PROPOSED_APP_OPERATION);
+        }
     });
 
     it('holds no operation gated wilson.step.up', async () => {

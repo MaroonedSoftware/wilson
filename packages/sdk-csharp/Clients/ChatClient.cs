@@ -148,7 +148,7 @@ public sealed class ChatClient(SdkHttp http)
     /// how it went: a failed operation is a 200 with `status: failed` and its `error`, since the decision
     /// itself succeeded. A proposal already decided, or expired, is a 409.
     /// </summary>
-    /// <exception cref="SdkException">On 404, 409.</exception>
+    /// <exception cref="SdkException">On 400, 403, 404, 409.</exception>
     public async Task<ChatPendingAction> DecideAChatActionAsync(string id, DecideChatActionRequest body, CancellationToken cancellationToken = default)
     {
         var response = await http.ExecuteAsync(

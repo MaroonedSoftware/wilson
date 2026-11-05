@@ -107,6 +107,12 @@ data class SendChatMessageRequest(
 @Serializable
 data class DecideChatActionRequest(
     val decision: DecideChatActionRequestDecision,
+    /**
+     * What a proposed operator app may read, as the person ticked them, and required to confirm one.
+     * Not sent by a client without a review screen for apps, so that client is refused with a reason.
+     * Ignored for any other action.
+     */
+    val grants: List<AppGrant>? = null,
 )
 
 @Serializable

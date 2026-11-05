@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DateTime } from 'luxon';
+import { AppGrant } from './apps.js';
 
 const _ZodBinary = z.custom<Buffer>(val => Buffer.isBuffer(val), { error: 'Must be binary data' });
 const _ZodDatetime = z.preprocess(
@@ -132,6 +133,12 @@ export type SendChatMessageRequest = z.infer<typeof SendChatMessageRequest>;
  */
 export const DecideChatActionRequest = z.strictObject({
     decision: z.enum(['confirm', 'decline']),
+    grants: z
+        .array(AppGrant)
+        .optional()
+        .describe(
+            'What a proposed operator app may read, as the person ticked them, and required to confirm one.\nNot sent by a client without a review screen for apps, so that client is refused with a reason.\nIgnored for any other action.',
+        ),
 });
 export type DecideChatActionRequest = z.infer<typeof DecideChatActionRequest>;
 
