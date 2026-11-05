@@ -265,6 +265,27 @@ export const SetGitHubAppSettingRequest = z.strictObject({
 export type SetGitHubAppSettingRequest = z.infer<typeof SetGitHubAppSettingRequest>;
 
 /**
+ * Whether events wake this project's goals, and how much its goal threads may spend in a day. See
+ * `orchestrator.setting.ts`. The agent can read these and never change them: `mcp: exclude` keeps the
+ * write out of the catalog, so it cannot propose widening its own limits (PROJECT.md decision 8).
+ * generated from [OrchestratorSetting](../../data/contracts/settings.ck)
+ */
+export const OrchestratorSetting = z.strictObject({
+    enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+    dailyOutputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type OrchestratorSetting = z.infer<typeof OrchestratorSetting>;
+
+/**
+ * generated from [SetOrchestratorSettingRequest](../../data/contracts/settings.ck)
+ */
+export const SetOrchestratorSettingRequest = z.strictObject({
+    enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()).optional(),
+    dailyOutputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
+});
+export type SetOrchestratorSettingRequest = z.infer<typeof SetOrchestratorSettingRequest>;
+
+/**
  * Whether the server is draining, and what a restart would interrupt. `safeToRestart` is true only
  * while draining with nothing running, since an idle moment without a drain lasts only until the next
  * stage starts. `held` counts every `card.stage` job waiting to run. `planDrafts` counts running plan

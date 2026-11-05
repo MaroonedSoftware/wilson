@@ -230,3 +230,42 @@ describe('the strip above a conversation', () => {
         expect(screen.queryByLabelText("This thread's goal")).toBeNull();
     });
 });
+
+describe('the goals settings', () => {
+    const on = { enabled: true, dailyOutputTokens: 100_000 };
+
+    it('turns watching on, and leaves the ceiling alone', async () => {
+        vi.spyOn(wilson.settings, 'getOrchestratorSetting').mockResolvedValue({ ...on, enabled: false });
+        const set = vi.spyOn(wilson.settings, 'setOrchestratorSetting').mockResolvedValue(on);
+        renderApp('/settings');
+
+        fireEvent.click(await screen.findByRole('switch', { name: /Watch goals/ }));
+
+        await waitFor(() => expect(set).toHaveBeenCalledWith({ enabled: true }));
+    });
+
+    it('saves a new ceiling when the field is left, not on each keystroke', async () => {
+        vi.spyOn(wilson.settings, 'getOrchestratorSetting').mockResolvedValue(on);
+        const set = vi.spyOn(wilson.settings, 'setOrchestratorSetting').mockResolvedValue({ ...on, dailyOutputTokens: 5_000 });
+        renderApp('/settings');
+
+        const field = await screen.findByRole('textbox', { name: /Daily ceiling for goals/ });
+        fireEvent.change(field, { target: { value: '5000' } });
+        expect(set).not.toHaveBeenCalled();
+        fireEvent.blur(field);
+
+        await waitFor(() => expect(set).toHaveBeenCalledWith({ dailyOutputTokens: 5_000 }));
+    });
+
+    it('says why a ceiling was refused', async () => {
+        vi.spyOn(wilson.settings, 'getOrchestratorSetting').mockResolvedValue(on);
+        vi.spyOn(wilson.settings, 'setOrchestratorSetting').mockRejectedValue(new Error('the daily ceiling must be at least 1000 output tokens'));
+        renderApp('/settings');
+
+        const field = await screen.findByRole('textbox', { name: /Daily ceiling for goals/ });
+        fireEvent.change(field, { target: { value: '5' } });
+        fireEvent.blur(field);
+
+        expect(await screen.findByText(/must be at least 1000/)).toBeTruthy();
+    });
+});

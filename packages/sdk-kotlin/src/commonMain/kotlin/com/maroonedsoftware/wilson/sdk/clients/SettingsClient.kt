@@ -11,6 +11,7 @@ import com.maroonedsoftware.wilson.sdk.models.EngineTokenSetting
 import com.maroonedsoftware.wilson.sdk.models.GitHubAppSetting
 import com.maroonedsoftware.wilson.sdk.models.LocalStageSlots
 import com.maroonedsoftware.wilson.sdk.models.NotifyWebhookSetting
+import com.maroonedsoftware.wilson.sdk.models.OrchestratorSetting
 import com.maroonedsoftware.wilson.sdk.models.PollerInterval
 import com.maroonedsoftware.wilson.sdk.models.PollerSetting
 import com.maroonedsoftware.wilson.sdk.models.RuleJudgeSetting
@@ -23,6 +24,7 @@ import com.maroonedsoftware.wilson.sdk.models.SetEngineTokenSettingRequest
 import com.maroonedsoftware.wilson.sdk.models.SetGitHubAppSettingRequest
 import com.maroonedsoftware.wilson.sdk.models.SetLocalStageSlotsRequest
 import com.maroonedsoftware.wilson.sdk.models.SetNotifyWebhookSettingRequest
+import com.maroonedsoftware.wilson.sdk.models.SetOrchestratorSettingRequest
 import com.maroonedsoftware.wilson.sdk.models.SetPollerIntervalRequest
 import com.maroonedsoftware.wilson.sdk.models.SetPollerSettingRequest
 import com.maroonedsoftware.wilson.sdk.runtime.SdkHttp
@@ -277,6 +279,26 @@ class SettingsClient(private val http: SdkHttp) {
     suspend fun setGithubAppSetting(body: SetGitHubAppSettingRequest): GitHubAppSetting {
         val response = http.execute(HttpMethod.Put) {
             path("api", "settings", "github-app")
+            jsonBody(body, "application/json")
+        }
+        return http.decodeJson(response)
+    }
+
+    /** Get orchestrator setting */
+    suspend fun getOrchestratorSetting(): OrchestratorSetting {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "settings", "orchestrator")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Set orchestrator setting
+     * @throws SdkError on 400
+     */
+    suspend fun setOrchestratorSetting(body: SetOrchestratorSettingRequest): OrchestratorSetting {
+        val response = http.execute(HttpMethod.Put) {
+            path("api", "settings", "orchestrator")
             jsonBody(body, "application/json")
         }
         return http.decodeJson(response)

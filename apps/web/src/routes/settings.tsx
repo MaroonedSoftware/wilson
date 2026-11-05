@@ -18,7 +18,7 @@ import {
     TextInput,
     Title,
 } from '@mantine/core';
-import type { ChatEngineSetting, SetNotifyWebhookSettingRequest, StageRouting } from '@wilson/sdk';
+import type { ChatEngineSetting, SetNotifyWebhookSettingRequest, SetOrchestratorSettingRequest, StageRouting } from '@wilson/sdk';
 import { apiErrorMessage } from '#src/lib/api.error.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
@@ -28,6 +28,7 @@ import { SecurityControls } from '#src/components/SecurityControls.js';
 
 const POLLER_QUERY_KEY = ['settings', 'poller'];
 const AUTO_SPLIT_QUERY_KEY = ['settings', 'auto-split'];
+const ORCHESTRATOR_QUERY_KEY = ['settings', 'orchestrator'];
 const POLLER_INTERVAL_QUERY_KEY = ['settings', 'poller-interval'];
 const CARD_STAGE_CONCURRENCY_QUERY_KEY = ['settings', 'card-stage-concurrency'];
 const LOCAL_STAGE_SLOTS_QUERY_KEY = ['settings', 'local-stage-slots'];
@@ -116,6 +117,61 @@ function AutoSplitToggle() {
                 checked={setting.data.enabled}
                 disabled={mutation.isPending}
                 onChange={event => mutation.mutate(event.currentTarget.checked)}
+            />
+            {mutation.isError && (
+                <Text size="sm" c="red">
+                    {apiErrorMessage(mutation.error)}
+                </Text>
+            )}
+        </Stack>
+    );
+}
+
+/** Whether events wake this project's goals, and the daily ceiling that stops them. Saved on blur, as a typed number can pass through low values. */
+function OrchestratorControls() {
+    const wilson = useWilsonSdk();
+    const queryClient = useQueryClient();
+    const setting = useQuery({ queryKey: ORCHESTRATOR_QUERY_KEY, queryFn: () => wilson.settings.getOrchestratorSetting() });
+    const mutation = useMutation({
+        mutationFn: (changes: SetOrchestratorSettingRequest) => wilson.settings.setOrchestratorSetting(changes),
+        onSuccess: result => queryClient.setQueryData(ORCHESTRATOR_QUERY_KEY, result),
+    });
+    const [typed, setTyped] = useState<number | undefined>();
+
+    if (setting.error) {
+        return (
+            <Alert color="red" title="Cannot load the orchestrator's settings">
+                {apiErrorMessage(setting.error)}
+            </Alert>
+        );
+    }
+    if (!setting.data) return <Loader size="sm" />;
+    const saved = setting.data.dailyOutputTokens;
+
+    return (
+        <Stack gap="xs">
+            <Switch
+                label="Watch goals"
+                description="When a goal's card needs attention, its chat reads what happened and tells you. It can only propose changes, and each one waits for you."
+                checked={setting.data.enabled}
+                disabled={mutation.isPending}
+                onChange={event => mutation.mutate({ enabled: event.currentTarget.checked })}
+            />
+            <NumberInput
+                label="Daily ceiling for goals, in output tokens"
+                description="Wake-ups stop for the day at this ceiling. Your own messages are never stopped by it, and stages have their own."
+                min={1000}
+                step={10000}
+                thousandSeparator=","
+                allowDecimal={false}
+                allowNegative={false}
+                maw={320}
+                value={typed ?? saved}
+                onChange={value => setTyped(typeof value === 'number' ? value : undefined)}
+                onBlur={() => {
+                    if (typed !== undefined && typed !== saved)
+                        mutation.mutate({ dailyOutputTokens: typed }, { onSuccess: () => setTyped(undefined) });
+                }}
             />
             {mutation.isError && (
                 <Text size="sm" c="red">
@@ -896,6 +952,13 @@ function SettingsRoute() {
                 <Stack gap="sm">
                     <Title order={4}>Auto-split</Title>
                     <AutoSplitToggle />
+                </Stack>
+            </Paper>
+
+            <Paper withBorder p="md" radius="sm">
+                <Stack gap="sm">
+                    <Title order={4}>Goals</Title>
+                    <OrchestratorControls />
                 </Stack>
             </Paper>
 
