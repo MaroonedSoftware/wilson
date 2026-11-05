@@ -5,12 +5,46 @@ An operator app is one HTML file that runs inside Wilson's web and desktop apps 
 
 ## Installing
 
-In the web app, open Settings, then Apps. Choose the file and tick what it can read. Nothing is ticked
-by default. Installing, replacing and removing all need a recent sign-in. Installed apps are listed under
-Apps in the header of any project, and each opens in the project you opened it from.
+In the web app, open Settings, then Apps, and choose the file. Wilson reads its manifest and lists what it asks
+to read, with its reasons. Nothing is ticked by default, and you tick what you are willing to give. A file whose
+`id` is already installed replaces that app, and Wilson shows the two versions and any access it would gain.
+Installing, replacing and removing all need a recent sign-in. Installed apps are listed under Apps in the header
+of any project, and each opens in the project you opened it from.
 
 Apps run in the web app and on desktop, which lists and opens them but does not install them. They do not run
 on Android.
+
+## The manifest
+
+Every app says what it is in a script element of type `application/wilson-app+json`, holding one JSON object.
+A browser runs no script of that type, and Wilson reads it without running the page.
+
+```html
+<script type="application/wilson-app+json">
+    {
+        "id": "board-summary",
+        "name": "Board summary",
+        "version": "1.1.0",
+        "apiVersion": 1,
+        "description": "How many cards are in each stage.",
+        "grants": [{ "grant": "board.read", "reason": "Counts the cards in each stage." }]
+    }
+</script>
+```
+
+| Field         | What it is                                                                                            |
+| ------------- | ----------------------------------------------------------------------------------------------------- |
+| `id`          | The app's slug: 1 to 63 lowercase letters, digits or hyphens. A file with an installed id replaces it |
+| `name`        | What Wilson calls it, up to 100 characters                                                            |
+| `version`     | Your label for this release, up to 50 characters. Shown when the app is replaced                      |
+| `apiVersion`  | The version of `window.wilson` it was written for. Today that is `1`                                  |
+| `description` | Optional, up to 500 characters                                                                        |
+| `grants`      | What it asks to read: each a `grant` and a one-sentence `reason` for the person deciding              |
+
+The manifest is a request. The operator decides every grant, and an app gets only what was ticked. A grant
+this Wilson does not have is shown to the operator and cannot be given. Keys Wilson does not know are ignored.
+
+A Wilson that does not offer an app's `apiVersion` will not open it, and says why.
 
 ## The file
 

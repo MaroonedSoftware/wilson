@@ -26,19 +26,6 @@ export const APP_GRANTS: readonly { grant: AppGrant; label: string; detail: stri
 
 export const grantLabel = (grant: AppGrant): string => APP_GRANTS.find(known => known.grant === grant)?.label ?? grant;
 
-/** The slug a file suggests: `Burn Down.html` is `burn-down`. Empty when the name has nothing usable. */
-export const slugFromFilename = (filename: string): string =>
-    filename
-        .replace(/\.html?$/i, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 63)
-        .replace(/-+$/, '');
-
-/** The name a file suggests: the file's own name without its extension. */
-export const nameFromFilename = (filename: string): string => filename.replace(/\.html?$/i, '');
-
 /** The grants `next` holds that `current` does not: what replacing an app would newly hand it. */
 export const addedGrants = (current: readonly AppGrant[], next: readonly AppGrant[]): AppGrant[] => next.filter(grant => !current.includes(grant));
 

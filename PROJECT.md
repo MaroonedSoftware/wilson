@@ -1370,7 +1370,11 @@ catalog (decision 8): it spends tokens and runs a config nobody saved.
 ## Operator apps
 
 Small HTML apps inside the web and desktop apps, for views of a project that do not belong in Wilson itself.
-Writing one is in `apps/web/examples/apps/README.md`. They are read-only and installed for the whole server, and
+Writing one is in `apps/web/examples/apps/README.md`. Each file carries a manifest, a
+`<script type="application/wilson-app+json">` naming its id, version, app API version and the grants it asks
+for with a reason each. The web app reads it with `DOMParser`, which runs nothing (`app.manifest.ts`), and the
+manifest is only a request: the operator ticks each grant, nothing is ticked for a new app, and only the answer
+is stored. They are read-only and installed for the whole server, and
 the project an app is opened from is the one it reads. Android does not run them.
 
 An app's frame has `sandbox="allow-scripts"`, so its origin is opaque, under a policy placed ahead of its
