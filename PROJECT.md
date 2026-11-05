@@ -269,6 +269,22 @@ that the CLI, run by hand in that environment, failed with "OAuth session expire
 refreshed". So `subscriptionEnv` still removes only the two provider keys. Whether a probe passes
 when run from inside a real stage, under the stage's own config directory, is still unmeasured.
 
+Those probes need a subscription, so nothing runs them on a schedule. `engine-compat.yml` asks a
+narrower question nightly, of the pinned engines and the newest ones, with no account and no model
+call: does the Claude handshake still complete with the pinned SDK, and has the protocol Codex
+declares drifted from `apps/api/tests/support/codex.protocol.kinds.json`? A new Codex item type fails
+it, because `itemStarted` lets through anything outside `TOOL_ITEMS` unguarded. So does a new server
+request, or the loss of a kind the adapter reads. A new notification is only noted. A binary that is
+missing or will not run fails too, since a check that could not run is not a pass. It cannot see what
+an engine does during a turn, so a skipped guard still takes the live probes to find.
+
+To run it by hand, or rewrite the baseline for a version bump and read the diff:
+
+```bash
+WILSON_ENGINE_COMPAT=1 CLAUDE_PROBE_BIN=$(which claude) CODEX_PROBE_BIN=$(which codex) pnpm --filter @wilson/api test:engine:compat
+CODEX_KINDS_UPDATE=1 WILSON_ENGINE_COMPAT=1 CLAUDE_PROBE_BIN=$(which claude) CODEX_PROBE_BIN=$(which codex) pnpm --filter @wilson/api test:engine:compat
+```
+
 ### Where a stage runs: here, an SSH host, or a worker
 
 A stage that cuts a worktree runs where its `placement` says: `local` (the default) on the daemon's
