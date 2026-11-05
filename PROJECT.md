@@ -350,10 +350,27 @@ A worker confines file primitives to its host's project roots, as the latest `we
 guardrail in the sense the note atop `command.allowlist.ts` uses the word: a command run inside a
 root can reach past it. The boundary is the machine, which is why a worker belongs on one kept for it.
 
-A dropped connection fails whatever was waiting on it as a lost host, which the queue retries, and
-the worker kills every process the dropped connection started before it reconnects. A daemon restart
-still ends the stages running at the time, since the agent loop lives in the daemon. Moving the
-loop onto the worker would fix that, at the cost of running the guard beside the code it guards.
+A dropped connection interrupts the stage rather than failing it. The agent hears it from the host's
+`onLost`, the card records `stage.interrupted` with `hostLost`, no retry is spent, and the job comes back
+after 30 seconds to reopen the tree and continue the session, as a clean shutdown's does below. The third
+loss on one tree falls to the queue's retries instead (`MAX_HOST_LOSSES`), since an interruption charges
+nothing. The worker ends everything the connection started before it reconnects: the engine, the commands
+it ran in sessions of their own, and anything those started, with `SIGKILL` five seconds later for
+whatever is left.
+
+A drop after the stage has reported, or during verification, stays a lost host, which spends a retry and
+starts a new session. The next attempt saves the tree's uncommitted work to the patch path when it cuts a
+new tree, so that work is not lost. A worker still away when the job comes back is passed over: a `remote`
+stage is deferred and an `any` stage runs elsewhere, and either starts a new session.
+
+A 2026-11-05 run against a real engine on a worker container went through all of these. A drop resumed the
+same session with no retry spent and nothing left running, and a replaced container, with its transcript
+gone, started a new session in the same tree. Worker hosts have no check of their own on the connection,
+so one cut silently stays stranded until traffic returns: Wilson noticed in 16 seconds, and the worker had
+not noticed when the test ended 105 seconds in.
+
+A daemon restart still interrupts the stages running at the time, since the agent loop lives in the daemon.
+Moving the loop onto the worker would fix that, at the cost of running the guard beside the code it guards.
 
 **A clean shutdown interrupts a stage rather than failing it.** On shutdown `StageInterrupt` stops
 each `cli` engine, the card records `stage.interrupted`, and the handler sends the stage again and
@@ -374,8 +391,8 @@ verified until the stage finishes, so a resumed run is held to the same exit con
 
 **So a deploy does not have to wait.** A restart costs a running `cli` stage a pause of about a minute
 rather than its work: a 2026-11-02 run against a real engine stopped in under a second, resumed the same
-session, re-ran the tool the restart killed, and passed with no retry spent. Placed stages have not been
-through this against a real worker yet.
+session, re-ran the tool the restart killed, and passed with no retry spent. Reopening a tree on a worker
+has since been proven by dropped connections, but no daemon restart has been run with one connected.
 
 **Drain when a restart must not interrupt anything.** That is a deploy that changes what a running stage
 depends on (its tools, its result contract, or how a resumed run behaves), one where a command stage,

@@ -132,7 +132,10 @@ hosts that run different trust levels different tokens, so that replacing one le
 ## Keeping it running
 
 The worker reconnects by itself, backing off up to 30 seconds, whenever Wilson restarts or the
-network drops. Any process a stage started is killed when its connection drops; the stage is retried.
+network drops. Any process a stage started is ended when its connection drops, and the stage comes back
+to the same tree and session after about 30 seconds. A network cut that closes nothing goes unnoticed
+here until traffic returns, so a worker can sit disconnected for a while with its last engine still
+running.
 
 It exits for good, with status 1, when retrying cannot help: Wilson refused the token, speaks another
 protocol version, or another worker connected as the same host. A supervisor (systemd, launchd,
