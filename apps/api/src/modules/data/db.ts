@@ -79,6 +79,16 @@ export interface WilsonApiKeys {
   type: string | null;
 }
 
+export interface WilsonApps {
+  createdAt: Generated<DateTime>;
+  description: Generated<string>;
+  grants: Generated<string[]>;
+  html: string;
+  name: string;
+  slug: string;
+  updatedAt: Generated<DateTime>;
+}
+
 export interface WilsonCacheEntries {
   expiresAt: DateTime;
   key: string;
@@ -469,6 +479,7 @@ export interface DB {
   "wilson.accountPasswords": WilsonAccountPasswords;
   "wilson.accounts": WilsonAccounts;
   "wilson.apiKeys": WilsonApiKeys;
+  "wilson.apps": WilsonApps;
   "wilson.cacheEntries": WilsonCacheEntries;
   "wilson.cacheSetMembers": WilsonCacheSetMembers;
   "wilson.cardAttachments": WilsonCardAttachments;

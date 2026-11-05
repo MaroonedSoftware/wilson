@@ -8,6 +8,7 @@ import { HealthService } from '#modules/health/health.service.js';
 import { McpModule } from '#modules/mcp/mcp.module.js';
 import { McpToolCatalog } from '#modules/mcp/generated/mcp.tools.js';
 import { ApiKeysRouter } from '#src/routes/api.keys.router.js';
+import { AppsRouter } from '#src/routes/apps.router.js';
 import { AuthRouter } from '#src/routes/auth.router.js';
 import { BoardRouter } from '#src/routes/board.router.js';
 import { ChatRouter } from '#src/routes/chat.router.js';
@@ -40,6 +41,7 @@ const catalog = async (): Promise<McpToolCatalog> => {
 
 const ROUTERS = [
     ApiKeysRouter,
+    AppsRouter,
     AuthRouter,
     BoardRouter,
     ChatRouter,

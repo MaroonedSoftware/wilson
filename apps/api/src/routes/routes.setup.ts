@@ -25,6 +25,7 @@ import { planFeed } from '#modules/plan/plan.session.feed.js';
 import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
 import { VIEW_POLICY } from '#modules/policy/access.policies.js';
 import { ApiKeysRouter } from './api.keys.router.js';
+import { AppsRouter } from './apps.router.js';
 import { AuthRouter } from './auth.router.js';
 import { BoardRouter } from './board.router.js';
 import { ChatRouter } from './chat.router.js';
@@ -362,6 +363,7 @@ export const routers = (signal?: AbortSignal) => [
     DevicesRouter,
     CodeRouter,
     ReviewRouter,
+    AppsRouter,
     FeedRouter(signal),
     PlanStreamRouter(signal),
     ChatStreamRouter(signal),
