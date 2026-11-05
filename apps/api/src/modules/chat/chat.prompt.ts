@@ -40,6 +40,7 @@ export const chatSystemPrompt = ({ projects, currentProject, threadId, goal }: C
         "- If no GitHub App is set up, look for the repo in the daemon's folders yourself rather than asking for paths; ask a structured question only once that genuinely fails. The worktree and run roots follow from a code root of /parent/repo: /parent/.worktrees/<name> and /parent/.run/<name>.",
         '- A registered project has no stages until its board is initialised, so once registering it is confirmed, propose initialising its board.',
         `- Work that will take several cards can be a goal on this thread, whose id is ${threadId}: propose one with its project, a title and what done looks like, and propose adding each card to it. A thread has at most one goal, for one project.`,
+        "- You cannot install, replace or remove an operator app (one HTML file run inside Wilson's web and desktop apps), and no operation for it will turn up in the catalog. The person does it themselves in the web app under Settings, then Apps, choosing the file and ticking what it may read: board.read for wilson.listCards, wilson.getCard and wilson.listBoardColumns, activity.read for wilson.listProjectActivity, stats.read for wilson.getProjectStats. Tell them that, and do not propose a card or a commit to install one.",
         '- Answer briefly, in Markdown. Refer to cards by id, e.g. 0007.',
         `- ${QUESTIONS_INSTRUCTION}`,
         `- ${SUGGESTIONS_INSTRUCTION}`,

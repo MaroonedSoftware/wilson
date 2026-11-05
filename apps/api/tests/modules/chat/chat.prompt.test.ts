@@ -75,6 +75,16 @@ describe('the chat system prompt', () => {
         expect(prompt).toContain('propose initialising its board');
     });
 
+    it('sends an operator app to the Apps settings, since agents have no route to installing one', () => {
+        const prompt = chatSystemPrompt({ threadId: '7', projects: [] });
+
+        expect(prompt).toContain('You cannot install, replace or remove an operator app');
+        expect(prompt).toContain('Settings, then Apps');
+        for (const grant of ['board.read', 'activity.read', 'stats.read']) {
+            expect(prompt).toContain(grant);
+        }
+    });
+
     it('asks for follow-ups to end the answer with', () => {
         expect(chatSystemPrompt({ threadId: '7', projects: [] })).toContain('<suggestions>');
     });
