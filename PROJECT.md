@@ -81,6 +81,11 @@ These are settled. Challenge them only if you find a concrete blocker.
     its own card. Single operator still holds (see Non-goals). What changes is that the operator
     is a principal the API checks, not an assumption about who is on the network. See
     Authentication.
+11. **An orchestrator supervises the pipeline and never replaces it.** A chat thread can own a goal,
+    break it into cards, watch them and act on a short list of delegated operations. Lanes still do
+    the work, verifiers still decide what passes, the poller still dispatches, and the board keeps
+    running if the orchestrator stops. Approving a plan and merging stay a person's act. See
+    Orchestration.
 
 A retired decision, recorded because its absence is load-bearing: _"state is per-card
 and append-only; no shared index file that every agent touches, so parallel commits
@@ -811,6 +816,38 @@ plan beside a chat panel and streams the agent's output as it writes.
   is not carried into implementation.
 - **Approval is explicit and versioned.** Approving writes a card version and pins the
   card to it. That version, not the live document, is what every downstream stage reads.
+
+## Orchestration
+
+Planned, and built in steps; this section is the intended shape until those steps land. Today the
+chat acts only when spoken to, and the deterministic poller and `decideChain` are the only things
+that move work along.
+
+- **A goal is one thread and one project.** One project is one board (decision 9), so a goal spans
+  a single board. Its cards are linked to it, and a piece split from a linked card stays in the goal.
+- **Events wake a goal through a cursor over `wilson.card_events`.** `NOTIFY` is at-most-once and a
+  restart loses it, whereas a cursor re-reads what it has not finished. A wake-up is a job whose
+  cursor advances only once its turn is stored. It runs as a note, not as a message from the person,
+  and it can stay silent.
+- **A person's own messages stay request-bound.** Only wake-ups are jobs. They share the thread's
+  lock with those messages, which works because the API is the one daemon process.
+- **A wake-up starts with `view` scope.** API policy refuses any change it attempts, whatever its
+  prompt or the text it read says. A change it wants is proposed and waits for the person, exactly
+  as in chat.
+- **Delegation is a short, fixed list.** A person grants a goal operations from a list held in code,
+  behind step-up, and those operations act only on that goal's own cards. Each one is recorded where
+  the person can see it. The list starts at `start_card`, `set_card_dependency`, `add_a_plan_comment`
+  and `acknowledge_a_flagged_card`.
+- **These are never delegated:** `approve_card_plan`, `repin_card_plan`, `merge_card`, `move_card`,
+  editing a card, settings, lanes, and answering a stage's question. Grants and the orchestrator's
+  own settings are `mcp: exclude`, so the agent cannot widen its own authority (decision 8).
+- **Text it reads is untrusted.** Cards, files and imported tickets can ask for anything. What bounds
+  that is the session scope, the fixed list and the membership check, never the prompt.
+- **Its spend is bounded on its own.** Wake-ups draw on the same engine accounts as stages, so every
+  turn's usage is recorded, silent ones included, and a daily ceiling stops wake-ups before it stops
+  any stage.
+- **Direct notifications stay on.** The six moments in Notification keep reaching the person
+  whether or not the orchestrator is running.
 
 ## Board schema
 
