@@ -1,4 +1,4 @@
-import type { AppGrant } from '@wilson/sdk';
+import type { AppGrant, ChatPendingAction } from '@wilson/sdk';
 import { APP_METHOD_NAMES } from './app.broker.js';
 
 /** The API's limit on an app's HTML (`apps.service.ts`), here so a large file is refused before it is sent. */
@@ -12,6 +12,37 @@ export const APP_GRANTS: readonly { grant: AppGrant; label: string; detail: stri
 ];
 
 export const grantLabel = (grant: AppGrant): string => APP_GRANTS.find(known => known.grant === grant)?.label ?? grant;
+
+/** The operation a proposed app's action is stored under (`chat.app.proposal.ts` in apps/api). */
+export const PROPOSED_APP_OPERATION = 'install_proposed_app';
+
+/** An operator app the chat proposed, as its review reads it. */
+export interface ProposedApp {
+    slug: string;
+    name: string;
+    description?: string;
+    html: string;
+    requestedGrants: AppGrant[];
+}
+
+/**
+ * The app a chat action proposes, or undefined when it is any other action, or one whose arguments are
+ * not what this build expects. That one falls to the ordinary card, whose confirm the API refuses,
+ * since it sends no grants.
+ */
+export const proposedApp = (action: ChatPendingAction): ProposedApp | undefined => {
+    if (action.operation !== PROPOSED_APP_OPERATION) return undefined;
+    const args = action.arguments as Partial<Record<keyof ProposedApp, unknown>> | null;
+    if (typeof args?.slug !== 'string' || typeof args.name !== 'string' || typeof args.html !== 'string') return undefined;
+    const known = APP_GRANTS.map(({ grant }) => grant);
+    return {
+        slug: args.slug,
+        name: args.name,
+        ...(typeof args.description === 'string' ? { description: args.description } : {}),
+        html: args.html,
+        requestedGrants: Array.isArray(args.requestedGrants) ? known.filter(grant => (args.requestedGrants as unknown[]).includes(grant)) : [],
+    };
+};
 
 /** The slug a file suggests: `Burn Down.html` is `burn-down`. Empty when the name has nothing usable. */
 export const slugFromFilename = (filename: string): string =>

@@ -5,6 +5,7 @@ import { IconPlus } from '@tabler/icons-react';
 import type { ChatMessage, ChatPendingAction, ChatPendingQuestion } from '@wilson/sdk';
 import { ChatComposer } from '#src/components/ChatComposer.js';
 import { ChatActionCard, isAwaiting } from '#src/components/ChatActionCard.js';
+import { ChatAppProposalCard } from '#src/components/ChatAppProposalCard.js';
 import { ChatQuestionCard, isUnanswered } from '#src/components/ChatQuestionCard.js';
 import { AnswerInProgress, Message, UserMessage } from '#src/components/ChatMessages.js';
 import { ThreadList, ThreadMenu } from '#src/components/ChatThreads.js';
@@ -19,6 +20,7 @@ import {
     useSendChatMessage,
     useStartChatThread,
 } from '#src/lib/chat.js';
+import { proposedApp } from '#src/lib/apps.js';
 import { reasonFor } from '#src/lib/mutations.js';
 
 /** How wide the conversation runs on the full page, so a line of an answer stays readable. */
@@ -161,8 +163,14 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
                         switch (entry.kind) {
                             case 'message':
                                 return <Message key={`m${entry.message.seq}`} message={entry.message} />;
-                            case 'action':
-                                return <ChatActionCard key={`a${entry.action.id}`} action={entry.action} />;
+                            case 'action': {
+                                const app = proposedApp(entry.action);
+                                return app ? (
+                                    <ChatAppProposalCard key={`a${entry.action.id}`} action={entry.action} app={app} />
+                                ) : (
+                                    <ChatActionCard key={`a${entry.action.id}`} action={entry.action} />
+                                );
+                            }
                             case 'question':
                                 return <ChatQuestionCard key={`q${entry.question.id}`} question={entry.question} />;
                         }
