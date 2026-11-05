@@ -1,7 +1,7 @@
 import { Injectable } from 'injectkit';
 import { WorktreeManager, worktreeHost } from '#modules/worktree/worktree.manager.js';
 import { runConfiguredCommand } from './run.command.js';
-import { checkFormat, type StageVerifier, type VerificationInput, type VerificationOutcome } from './stage.verifier.js';
+import { checkFormat, checkSecrets, type StageVerifier, type VerificationInput, type VerificationOutcome } from './stage.verifier.js';
 
 /**
  * The implementing stage's exit condition, in order, all four required.
@@ -19,8 +19,10 @@ import { checkFormat, type StageVerifier, type VerificationInput, type Verificat
 export class ImplementingVerifier implements StageVerifier {
     constructor(private readonly worktrees: WorktreeManager) {}
 
-    async verify({ worktree, scope, stage }: VerificationInput): Promise<VerificationOutcome> {
-        const failures: string[] = [];
+    async verify({ worktree, scope, stage, card }: VerificationInput): Promise<VerificationOutcome> {
+        // First, so that it is the failure an operator reads: it is the one no retry can settle.
+        const secrets = await checkSecrets(this.worktrees, worktree, card);
+        const failures: string[] = [...secrets.failures];
         const changedPaths = await this.worktrees.changedPaths(worktree);
 
         // What *this stage* wrote, as opposed to what the card has changed. A stage only commits on
@@ -63,6 +65,11 @@ export class ImplementingVerifier implements StageVerifier {
         // fact the machinery checks, not prose in the instructions hoping it happens.
         failures.push(...(await checkFormat(worktree, stage)));
 
-        return { passed: failures.length === 0, failures, changedPaths };
+        return {
+            passed: failures.length === 0,
+            failures,
+            changedPaths,
+            ...(secrets.needsHumanReason ? { needsHumanReason: secrets.needsHumanReason } : {}),
+        };
     }
 }

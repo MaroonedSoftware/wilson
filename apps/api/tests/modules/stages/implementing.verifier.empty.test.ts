@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ImplementingVerifier } from '#modules/stages/implementing.verifier.js';
 import type { StageConfig } from '#modules/stages/stage.config.js';
-import { stageDefaults } from '#tests/modules/stages/stage.fixture.js';
+import { planlessCard, stageDefaults } from '#tests/modules/stages/stage.fixture.js';
 import type { WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import type { Worktree } from '#modules/worktree/worktree.manager.js';
 
@@ -42,12 +42,14 @@ const verifierWith = (changedPaths: string[], uncommittedPaths: string[]) =>
     new ImplementingVerifier({
         changedPaths: async () => changedPaths,
         uncommittedPaths: async () => uncommittedPaths,
+        addedLines: async () => [],
     } as unknown as WorktreeManager);
 
 const input = () => ({
     worktree: { path: '/nowhere', baseSha: 'abc123' } as Worktree,
     scope: { check: async () => ({ allowed: true as const, path: 'x', via: 'scope' as const }) },
     stage: stage(),
+    card: planlessCard(),
 });
 
 describe('ImplementingVerifier — an empty diff has two causes', () => {

@@ -1,7 +1,8 @@
 import type { ScopeGuard } from '#modules/agent/scope.guard.js';
-import type { Card } from '#modules/board/card.js';
-import { worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
+import { expectedSecretPaths, type Card } from '#modules/board/card.js';
+import { worktreeHost, type Worktree, type WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { runConfiguredCommand } from './run.command.js';
+import { scanAddedLines, type SecretFinding } from './secret.scan.js';
 import type { StageConfig } from './stage.config.js';
 import type { SupportedRefusal } from './stage.result.js';
 
@@ -50,6 +51,11 @@ export interface VerificationOutcome {
      * any other is a report this stage does not fully believe, so it carries no division to act on.
      */
     supportedRefusal?: SupportedRefusal;
+    /**
+     * Set when the failure needs a person's decision and another attempt would only hide the question.
+     * The card stays where it failed, flagged with this reason, however many retries it has left.
+     */
+    needsHumanReason?: string;
 }
 
 export interface StageVerifier {
@@ -69,6 +75,49 @@ export const checkFormat = async (worktree: Worktree, stage: StageConfig): Promi
     if (!stage.formatCommand) return [];
     const failure = await runConfiguredCommand(worktree.path, stage.formatCommand, undefined, undefined, worktreeHost(worktree));
     return failure ? [failure.reason] : [];
+};
+
+const DECLARE_SECRET = 'A plan Constraint `Expected secret: path (reason)` allows a fixture in that file.';
+
+const describeSecret = ({ path, line, kind }: SecretFinding): string => `${path}:${line} adds a suspected ${kind}`;
+
+export interface SecretCheck {
+    failures: string[];
+    needsHumanReason?: string;
+}
+
+/**
+ * Whether the card's diff adds a credential, measured from the fork point so that it also sees what
+ * an earlier stage left behind. Text built here holds a location and a kind and never the value.
+ *
+ * A finding flags a person rather than kicking back. Nothing a retry can do settles it: if the key is
+ * real it has to be rotated, and a second attempt that deleted it would pass and advance with nobody
+ * told. A retry would also reward disguising the value over removing it. The formats are narrow enough
+ * that a flag is rare, and a fixture has `expectedSecretPaths`.
+ *
+ * Failing to read the diff is a failure, since an unread diff is not a clean one, but not a flag. The
+ * message leaves out the error's text, which is no use here and would be one more way out for the value.
+ */
+export const checkSecrets = async (worktrees: WorktreeManager, worktree: Worktree, card: Card): Promise<SecretCheck> => {
+    let files: Awaited<ReturnType<WorktreeManager['addedLines']>>;
+    try {
+        files = await worktrees.addedLines(worktree);
+    } catch {
+        return { failures: ['the secret check could not read this card’s diff, so it does not know whether a credential was added'] };
+    }
+
+    const allowed = new Set(expectedSecretPaths(card));
+    const findings = files.filter(file => !allowed.has(file.path)).flatMap(file => scanAddedLines(file.path, file.lines));
+    const [first] = findings;
+    if (!first) return { failures: [] };
+
+    const more = findings.length > 1 ? ` (and ${findings.length - 1} more)` : '';
+    return {
+        failures: findings.map(finding => `${describeSecret(finding)}, value withheld. ${DECLARE_SECRET}`),
+        needsHumanReason:
+            `possible credential in this card's diff: ${describeSecret(first)}${more}. Rotate it if it is real. The value is still in ` +
+            `the worktree, and the next run saves it to the failed-attempt patch, which that run can read. ${DECLARE_SECRET}`,
+    };
 };
 
 /**

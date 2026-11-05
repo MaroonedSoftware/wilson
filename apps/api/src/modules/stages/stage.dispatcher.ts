@@ -933,6 +933,12 @@ export class StageDispatcher {
         const refused = planCheck && !advanced && !outcome.unjudged && !outcome.resultDropped;
         if (planCheck && !advanced) decision = { ...decision, target: stageName };
 
+        // A verifier that says this needs a person is not asking for a kickback, however many retries
+        // are left. Ahead of the halt below, whose reason says less about what to do.
+        if (outcome.needsHumanReason) {
+            decision = { target: stageName, retries: decision.retries, needsHuman: { reason: outcome.needsHumanReason } };
+        }
+
         // Card 0200: a card whose ticket closed externally while this stage was running halts here
         // instead of advancing or kicking back further, once this one stage — already bounded by its
         // own budget — finishes. `InboundCardWriter` is what set the flag going in; this is the one
@@ -1773,6 +1779,7 @@ export class StageDispatcher {
                 }),
             }),
             ...(supportedRefusal && { supportedRefusal }),
+            ...(verification.needsHumanReason && { needsHumanReason: verification.needsHumanReason }),
         };
     }
 }
