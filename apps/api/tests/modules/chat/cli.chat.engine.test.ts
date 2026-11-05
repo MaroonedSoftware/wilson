@@ -155,6 +155,7 @@ describe('CliChatEngine', () => {
 
         expect(optionsOf().maxTurns).toBe(40);
         expect(output.usage).toEqual({ inputTokens: 5, cachedInputTokens: 120, outputTokens: 42 });
+        expect(output.account).toBe('local');
     });
 
     describe('holding the engine to its own tools', () => {
@@ -211,7 +212,7 @@ describe('CliChatEngine', () => {
         const output = await turn({ onText: piece => pieces.push(piece) });
 
         expect(pieces).toEqual(['One card', ': 0007.']);
-        expect(output).toEqual({ text: 'One card: 0007.', engineSessionId: 's-1' });
+        expect(output).toEqual({ text: 'One card: 0007.', engineSessionId: 's-1', account: 'local' });
     });
 
     it('falls back to the completed blocks when the engine streams no deltas', async () => {
@@ -329,6 +330,23 @@ describe('CliChatEngine', () => {
         });
 
         expect((optionsOf().env as NodeJS.ProcessEnv).CLAUDE_CODE_OAUTH_TOKEN).toBe('saved-token');
+    });
+
+    it('names the account the turn was spent on', async () => {
+        engineReplying([{ type: 'result', subtype: 'success', session_id: 's-1', usage: { input_tokens: 1, output_tokens: 2 } }]);
+        const accounts = { local: async () => ({ name: 'pool-a', token: 'saved-token' }) } as unknown as EngineAccountsService;
+
+        const output = await new CliChatEngine(settings, accounts).turn({
+            thread: thread(),
+            history: [],
+            text: 'what is in review?',
+            system: 'the system prompt',
+            tools: [listCards],
+            provider: 'anthropic',
+            model: 'claude-sonnet-5-5',
+        });
+
+        expect(output.account).toBe('pool-a');
     });
 
     it('fails a turn the engine stops short of finishing, with its reason', async () => {

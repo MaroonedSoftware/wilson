@@ -233,13 +233,24 @@ public sealed class MenuBarStatsTests
     }
 
     [Fact]
-    public void Limits_that_have_reset_are_gone_and_the_soonest_comes_first()
+    public void Accounts_are_the_saved_tokens_with_their_limits()
     {
-        EngineLimit Limit(string account, int minutes) => new() { Account = account, LimitType = "five_hour", ResetsAt = Now.AddMinutes(minutes) };
+        EngineTokenSummary Token(string name, long priority) => new()
+        {
+            Name = name,
+            Provider = EngineTokenProvider.Anthropic,
+            Kind = EngineTokenKind.Subscription,
+            Priority = priority,
+            Pooled = true,
+            CreatedAt = Now,
+            UpdatedAt = Now,
+            Hosts = [],
+        };
+        EngineLimit Limit(string account) => new() { Account = account, LimitType = "seven_day", ResetsAt = Now.AddHours(5) };
 
-        var figures = MenuBarStats.Figures(new MenuBarReading([], Limits: [Limit("later", 120), Limit("past", -1), Limit("soon", 5)]), Now);
+        var figures = MenuBarStats.Figures(new MenuBarReading([], Limits: [Limit("pool-a"), Limit("local")], Tokens: [Token("pool-a", 0), Token("rdean79.gmail.com", 1)]), Now);
 
-        Assert.Equal(["soon", "later"], figures.Limits.Select(limit => limit.Account));
-        Assert.Equal("in 5m", figures.Limits[0].Resets);
+        Assert.Equal(["pool-a", "rdean79.gmail.com"], figures.Accounts.Select(account => account.Name));
+        Assert.Equal([true, false], figures.Accounts.Select(account => account.Limited));
     }
 }

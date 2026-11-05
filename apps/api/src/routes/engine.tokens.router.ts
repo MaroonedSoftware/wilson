@@ -1,7 +1,15 @@
 import { z } from 'zod';
 import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
 import { EngineTokensService } from '#modules/host/engine.tokens.service.js';
-import { EngineLimit, EngineTokenSummary, PutEngineTokenRequest, UpdateEngineTokenRequest } from '../generated/engine.tokens.js';
+import { EngineUsageService } from '#modules/host/engine.usage.service.js';
+import {
+    EngineAccountUsage,
+    EngineAccountUsageQuery,
+    EngineLimit,
+    EngineTokenSummary,
+    PutEngineTokenRequest,
+    UpdateEngineTokenRequest,
+} from '../generated/engine.tokens.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
 /**
@@ -95,4 +103,19 @@ EngineTokensRouter.delete('/api/engine-tokens/:name', requirePolicy({ policy: 'w
     await service.remove(name);
 
     ctx.status = 204;
+});
+
+/**
+ * Each account that spent anything in the window, most output first.
+ * from [engine.tokens.ck](../../data/contracts/engine.tokens.ck) `GET /api/engine-accounts/usage`
+ */
+EngineTokensRouter.get('/api/engine-accounts/usage', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const query = await parseAndValidate(ctx.query, EngineAccountUsageQuery.strict());
+
+    const service = ctx.container.get(EngineUsageService);
+    const result: EngineAccountUsage[] = await service.usage(query);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
 });

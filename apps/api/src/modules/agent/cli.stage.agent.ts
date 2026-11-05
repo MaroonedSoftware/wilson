@@ -279,15 +279,28 @@ export class CliStageAgent extends StageAgent {
     }
 
     async run(input: AgentRunInput): Promise<AgentRunOutput> {
-        const output = await this.attempt(input);
+        const output = await this.signedIn(input);
         if (!output.resumeFailed) return output;
 
         // Its transcript may be gone, or on another machine. The tree is still there to work from.
         this.logger.warn(`could not resume ${input.context.cardId}'s engine session; starting a new one in the same worktree`);
-        return this.attempt({ ...input, resume: {} });
+        return this.signedIn({ ...input, resume: {} });
     }
 
-    private async attempt({ stage, context, planPath, learningsPath, title, resultSchema, baseSha, resume }: AgentRunInput): Promise<AgentRunOutput> {
+    /** One attempt, under the account chosen for it, which is named on what it returns so its spend can be charged to it. */
+    private async signedIn(input: AgentRunInput): Promise<AgentRunOutput> {
+        const host = toolHost(input.context);
+        const hostAccount = await host.engineAccount?.();
+        const account = hostAccount ?? (await this.accounts?.local());
+        const output = await this.attempt(input, account, hostAccount);
+        return { ...output, account: account?.name ?? LOCAL_ACCOUNT };
+    }
+
+    private async attempt(
+        { stage, context, planPath, learningsPath, title, resultSchema, baseSha, resume }: AgentRunInput,
+        account: EngineAccount | undefined,
+        hostAccount: EngineAccount | undefined,
+    ): Promise<AgentRunOutput> {
         // Resolved once, up front — a setting read while a card is in flight must not change what
         // this run uses partway through (this card's Constraints: "a change applies to stages
         // started afterwards"), and `subscriptionEnv` below stays synchronous, so the read has to
@@ -295,8 +308,6 @@ export class CliStageAgent extends StageAgent {
         const configDir = await this.settings?.get(CLAUDE_CONFIG_DIR);
         const host = toolHost(context);
         const chooseAccount = async () => (host.engineAccount ? host.engineAccount() : this.accounts?.local());
-        const hostAccount = await host.engineAccount?.();
-        const account = hostAccount ?? (await this.accounts?.local());
         // Refused before it starts, rather than spend an engine start learning what is already recorded.
         if (account?.limit) {
             const sessionId = resume?.sessionId;

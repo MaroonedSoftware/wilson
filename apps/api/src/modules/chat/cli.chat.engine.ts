@@ -208,6 +208,7 @@ export class CliChatEngine extends ChatEngine {
             text: streamed || written,
             engineSessionId: sessionId,
             usage,
+            account: account?.name ?? LOCAL_ACCOUNT,
             ...(ranTools && ranTools.refused.length > 0 ? { refusedTools: ranTools.refused } : {}),
         };
     }

@@ -591,6 +591,8 @@ export class StageDispatcher {
                     changedPaths: outcome.changedPaths,
                     grants: outcome.scopeGrants,
                     usage: outcome.usage,
+                    // Who spent it, so spend can be summed by account. Absent on older events.
+                    ...(outcome.account && { account: outcome.account }),
                     // The result itself, not just its shape. A review's findings *are* the output of
                     // the stage; recording only that it passed throws away the thing it produced.
                     result: outcome.result ?? null,
@@ -619,6 +621,7 @@ export class StageDispatcher {
                     type: 'stage.interrupted',
                     payload: {
                         usage: err.usage,
+                        ...(err.account && { account: err.account }),
                         ...(err instanceof StageHeldError && { usageLimit: err.limit, heldUntil: err.heldUntil }),
                         ...(err.hostLost && { hostLost: err.hostLost }),
                     },

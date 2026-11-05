@@ -6,6 +6,8 @@ import { EngineAccountsService } from './engine.accounts.service.js';
 import { EngineLimitRepository } from './engine.limit.repository.js';
 import { EngineTokenRepository } from './engine.token.repository.js';
 import { EngineTokensService } from './engine.tokens.service.js';
+import { EngineUsageRepository } from './engine.usage.repository.js';
+import { EngineUsageService } from './engine.usage.service.js';
 import { HostConnector } from './host.connector.js';
 import { HostPlacer } from './host.placer.js';
 import { HostProber } from './host.prober.js';
@@ -45,6 +47,8 @@ export const HostModule: ServerKitModule = {
         registry.register(WorkerTokensService).useClass(WorkerTokensService).asTransient();
         registry.register(EngineTokenRepository).useClass(EngineTokenRepository).asTransient();
         registry.register(EngineLimitRepository).useClass(EngineLimitRepository).asTransient();
+        registry.register(EngineUsageRepository).useClass(EngineUsageRepository).asTransient();
+        registry.register(EngineUsageService).useClass(EngineUsageService).asTransient();
         registry.register(EngineTokensService).useClass(EngineTokensService).asTransient();
         registry.register(EngineAccountsService).useClass(EngineAccountsService).asTransient();
     },

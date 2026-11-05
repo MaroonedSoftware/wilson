@@ -90,7 +90,11 @@ application, as macOS can refuse it focus, and a window that never had focus nev
 every 15 seconds, as `/api/stats` sums the event log on each request. The sums are `Core/MenuBar/MenuBarStats`.
 What a key may not read is absent, not zero. Slots are this machine's `local-stage-slots` plus those of hosts
 still taking work, against `running` from the drain status, which sees local runs as well as hosts'. The daily
-output ceiling has no read in the API, so the panel shows no share of it.
+output ceiling has no read in the API, so the panel shows no share of it. Accounts are `AccountRules.Lines`, the
+Accounts section's order and wording: a machine's own sign-in has a line only while its provider's rotation is empty.
+Each line's spend is `GET /api/engine-accounts/usage` over the same 14 days, and Settings reads it over 30. Spend is
+charged to an account only since the server started naming it, so older spend, the `api` engine's, a rule judge's and
+a review conversation's are on no line.
 
 `dotnet run --project tools/Walk -- <out dir> <origin> <email> <password> dark menubar` draws the panel with spending
 written to the throwaway database. `menubar-live <out dir> <origin> <email> <password>` tries the icon and
@@ -463,6 +467,10 @@ placed run, its attempt, the usage table and versions. The run was written to th
 panel opened under the icon, closed on a second press and when another window took focus, and opened with the
 Dock icon gone. Its frame was centred on the icon, 4 points below the bar, on a 5120 by 1440 display.
 The operator then ran it with `dotnet run` against their own server, used the icon by hand and reported that it works.
+
+2026-11-05, the menu bar's accounts: with `tools/Walk -- ... dark menubar`, two tokens in rotation and their limits written
+to the throwaway database, the limited one in words, the other as Next, and a limit on `local` left out. Each one's spend,
+from stage events charged to one of them, read through the real endpoint. Not seen against a real server or a real engine's spend.
 
 2026-11-02, Markdown: with `tools/Walk`, a card's plan drawn as Markdown and a real press on `[[0001]]`
 opening that card.

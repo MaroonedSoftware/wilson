@@ -1,5 +1,6 @@
 using System.Globalization;
 using MaroonedSoftware.Wilson.Desktop.Core.Hosts;
+using MaroonedSoftware.Wilson.Desktop.Core.Runner;
 using MaroonedSoftware.Wilson.Sdk.Models;
 
 namespace MaroonedSoftware.Wilson.Desktop.Core.MenuBar;
@@ -13,7 +14,10 @@ public sealed record MenuBarReading(
     DrainStatus? Drain = null,
     IReadOnlyList<Host>? Hosts = null,
     LocalStageSlots? LocalSlots = null,
-    IReadOnlyList<EngineLimit>? Limits = null);
+    IReadOnlyList<EngineLimit>? Limits = null,
+    IReadOnlyList<EngineTokenSummary>? Tokens = null,
+    IReadOnlyList<EngineAccountUsage>? AccountUsage = null,
+    int Days = 0);
 
 /// <summary>One day across every project, with its bar's share of the tallest day.</summary>
 public sealed record MenuBarDay(string Date, long OutputTokens, long InputTokens, long Attempts, long Failed, double Share);
@@ -21,8 +25,6 @@ public sealed record MenuBarDay(string Date, long OutputTokens, long InputTokens
 public sealed record MenuBarProjectLine(string Name, int Running, int Flagged, long OutputToday);
 
 public sealed record MenuBarHostLine(string Name, int Used, long Slots, string State);
-
-public sealed record MenuBarLimitLine(string Account, string LimitType, string Resets);
 
 /// <summary>The panel's figures. A percentage with nothing to be a share of is absent rather than zero.</summary>
 public sealed record MenuBarFigures(
@@ -41,7 +43,7 @@ public sealed record MenuBarFigures(
     IReadOnlyList<MenuBarDay> Days,
     IReadOnlyList<MenuBarProjectLine> Projects,
     IReadOnlyList<MenuBarHostLine> Hosts,
-    IReadOnlyList<MenuBarLimitLine> Limits);
+    IReadOnlyList<AccountLine> Accounts);
 
 /// <summary>The menu bar panel's sums, by the web app's `lib/stats.ts` where it has the same figure.</summary>
 public static class MenuBarStats
@@ -80,10 +82,7 @@ public static class MenuBarStats
                 project.Cards.Count(card => card.NeedsHuman),
                 project.Stats.Days.Count > 0 ? project.Stats.Days[^1].OutputTokens : 0))],
             [.. (reading.Hosts ?? []).Select(host => new MenuBarHostLine(host.Name, host.Running.Count, host.Slots, HostRules.State(host)))],
-            [.. (reading.Limits ?? [])
-                .Where(limit => limit.ResetsAt > now)
-                .OrderBy(limit => limit.ResetsAt)
-                .Select(limit => new MenuBarLimitLine(limit.Account, limit.LimitType, HostRules.Relative(limit.ResetsAt, now)))]);
+            AccountRules.Lines(reading.Tokens, reading.Limits ?? [], now, reading.AccountUsage, reading.Days));
     }
 
     /// <summary>`part` of `whole` as a whole percentage, or nothing when there is no `whole`.</summary>

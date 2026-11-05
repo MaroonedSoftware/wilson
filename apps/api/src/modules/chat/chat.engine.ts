@@ -58,6 +58,8 @@ export interface ChatTurnOutput {
     refusedTools?: string[];
     /** What the turn cost, when the engine reports it. */
     usage?: { inputTokens?: number; cachedInputTokens?: number; outputTokens: number };
+    /** The engine account `usage` was spent on, for an engine that signs in with one ('cli'). */
+    account?: string;
 }
 
 /**

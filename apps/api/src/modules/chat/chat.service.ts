@@ -445,7 +445,7 @@ export class ChatService {
             // Recorded before anything below can stop the turn, because a silent turn stores no message.
             // The answer is already paid for, so failing to count it must not lose it.
             await this.usage
-                .record(thread.id, { engine: thread.engine, model, usage: output.usage })
+                .record(thread.id, { engine: thread.engine, model, usage: output.usage, account: output.account })
                 .catch(err => this.logger.warn(`chat thread ${thread.id}: could not record the turn's usage: ${explainError(err)}`));
         }
         if (output.engineSessionId) await this.threads.setEngineSessionId(thread.id, output.engineSessionId);

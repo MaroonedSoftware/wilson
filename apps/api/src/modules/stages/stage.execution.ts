@@ -141,9 +141,17 @@ export const executeStage = async (deps: StageExecutionDeps, input: StageExecuti
             },
         };
         if (run.usageLimit) {
-            throw new StageHeldError(card.frontmatter.id, stage.name, run.usage, attempt, run.usageLimit, run.heldUntil ?? run.usageLimit.resetsAt);
+            throw new StageHeldError(
+                card.frontmatter.id,
+                stage.name,
+                run.usage,
+                attempt,
+                run.usageLimit,
+                run.heldUntil ?? run.usageLimit.resetsAt,
+                run.account,
+            );
         }
-        throw new StageInterruptedError(card.frontmatter.id, stage.name, run.usage, attempt, hostLost);
+        throw new StageInterruptedError(card.frontmatter.id, stage.name, run.usage, attempt, hostLost, run.account);
     }
 
     // A question ends the run with nothing to verify: the stage said it could not finish, and why.
@@ -155,6 +163,7 @@ export const executeStage = async (deps: StageExecutionDeps, input: StageExecuti
             changedPaths: await deps.worktrees.uncommittedPaths(worktree),
             scopeGrants: scope.grants(),
             usage: run.usage,
+            ...(run.account && { account: run.account }),
             trace: run.trace,
         };
     }
@@ -174,6 +183,7 @@ export const executeStage = async (deps: StageExecutionDeps, input: StageExecuti
             scopeGrants: scope.grants(),
             result: run.result,
             usage: run.usage,
+            ...(run.account && { account: run.account }),
             trace: run.trace,
         };
     }
@@ -264,6 +274,7 @@ export const executeStage = async (deps: StageExecutionDeps, input: StageExecuti
         scopeGrants: scope.grants(),
         result: reported,
         usage: run.usage,
+        ...(run.account && { account: run.account }),
         unjudged,
         resultDropped: run.resultDropped,
         engineStopReason: run.engineStopReason,

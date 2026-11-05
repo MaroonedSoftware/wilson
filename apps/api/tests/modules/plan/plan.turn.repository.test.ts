@@ -131,16 +131,16 @@ describe('PlanTurnRepository', () => {
 
     it('stores what a turn spent, and leaves a turn that reported nothing empty', async () => {
         await repo.append('0001', 'user', 'hello');
-        await repo.append('0001', 'assistant', 'hi', 'session-1', undefined, { inputTokens: 5, cachedInputTokens: 120, outputTokens: 42 });
+        await repo.append('0001', 'assistant', 'hi', 'session-1', undefined, { inputTokens: 5, cachedInputTokens: 120, outputTokens: 42 }, 'pool-a');
 
         const rows = await db
             .selectFrom('wilson.planTurns')
             .where('project', '=', config.project)
             .orderBy('seq')
-            .select(['inputTokens', 'cachedInputTokens', 'outputTokens'])
+            .select(['inputTokens', 'cachedInputTokens', 'outputTokens', 'account'])
             .execute();
 
-        expect(rows).toEqual([{}, { inputTokens: 5, cachedInputTokens: 120, outputTokens: 42 }]);
+        expect(rows).toEqual([{}, { inputTokens: 5, cachedInputTokens: 120, outputTokens: 42, account: 'pool-a' }]);
     });
 
     it('append stores and round-trips the role and content verbatim, and stamps a createdAt', async () => {

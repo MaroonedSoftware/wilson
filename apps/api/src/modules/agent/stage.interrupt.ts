@@ -59,6 +59,8 @@ export class StageInterruptedError extends Error {
         readonly attempt: InterruptedAttempt,
         /** Why the stage's host went, when that is what stopped it rather than a shutdown. */
         readonly hostLost?: string,
+        /** The engine account `usage` was spent on, as `AgentRunOutput.account` names it. */
+        readonly account?: string,
     ) {
         super(`${cardId} ${stageName} was interrupted by ${hostLost ? `losing its host: ${hostLost}` : 'a daemon shutdown'}`);
         this.name = 'StageInterruptedError';
@@ -78,8 +80,9 @@ export class StageHeldError extends StageInterruptedError {
         attempt: InterruptedAttempt,
         readonly limit: UsageLimit,
         readonly heldUntil: number,
+        account?: string,
     ) {
-        super(cardId, stageName, usage, attempt);
+        super(cardId, stageName, usage, attempt, undefined, account);
         this.message = `${cardId} ${stageName} is held: ${describeUsageLimit(limit)}`;
         this.name = 'StageHeldError';
     }

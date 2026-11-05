@@ -72,7 +72,7 @@
                                 <Border Classes="badge" Margin="0,0,6,2" IsVisible="{Binding Limit, Converter={x:Static ObjectConverters.IsNotNull}}"><TextBlock Classes="quiet caution" Text="{Binding Limit}" /></Border>
                                 <Border Classes="badge" Margin="0,0,6,2" IsVisible="{Binding Hosts, Converter={x:Static ObjectConverters.IsNotNull}}"><TextBlock Classes="quiet" Text="{Binding Hosts}" /></Border>
                             </WrapPanel>
-                            <TextBlock Classes="quiet" Text="{Binding Type}" />
+                            <TextBlock Classes="quiet" Text="{Binding Detail}" TextWrapping="Wrap" />
                         </StackPanel>
                     </DockPanel>
                     <StackPanel Spacing="6" IsVisible="{Binding Replacing}">

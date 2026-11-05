@@ -242,11 +242,12 @@ describe('ChatService', () => {
         const usageOf = (threadId: string) =>
             db
                 .selectFrom('wilson.chatTurnUsage')
-                .select(['engine', 'model', 'inputTokens', 'cachedInputTokens', 'outputTokens'])
+                .select(['engine', 'model', 'inputTokens', 'cachedInputTokens', 'outputTokens', 'account'])
                 .where('threadId', '=', BigInt(threadId))
                 .orderBy('id')
                 .execute();
-        const oneTurn = { engine: 'api', model: 'claude-sonnet-5-5', inputTokens: 10, cachedInputTokens: 0, outputTokens: 5 };
+        // The `api` engine signs in with no engine account, so its turns name none.
+        const oneTurn = { engine: 'api', model: 'claude-sonnet-5-5', inputTokens: 10, cachedInputTokens: 0, outputTokens: 5, account: undefined };
 
         it('records what a turn cost', async () => {
             const { service } = setup([says('Two cards.')]);
@@ -267,6 +268,20 @@ describe('ChatService', () => {
 
             expect((await service.getThread(thread.id)).messages).toHaveLength(2);
             expect(await usageOf(thread.id)).toEqual([{ ...oneTurn, inputTokens: 20, outputTokens: 10 }, oneTurn]);
+        });
+
+        it('records the account a turn names', async () => {
+            const { service } = setup([says('Two cards.')]);
+            const thread = await service.startThread();
+
+            await new ChatUsageRepository(db).record(thread.id, {
+                engine: 'cli',
+                model: 'claude-sonnet-5-5',
+                usage: { inputTokens: 1, outputTokens: 2 },
+                account: 'pool-a',
+            });
+
+            expect(await usageOf(thread.id)).toEqual([expect.objectContaining({ engine: 'cli', account: 'pool-a' })]);
         });
 
         it('keeps the answer when its usage cannot be recorded', async () => {

@@ -325,7 +325,7 @@ export class PlanService {
             planFeed.status(this.boardConfig.project, id, chunk);
         }
 
-        const reply = await this.planTurns.append(id, 'assistant', assistantText, agent.sessionId, undefined, agent.lastTurnUsage);
+        const reply = await this.planTurns.append(id, 'assistant', assistantText, agent.sessionId, undefined, agent.lastTurnUsage, agent.account);
 
         // A comment is sent once. Only those this prompt carried, so one added while the agent was
         // working still reaches the next turn, and only when the engine finished, so a failed turn

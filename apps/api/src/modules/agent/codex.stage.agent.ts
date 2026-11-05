@@ -3,6 +3,7 @@ import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { z } from 'zod';
 import { EngineAccountsService } from '#modules/host/engine.accounts.service.js';
+import type { EngineAccount } from '#modules/host/execution.host.js';
 import { PASSED_THROUGH } from '#modules/stages/run.command.js';
 import { modelOf } from '#modules/stages/stage.config.js';
 import { budgetedInputTokens, contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
@@ -144,14 +145,25 @@ export class CodexStageAgent extends StageAgent {
     }
 
     async run(input: AgentRunInput): Promise<AgentRunOutput> {
-        const output = await this.attempt(input);
+        const output = await this.signedIn(input);
         if (!output.resumeFailed) return output;
 
         this.logger.warn(`could not resume ${input.context.cardId}'s engine thread; starting a new one in the same worktree`);
-        return this.attempt({ ...input, resume: {} });
+        return this.signedIn({ ...input, resume: {} });
     }
 
-    private async attempt({ stage, context, planPath, learningsPath, title, resultSchema, baseSha, resume }: AgentRunInput): Promise<AgentRunOutput> {
+    /** One attempt, under the account chosen for it, which is named on what it returns so its spend can be charged to it. */
+    private async signedIn(input: AgentRunInput): Promise<AgentRunOutput> {
+        const host = toolHost(input.context);
+        const account = await this.accounts?.codex(host.name);
+        const output = await this.attempt(input, account);
+        return { ...output, account: account?.name ?? `codex:${host.name}` };
+    }
+
+    private async attempt(
+        { stage, context, planPath, learningsPath, title, resultSchema, baseSha, resume }: AgentRunInput,
+        account: EngineAccount | undefined,
+    ): Promise<AgentRunOutput> {
         const host = toolHost(context);
         // Checked here as well as on a routing write: the document can drop `isolated` after one.
         if (!stage.isolated) {
@@ -164,7 +176,6 @@ export class CodexStageAgent extends StageAgent {
             return { truncated: true, engineFailure: `host "${host.name}" cannot start the codex engine` };
         }
 
-        const account = await this.accounts?.codex(host.name);
         // Refused before it starts, rather than spend an engine start learning what is already recorded.
         if (account?.limit) {
             const sessionId = resume?.sessionId;
