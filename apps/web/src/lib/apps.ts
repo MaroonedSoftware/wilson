@@ -35,9 +35,9 @@ export const addedGrants = (current: readonly AppGrant[], next: readonly AppGran
  * through `script-src` and `child-src` rather than to `default-src` alone.
  *
  * This does not seal an app in. `webrtc` is the one way out no fetch directive covers, and Chromium
- * ignores it: measured 2026-11-05, an app with this policy still sent STUN packets to a server it
- * named. A frame can also navigate itself away (`AppFrame`). So an app could get out what it can
- * read, and the boundary is what it can read, not where it can send.
+ * ignores it: measured 2026-11-05 in Chromium and Brave, an app with this policy still sent STUN
+ * packets to a server it named. So an app could get out what it can read, and the boundary is what it
+ * can read, not where it can send.
  */
 export const APP_CONTENT_SECURITY_POLICY = [
     "default-src 'none'",

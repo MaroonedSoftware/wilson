@@ -6,9 +6,10 @@ import { appDocument, APP_SANDBOX } from '#src/lib/apps.js';
  * One operator app, running in a sandboxed iframe. The sandbox gives it an opaque origin, so it can
  * reach none of this page's cookies, storage or DOM, and `appDocument`'s policy refuses its requests.
  *
- * That policy lives in the document, so it stops applying if the frame navigates itself somewhere
- * else, which neither the sandbox nor the policy can prevent. An app has one document for its whole
- * life, so a second load means exactly that has happened, and the frame is taken away.
+ * That policy lives in the document, so it cannot stop the frame navigating itself somewhere else,
+ * and neither can the sandbox. The page's own `frame-src 'none'` header does (`deploy/web.nginx.conf`,
+ * `vite.config.ts`), and the attempt still fires a load. An app has one document for its whole life, so
+ * a second load means it tried, and the frame is taken away.
  */
 export function AppFrame({ name, html }: { name: string; html: string }) {
     const loads = useRef(0);
