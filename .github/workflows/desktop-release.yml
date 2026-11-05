@@ -6,7 +6,11 @@
 #
 # Signed only ad hoc and not notarised, as deadair's is. Notarising needs an Apple Developer ID; the
 # bundle script already signs every Mach-O under the hardened runtime, so adding it later is swapping
-# the identity, adding a secret and a notarytool step.
+# the identity, adding a secret and a notarytool step (both of which rcodesign can do).
+#
+# Built on Linux with rcodesign: macOS arm64 runners can go unassigned for long enough that GitHub
+# gives up on the job, which is how 0.19.0 first failed. `desktop.yml` builds the same bundle on every
+# pull request, for checking on a Mac.
 
 name: Desktop release
 
@@ -62,8 +66,7 @@ jobs:
     release:
         needs: decide
         if: needs.decide.outputs.release == 'true'
-        # macOS because a self-contained osx-arm64 bundle is signed with codesign.
-        runs-on: macos-latest
+        runs-on: ubuntu-latest
         timeout-minutes: 30
         permissions:
             contents: write
@@ -87,10 +90,12 @@ jobs:
             - run: dotnet restore Wilson.Desktop.slnx --locked-mode
             - run: dotnet build Wilson.Desktop.slnx -c Release -warnaserror --no-restore
             - run: dotnet test --solution Wilson.Desktop.slnx -c Release --no-build
+            - run: tools/macos/install-rcodesign.sh "$RUNNER_TEMP/rcodesign"
             - run: tools/macos/make-app-bundle.sh "$VERSION"
-            # `ditto` keeps what a plain zip drops, and macOS will not launch what a plain zip leaves.
+            # A plain zip is enough because every file in Contents/MacOS is Mach-O, so no signature
+            # lives in an extended attribute. `-y` keeps any link. The app unpacks it with `ditto`.
             - working-directory: apps/desktop/artifacts
-              run: ditto -c -k --sequesterRsrc --keepParent Wilson.app "wilson-${VERSION}-osx-arm64.zip"
+              run: zip -qry "wilson-${VERSION}-osx-arm64.zip" Wilson.app
             # What the app verifies before installing an update (`UpdateSignature`). The message must
             # match `UpdateSignature.Message`, and a release with no key fails here rather than
             # shipping something no copy of the app would install.
@@ -102,7 +107,7 @@ jobs:
                   set -euo pipefail
                   zip="wilson-${VERSION}-osx-arm64.zip"
                   test -n "$UPDATE_SIGNING_KEY"
-                  hash="$(shasum -a 256 "$zip" | cut -d ' ' -f 1)"
+                  hash="$(sha256sum "$zip" | cut -d ' ' -f 1)"
                   printf 'wilson-update %s %s' "$VERSION" "$hash" \
                       | openssl dgst -sha256 -sign <(printf '%s\n' "$UPDATE_SIGNING_KEY") -out "$zip.sig"
             - name: Publish the release

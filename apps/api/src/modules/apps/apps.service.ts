@@ -23,13 +23,15 @@ const toSummary = (row: Omit<AppRow, 'html'>): AppSummary => ({
     name: row.name,
     description: row.description,
     grants: knownGrants(row.grants),
+    ...(row.version === null ? {} : { version: row.version }),
+    apiVersion: row.apiVersion,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
 });
 
 const toApp = (row: AppRow): App => ({ ...toSummary(row), html: row.html });
 
-/** What an install writes, once its slug, name and size pass. */
+/** What an install writes, once its slug, name, size and API version pass. */
 const validated = (slug: string, request: InstallAppRequest): AppValues => {
     if (!APP_SLUG.test(slug)) {
         throw httpError(400).withDetails({ reason: 'a slug is 1 to 63 lowercase letters, digits or hyphens, starting with a letter or digit' });
@@ -40,12 +42,17 @@ const validated = (slug: string, request: InstallAppRequest): AppValues => {
     if (bytes > MAX_APP_HTML_BYTES) {
         throw httpError(400).withDetails({ reason: `html must be at most ${MAX_APP_HTML_BYTES} bytes, got ${bytes}` });
     }
+    const apiVersion = request.apiVersion ?? 1;
+    if (apiVersion < 1) throw httpError(400).withDetails({ reason: 'apiVersion must be 1 or more' });
+    const version = request.version?.trim();
     return {
         slug,
         name,
         description: request.description?.trim() ?? '',
         html: request.html,
         grants: [...new Set(request.grants)],
+        version: version ? version : null,
+        apiVersion,
     };
 };
 

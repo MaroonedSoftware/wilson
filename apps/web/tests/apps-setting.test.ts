@@ -8,7 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SdkError } from '@wilson/sdk';
 import type { App, AppSummary } from '@wilson/sdk';
 import { AppsControl } from '#src/components/AppsControl.js';
-import { addedGrants, MAX_APP_HTML_BYTES, nameFromFilename, slugFromFilename } from '#src/lib/apps.js';
+import { APP_MANIFEST_TYPE } from '#src/lib/app.manifest.js';
+import { addedGrants, MAX_APP_HTML_BYTES } from '#src/lib/apps.js';
 import { wilson } from '#src/lib/sdk.js';
 import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
 
@@ -20,6 +21,7 @@ const burndown: AppSummary = {
     name: 'Burndown',
     description: 'Cards left',
     grants: ['board.read'],
+    apiVersion: 1,
     createdAt: NOW,
     updatedAt: NOW,
 };
@@ -46,6 +48,21 @@ const htmlFile = (name: string, html: string): File => {
     Object.defineProperty(file, 'text', { value: async () => html });
     return file;
 };
+
+const BOARD = { grant: 'board.read', reason: 'Counts the cards.' };
+const STATS = { grant: 'stats.read', reason: 'Shows the spend.' };
+
+/** An app's HTML, with a manifest saying what it is. */
+const appHtml = (fields: Record<string, unknown> = {}) =>
+    `<!doctype html><script type="${APP_MANIFEST_TYPE}">${JSON.stringify({
+        id: 'burn-down',
+        name: 'Burn down',
+        version: '1.0.0',
+        apiVersion: 1,
+        description: 'Cards left',
+        grants: [],
+        ...fields,
+    })}</script><h1>new</h1>`;
 
 const pick = (container: HTMLElement, file: File) => fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [file] } });
 
@@ -100,38 +117,80 @@ describe('AppsControl', () => {
         expect(screen.getByText('Board', { selector: '.mantine-Badge-label' })).toBeTruthy();
     });
 
-    it('installs a file with only the grants ticked, suggesting a slug and name from its filename', async () => {
+    it('installs a file as its manifest says, with only the grants ticked', async () => {
         listApps().mockResolvedValue([]);
         const install = installApp();
         const { container } = renderControl();
         await screen.findByText('No apps installed.');
 
-        pick(container, htmlFile('Burn Down.html', '<h1>new</h1>'));
-        expect((screen.getByLabelText(/^Slug/) as HTMLInputElement).value).toBe('burn-down');
-        expect((screen.getByLabelText(/^Name/) as HTMLInputElement).value).toBe('Burn Down');
+        const html = appHtml({ grants: [BOARD, STATS] });
+        pick(container, htmlFile('whatever.html', html));
+        expect(await screen.findByText('Burn down')).toBeTruthy();
+        expect(screen.getByText('It says: Counts the cards.')).toBeTruthy();
         fireEvent.click(screen.getByLabelText(/^Stats/));
         fireEvent.click(screen.getByRole('button', { name: 'Install' }));
 
-        await waitFor(() => expect(install).toHaveBeenCalledWith('burn-down', { name: 'Burn Down', html: '<h1>new</h1>', grants: ['stats.read'] }));
+        await waitFor(() =>
+            expect(install).toHaveBeenCalledWith('burn-down', {
+                name: 'Burn down',
+                description: 'Cards left',
+                html,
+                grants: ['stats.read'],
+                version: '1.0.0',
+                apiVersion: 1,
+            }),
+        );
     });
 
-    it('ticks nothing by default', async () => {
+    it('ticks nothing by default, and offers only what the app asks for', async () => {
         listApps().mockResolvedValue([]);
         const { container } = renderControl();
         await screen.findByText('No apps installed.');
 
-        pick(container, htmlFile('a.html', 'x'));
+        pick(container, htmlFile('a.html', appHtml({ grants: [BOARD] })));
 
-        for (const label of [/^Board/, /^Activity/, /^Stats/]) expect((screen.getByLabelText(label) as HTMLInputElement).checked).toBe(false);
+        expect(((await screen.findByLabelText(/^Board/)) as HTMLInputElement).checked).toBe(false);
+        expect(screen.queryByLabelText(/^Stats/)).toBeNull();
+        expect(screen.queryByLabelText(/^Activity/)).toBeNull();
+    });
+
+    it('shows a grant this Wilson does not have without offering it', async () => {
+        listApps().mockResolvedValue([]);
+        const { container } = renderControl();
+        await screen.findByText('No apps installed.');
+
+        pick(container, htmlFile('a.html', appHtml({ grants: [BOARD, { grant: 'board.write', reason: 'Moves cards.' }] })));
+
+        expect(await screen.findByText(/It also asks for board.write, which this Wilson does not have/)).toBeTruthy();
+    });
+
+    it('refuses a file with no manifest, saying what is missing', async () => {
+        listApps().mockResolvedValue([]);
+        const install = installApp();
+        const { container } = renderControl();
+        await screen.findByText('No apps installed.');
+
+        pick(container, htmlFile('bare.html', '<h1>hello</h1>'));
+
+        expect(await screen.findByText(/bare\.html: The file has no manifest/)).toBeTruthy();
+        expect((screen.getByRole('button', { name: 'Install' }) as HTMLButtonElement).disabled).toBe(true);
+        expect(install).not.toHaveBeenCalled();
+    });
+
+    it('warns about an app written for an API version this Wilson does not offer', async () => {
+        listApps().mockResolvedValue([]);
+        const { container } = renderControl();
+        await screen.findByText('No apps installed.');
+
+        pick(container, htmlFile('a.html', appHtml({ apiVersion: 2 })));
+
+        expect(await screen.findByText('This Wilson cannot open it yet')).toBeTruthy();
     });
 
     it('cannot install without a file', async () => {
         listApps().mockResolvedValue([]);
         renderControl();
         await screen.findByText('No apps installed.');
-
-        fireEvent.change(screen.getByLabelText(/^Slug/), { target: { value: 'burndown' } });
-        fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: 'Burndown' } });
 
         expect((screen.getByRole('button', { name: 'Install' }) as HTMLButtonElement).disabled).toBe(true);
     });
@@ -145,17 +204,19 @@ describe('AppsControl', () => {
         pick(container, htmlFile('big.html', 'x'.repeat(MAX_APP_HTML_BYTES + 1)));
 
         expect(await screen.findByText(/big\.html is over the 512 KiB limit/)).toBeTruthy();
-        expect((screen.getByLabelText(/^Slug/) as HTMLInputElement).value).toBe('');
         expect(install).not.toHaveBeenCalled();
     });
 
-    it('names the grants a replace would add', async () => {
-        listApps().mockResolvedValue([burndown]);
-        renderControl();
+    it('treats a file whose id is installed as a replace, with both versions and what it would gain', async () => {
+        listApps().mockResolvedValue([{ ...burndown, slug: 'burn-down', version: '0.9.0' }]);
+        const { container } = renderControl();
         await screen.findByText('Burndown');
 
-        fireEvent.click(screen.getByRole('button', { name: 'Replace' }));
-        expect(screen.getByText('This replaces Burndown')).toBeTruthy();
+        pick(container, htmlFile('a.html', appHtml({ grants: [BOARD, STATS] })));
+
+        expect(await screen.findByText('This replaces Burndown')).toBeTruthy();
+        expect(screen.getByText('0.9.0 → 1.0.0')).toBeTruthy();
+        expect((screen.getByLabelText(/^Board/) as HTMLInputElement).checked).toBe(true);
         expect(screen.getByText('It would gain no new access.')).toBeTruthy();
 
         fireEvent.click(screen.getByLabelText(/^Stats/));
@@ -163,31 +224,64 @@ describe('AppsControl', () => {
         expect(screen.getByText('It would gain access to: Stats.')).toBeTruthy();
     });
 
-    it('treats typing an installed slug as a replace', async () => {
-        listApps().mockResolvedValue([burndown]);
-        renderControl();
+    it('drops a grant the new file no longer asks for, and says so', async () => {
+        listApps().mockResolvedValue([{ ...burndown, slug: 'burn-down' }]);
+        const { container } = renderControl();
         await screen.findByText('Burndown');
 
-        fireEvent.change(screen.getByLabelText(/^Slug/), { target: { value: 'burndown' } });
+        pick(container, htmlFile('a.html', appHtml({ grants: [STATS] })));
 
-        expect(screen.getByText('This replaces Burndown')).toBeTruthy();
+        expect(await screen.findByText(/It would lose: Board\./)).toBeTruthy();
     });
 
-    it('takes a grant back without a file, sending the HTML already stored', async () => {
+    it('refuses a file for another app when replacing one', async () => {
         listApps().mockResolvedValue([burndown]);
         vi.spyOn(wilson.apps, 'getApp').mockResolvedValue(stored);
+        const { container } = renderControl();
+        await screen.findByText('Burndown');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Replace' }));
+        pick(container, htmlFile('other.html', appHtml({ id: 'other' })));
+
+        expect(await screen.findByText(/other\.html is the app "other", not Burndown/)).toBeTruthy();
+    });
+
+    it('takes a grant back without a file, sending what is already stored', async () => {
+        listApps().mockResolvedValue([burndown]);
+        vi.spyOn(wilson.apps, 'getApp').mockResolvedValue({ ...stored, version: '1.2.0', apiVersion: 1 });
         const install = installApp();
         renderControl();
         await screen.findByText('Burndown');
 
         fireEvent.click(screen.getByRole('button', { name: 'Replace' }));
-        fireEvent.click(screen.getByLabelText(/^Board/));
-        const form = screen.getByLabelText(/^Slug/).closest('form')!;
+        fireEvent.click(await screen.findByLabelText(/^Board/));
+        expect(screen.getByText(/It would lose: Board\./)).toBeTruthy();
+        const form = screen.getByLabelText(/^HTML file/).closest('form')!;
+        await waitFor(() => expect((within(form).getByRole('button', { name: 'Replace' }) as HTMLButtonElement).disabled).toBe(false));
         fireEvent.click(within(form).getByRole('button', { name: 'Replace' }));
 
         await waitFor(() =>
-            expect(install).toHaveBeenCalledWith('burndown', { name: 'Burndown', description: 'Cards left', html: '<h1>stored</h1>', grants: [] }),
+            expect(install).toHaveBeenCalledWith('burndown', {
+                name: 'Burndown',
+                description: 'Cards left',
+                html: '<h1>stored</h1>',
+                grants: [],
+                version: '1.2.0',
+                apiVersion: 1,
+            }),
         );
+    });
+
+    it('offers only what the stored manifest asks for when replacing without a file', async () => {
+        listApps().mockResolvedValue([{ ...burndown, slug: 'burn-down' }]);
+        vi.spyOn(wilson.apps, 'getApp').mockResolvedValue({ ...stored, slug: 'burn-down', html: appHtml({ grants: [BOARD] }) });
+        renderControl();
+        await screen.findByText('Burndown');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Replace' }));
+
+        expect(await screen.findByText('It says: Counts the cards.')).toBeTruthy();
+        expect(screen.queryByLabelText(/^Stats/)).toBeNull();
     });
 
     it('asks before removing, and removes only on the second press', async () => {
@@ -224,33 +318,16 @@ describe('AppsControl', () => {
         const { container } = renderControl();
         await screen.findByText('No apps installed.');
 
-        pick(container, htmlFile('a.html', 'x'));
+        pick(container, htmlFile('a.html', appHtml()));
+        await screen.findByText('Burn down');
         fireEvent.click(screen.getByRole('button', { name: 'Install' }));
 
         expect(await screen.findByText(/a slug is 1 to 63 lowercase letters/)).toBeTruthy();
-        expect((screen.getByLabelText(/^Slug/) as HTMLInputElement).value).toBe('a');
+        expect(screen.getByText('Burn down')).toBeTruthy();
     });
 });
 
 describe('app helpers', () => {
-    it.each([
-        ['Burn Down.html', 'burn-down'],
-        ['report.HTM', 'report'],
-        ['--Weird__name!!.html', 'weird-name'],
-        ['日本語.html', ''],
-    ])('suggests a slug for %s', (filename, slug) => {
-        expect(slugFromFilename(filename)).toBe(slug);
-    });
-
-    it('keeps a suggested slug within the limit, with no trailing hyphen', () => {
-        const slug = slugFromFilename(`${'a'.repeat(62)} b.html`);
-        expect(slug).toBe('a'.repeat(62));
-    });
-
-    it('suggests a name without the extension', () => {
-        expect(nameFromFilename('Burn Down.html')).toBe('Burn Down');
-    });
-
     it('finds only the grants being added', () => {
         expect(addedGrants(['board.read'], ['board.read', 'stats.read'])).toEqual(['stats.read']);
         expect(addedGrants(['board.read'], [])).toEqual([]);

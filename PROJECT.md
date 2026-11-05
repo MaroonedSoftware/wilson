@@ -1371,7 +1371,11 @@ catalog (decision 8): it spends tokens and runs a config nobody saved.
 ## Operator apps
 
 Small HTML apps inside the web and desktop apps, for views of a project that do not belong in Wilson itself.
-Writing one is in `apps/web/examples/apps/README.md`. They are read-only and installed for the whole server, and
+Writing one is in `apps/web/examples/apps/README.md`. Each file carries a manifest, a
+`<script type="application/wilson-app+json">` naming its id, version, app API version and the grants it asks
+for with a reason each. The web app reads it with `DOMParser`, which runs nothing (`app.manifest.ts`), and the
+manifest is only a request: the operator ticks each grant, nothing is ticked for a new app, and only the answer
+is stored. They are read-only and installed for the whole server, and
 the project an app is opened from is the one it reads. Android does not run them.
 
 An app's frame has `sandbox="allow-scripts"`, so its origin is opaque, under a policy placed ahead of its
@@ -1387,6 +1391,17 @@ Measured in Brave and Chromium on 2026-11-05, with an app built to escape and a 
   the policy, so it cannot test it.
 - WebRTC gets out regardless: STUN packets reached a server the app named, because Chromium ignores the
   CSP `webrtc` directive. No fix is known that an app could not get around.
+
+What an app reads comes from its own routes, `app.api.ck`, under `/api/app-api/v1/`. `AppApiService` copies each
+field by name, because the routers send whatever a service returns, so a field the board gains later does not
+reach apps until it is added here. An activity event has no `payload`, and a stopped card has no `patchPath`. An app that
+wants more than that can call `wilson.openCard(id)`, which needs no grant and opens the card's page, closing
+the app.
+
+Each app records the version of the app API it was written for (`wilson.apps.api_version`, 1 for apps that
+did not say). The web and desktop apps each list the versions they offer (`APP_API_VERSIONS`,
+`AppDocument.ApiVersions`, held equal by `app-host.json`) and do not open an app written for another. A version
+is never changed once offered: a breaking change is a new set of routes and contracts under the next number.
 
 So the boundary is what an app can read, not where it can send it. Your session and anything ungranted stay
 out of reach, and what you grant could leave. Safari and Firefox are unmeasured.

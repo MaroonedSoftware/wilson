@@ -2,6 +2,7 @@
 package com.maroonedsoftware.wilson.sdk
 
 import com.maroonedsoftware.wilson.sdk.clients.ApiKeysClient
+import com.maroonedsoftware.wilson.sdk.clients.AppApiClient
 import com.maroonedsoftware.wilson.sdk.clients.AppsClient
 import com.maroonedsoftware.wilson.sdk.clients.AuthClient
 import com.maroonedsoftware.wilson.sdk.clients.BoardClient
@@ -36,6 +37,7 @@ import com.maroonedsoftware.wilson.sdk.runtime.SdkHttp
 class WilsonSdk(config: SdkConfig) : AutoCloseable {
     val http: SdkHttp = SdkHttp(config)
     val apiKeys: ApiKeysClient = ApiKeysClient(http)
+    val appApi: AppApiClient = AppApiClient(http)
     val apps: AppsClient = AppsClient(http)
     val auth: AuthClient = AuthClient(http)
     val board: BoardClient = BoardClient(http)

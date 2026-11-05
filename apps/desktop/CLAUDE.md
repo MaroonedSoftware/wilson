@@ -100,7 +100,12 @@ background it was refused focus in 3 of 6 runs, and it skips what needs focus wh
 ## Packaging
 
 `tools/macos/make-app-bundle.sh` builds `artifacts/Wilson.app`, signed ad hoc under the hardened
-runtime. `tools/macos/make-app-icon.sh` rebuilds the committed `.icns`. Releases are not notarised, so
+runtime. It signs with `codesign` on a Mac and `rcodesign` (apple-codesign) anywhere else, and
+`SIGNER=rcodesign` tries that path on a Mac. The app is published as a single file so that
+`Contents/MacOS` holds only Mach-O: `codesign` signs any other file there in extended attributes,
+which only `ditto` keeps through a zip, and `rcodesign` cannot sign one at all, so the script refuses
+one. Measured 2026-11-05 with rcodesign 0.29.0: a bundle it signed passed `codesign --verify --strict`
+after a plain `zip -ry` and `ditto -x -k`, and launched. `tools/macos/make-app-icon.sh` rebuilds the committed `.icns`. Releases are not notarised, so
 macOS refuses a first launch.
 
 ## Releasing
@@ -118,7 +123,10 @@ because merging it would stop every release until it was removed.
    installed copies offer it within six hours. The tests cover Core and not the screens, so walk the
    app first. A bad release can only be replaced by a higher version.
 3. The merge changes `Directory.Build.props`, which runs `desktop-release.yml`. It publishes
-   `desktop-v<version>`, and skips a version that already has a release, draft or not. Run by hand,
+   `desktop-v<version>`, and skips a version that already has a release, draft or not. It runs on
+   Linux and signs with `rcodesign`, as macOS runners can go unassigned until GitHub gives up. The
+   `bundle` job in `desktop.yml` builds the same zip on every pull request, kept for a week, to check
+   on a Mac with `ditto -x -k` and `codesign --verify --strict`. Run by hand,
    it makes a draft.
 
 The version pull request is opened with the workflow token, so GitHub starts no workflow for it, and
@@ -203,7 +211,7 @@ The web app's rules are in `PROJECT.md`, decision 12 and Operator apps. This run
 - **Why a hand-bound WKWebView.** No new dependency, as WebKit ships with macOS. `Avalonia.Controls.WebView` 12.1.1 wraps the same view, but its public surface, read and not run, shows a hook for the data store and none for the rule list or the private switches below, and messages with no frame on them. So the unsafe code would be needed anyway, with a wrapper in the middle of the security decision. A bundled Chromium is a very large addition, and the engine where WebRTC was measured getting out. Opening the page in the system browser adds no risk, but it needs a second sign-in, and whichever browser is the default is mostly unmeasured.
 - **The same document, the same frame.** `AppDocument` is `appDocument` to the byte, and `apps/web/tests/fixtures/app-host.json` is read by a test on each side, along with the method table. Change it deliberately in both. An app gets an opaque origin the way it does on the web, from `sandbox="allow-scripts"` on a frame `AppHostPage.Script` makes.
 - **The bridge is out of the frame's reach.** `window.webkit` exists in every frame by default, and an app's frame could post to a handler in the page's world, measured. The handler and the host script are in a named `WKContentWorld`, where the frame cannot see them, and `Receive` still checks for the main frame.
-- **`AppBroker` keeps the API's bytes.** It is `app.broker.ts`, but `ServerAppReads` goes under the generated clients, since an SDK model refuses to write a value newer than its build. The project is in the client's header, fixed when the page opens.
+- **`AppBroker` keeps the API's bytes.** They come from the app API's v1 routes (`app.api.ck`), not the board's, so what an app receives is fixed there. It is `app.broker.ts`, but `ServerAppReads` goes under the generated clients, since an SDK model refuses to write a value newer than its build. The project is in the client's header, fixed when the page opens.
 - **Navigation is stopped, then noticed.** `AppHostPage.Html` carries `frame-src 'none'` in a meta element, there being no response to send it, and it stops a frame's self-navigation as the header does on the web. `AppNavigationPolicy` is a second, independent stop before any request. Each stopped alone, per the probe's table. A second `load` still fires when the policy stops one, as in Chromium, which is what closes the app. A blocked port such as 9 fires nothing, so the page stays open, having sent nothing.
 - **What only a native view can do.** `WKContentRuleList` refuses `http`, `https`, `ws`, `wss` and `file` requests. `_setPeerConnectionEnabled:` removes WebRTC, which CSP's `webrtc 'block'` does not, as WebKit ignores it just as Chromium does. Turning off the `LinkPreconnect` feature stops two things: `rel=preconnect`, which the document's policy lets through, and **a connection opened when a link with a `target` is pressed**, which the sandbox then refuses without stopping it, and which no rule list or delegate sees. That one first looked like a straggler from the unlocked run before it, and repeated with every locked run going first, which is why they do. A stray connection there is a finding, not noise.
 - **Failure.** If the rules will not compile, the app is not loaded. The two private switches go through `respondsToSelector:`, so a macOS without one still runs the app, with the limit the web app has, and only `Trace` says so. That is deliberate, as the boundary is what an app can read. The probe would fail.
@@ -465,6 +473,11 @@ dropping on one, the faces on tiles, a click surviving a re-read during its pres
 2026-11-01, updates: a real 0.0.1 bundle updated to a real 0.0.2 signed by `openssl` as the workflow
 does, relaunched with its window and passed `codesign --strict`. A tampered zip and a version the
 signature did not name were both refused.
+
+2026-11-05, a bundle built on Linux: the `bundle` job's zip, signed by rcodesign 0.29.0 on `ubuntu-latest`,
+passed `codesign --verify --strict` after `ditto -x -k`, with the hardened runtime on every Mach-O and the
+entitlements intact. `tools/Walk -- update` installed it over a bundle built here, with a throwaway key, and
+the relaunched app was running 23 seconds later. Not seen: a release built by the Linux workflow itself.
 
 2026-11-01, menu bar, on a real `Wilson.app` through macOS Accessibility: the close button and Cmd+W
 hid the window and left the app running, the icon's Open and the Dock icon brought it back, and the

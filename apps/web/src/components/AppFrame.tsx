@@ -21,11 +21,26 @@ export const APP_CHANGE_SETTLE_MS = 300;
  * a second load means it tried: the port is closed before whatever loaded could ask for anything, and
  * the frame is taken away.
  *
+ * An app may ask to open one of the project's cards, which navigates this page and so ends the app.
+ *
  * The app is told when the board changes and when the colour scheme does, both over the port. A change
  * goes only to an app with a grant, since even its timing says something about the board. The scheme
  * in the document stays the one it started with, because changing `srcDoc` would reload the frame.
  */
-export function AppFrame({ name, html, project, grants }: { name: string; html: string; project: string; grants: readonly AppGrant[] }) {
+export function AppFrame({
+    name,
+    html,
+    project,
+    grants,
+    openCard,
+}: {
+    name: string;
+    html: string;
+    project: string;
+    grants: readonly AppGrant[];
+    /** Opens one of the project's cards, which takes this page and the app with it. */
+    openCard: (id: string) => void;
+}) {
     const client = useWilsonSdk();
     const loads = useRef(0);
     const port = useRef<MessagePort | undefined>(undefined);
@@ -62,7 +77,10 @@ export function AppFrame({ name, html, project, grants }: { name: string; html: 
             return;
         }
         const channel = new MessageChannel();
-        serveApp(channel.port1, grants, client);
+        serveApp(channel.port1, grants, {
+            appApi: client.appApi,
+            openCard,
+        });
         port.current = channel.port1;
         // '*' because the frame's origin is opaque and no other value can name it. Only the first load
         // reaches this line, when the frame still holds the document it was given.

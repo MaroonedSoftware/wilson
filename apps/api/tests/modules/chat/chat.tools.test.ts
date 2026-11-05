@@ -264,8 +264,9 @@ describe('propose_app', () => {
         expect(tools.map(({ name }) => name)).toContain('propose_change');
     });
 
-    it('tells the agent every grant there is', () => {
+    it('tells the agent every grant there is, and the calls that need none', () => {
         for (const grant of AppGrant.options) expect(PROPOSE_APP_DESCRIPTION).toContain(grant);
+        expect(PROPOSE_APP_DESCRIPTION).toContain('wilson.openCard(id) needs no grant');
     });
 
     it('cannot be reached through propose_change', async () => {

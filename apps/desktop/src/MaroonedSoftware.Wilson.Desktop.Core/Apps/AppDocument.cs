@@ -28,8 +28,16 @@ public static class AppDocument
     /// <summary>What the host says to an app's frame when it hands over the app's port.</summary>
     public const string ConnectMessage = "wilson.connect";
 
+    /// <summary>The versions of the app API (`app.api.ck`) this build offers, `APP_API_VERSIONS` in `lib/apps.ts`.</summary>
+    public static readonly IReadOnlyList<long> ApiVersions = [1];
+
+    /// <summary>Why an app cannot be opened here, in `lib/apps.ts`'s words, or null when it can.</summary>
+    public static string? UnsupportedApiVersion(long apiVersion) => ApiVersions.Contains(apiVersion)
+        ? null
+        : $"It was written for version {apiVersion} of the app API, and this Wilson offers {string.Join(" and ", ApiVersions)}. Updating Wilson may be all it needs.";
+
     /// <summary>The methods `window.wilson` offers, granted or not, in the web app's order.</summary>
-    public static readonly IReadOnlyList<string> MethodNames = ["listCards", "getCard", "listBoardColumns", "listProjectActivity", "getProjectStats"];
+    public static readonly IReadOnlyList<string> MethodNames = ["listCards", "getCard", "listBoardColumns", "listProjectActivity", "getProjectStats", "openCard"];
 
     private static readonly JsonSerializerOptions ScriptOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 

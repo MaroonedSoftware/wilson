@@ -15,6 +15,8 @@ import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
  * page asks the browser for. That the browser does it has to be checked in a real one.
  */
 
+const openCard = vi.fn();
+
 const frameTree = (changes: number, grants: AppGrant[], html: string) =>
     createElement(
         MantineProvider,
@@ -23,7 +25,7 @@ const frameTree = (changes: number, grants: AppGrant[], html: string) =>
             value: { activity: {}, toolLog: {}, now: new Date(0), changes },
             children: createElement(WilsonSdkProvider, {
                 client: wilson,
-                children: createElement(AppFrame, { name: 'Burndown', html, project: 'demo', grants }),
+                children: createElement(AppFrame, { name: 'Burndown', html, project: 'demo', grants, openCard }),
             }),
         }),
     );

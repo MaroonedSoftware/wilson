@@ -14,7 +14,16 @@ import { routeTree } from '#src/routeTree.gen.js';
 /** An app's page, `/projects/$project/apps/$slug`, and the way there from Settings. */
 
 const NOW = DateTime.fromISO('2026-11-05T00:00:00.000Z');
-const burndown: App = { slug: 'burndown', name: 'Burndown', description: '', grants: [], html: '<h1>hello</h1>', createdAt: NOW, updatedAt: NOW };
+const burndown: App = {
+    slug: 'burndown',
+    name: 'Burndown',
+    description: '',
+    grants: [],
+    apiVersion: 1,
+    html: '<h1>hello</h1>',
+    createdAt: NOW,
+    updatedAt: NOW,
+};
 const health: Health = { ok: true, project: 'wilson', head: 'abc1234', startedAt: NOW, codeRoot: '/code', worktreeRoot: '/worktrees' };
 
 class FakeEventSource {
@@ -72,6 +81,16 @@ describe('an app page', () => {
         expect(getApp).toHaveBeenCalledWith('burndown');
         expect(frame.getAttribute('sandbox')).toBe('allow-scripts');
         expect(frame.getAttribute('srcdoc')).toContain('<h1>hello</h1>');
+    });
+
+    it('does not run an app written for an app API this Wilson does not offer', async () => {
+        vi.spyOn(wilson.apps, 'getApp').mockResolvedValue({ ...burndown, apiVersion: 2 });
+
+        renderAt('/projects/wilson/apps/burndown');
+
+        expect(await screen.findByText('Burndown needs a newer Wilson')).toBeTruthy();
+        expect(screen.getByText(/version 2 of the app API/)).toBeTruthy();
+        expect(screen.queryByTitle('Burndown')).toBeNull();
     });
 
     it('says so when no such app is installed', async () => {

@@ -91,6 +91,15 @@ public sealed record AppSummary
     [JsonPropertyName("grants")]
     public required List<AppGrant> Grants { get; init; }
 
+    /// <summary>The app's own label for what is installed. Absent for an app that did not say.</summary>
+    [JsonPropertyName("version")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Version { get; init; }
+
+    /// <summary>The version of the app API (`app.api.ck`) the app was written for.</summary>
+    [JsonPropertyName("apiVersion")]
+    public required long ApiVersion { get; init; }
+
     [JsonPropertyName("createdAt")]
     public required DateTimeOffset CreatedAt { get; init; }
 
@@ -112,6 +121,15 @@ public sealed record App
 
     [JsonPropertyName("grants")]
     public required List<AppGrant> Grants { get; init; }
+
+    /// <summary>The app's own label for what is installed. Absent for an app that did not say.</summary>
+    [JsonPropertyName("version")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Version { get; init; }
+
+    /// <summary>The version of the app API (`app.api.ck`) the app was written for.</summary>
+    [JsonPropertyName("apiVersion")]
+    public required long ApiVersion { get; init; }
 
     [JsonPropertyName("html")]
     public required string Html { get; init; }
@@ -140,4 +158,14 @@ public sealed record InstallAppRequest
     /// <summary>Replaces whatever grants the app had before.</summary>
     [JsonPropertyName("grants")]
     public required List<AppGrant> Grants { get; init; }
+
+    /// <summary>The app's own label for this version. Unset means it did not say. Replaces any version stored before.</summary>
+    [JsonPropertyName("version")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Version { get; init; }
+
+    /// <summary>The version of the app API it was written for. Unset means 1, the only one before apps said.</summary>
+    [JsonPropertyName("apiVersion")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? ApiVersion { get; init; }
 }
