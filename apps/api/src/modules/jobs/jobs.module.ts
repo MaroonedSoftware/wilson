@@ -20,6 +20,8 @@ import { CardStageJob } from './card.stage.job.js';
 import { RunningCards } from './running.cards.js';
 import { CardStageDeadJob } from './card.stage.dead.job.js';
 import { CardJobs, type ActiveCardStageJob } from './card.jobs.js';
+import { EvalRunJob, EVAL_RUN_POLICY, EVAL_RUN_WORKER } from '#modules/evals/eval.run.job.js';
+import { EvalRunSweep } from '#modules/evals/eval.run.sweep.js';
 import { PlanDraftJob, PLAN_DRAFT_POLICY, PLAN_DRAFT_WORKER } from './plan.draft.job.js';
 import { PlanSessionSweep } from '#modules/plan/plan.session.sweep.js';
 import { Poller } from './poller.js';
@@ -315,6 +317,7 @@ export class BoundedCardStageJobRunner extends JobRunner {
         private readonly events: EventLog,
         private readonly interrupts: StageInterrupt = new StageInterrupt(),
         private readonly planSessions?: PlanSessionSweep,
+        private readonly evalRuns?: EvalRunSweep,
     ) {
         super();
     }
@@ -342,6 +345,7 @@ export class BoundedCardStageJobRunner extends JobRunner {
         await this.pgboss.start();
         await this.sweepOrphanedCardStageJobs();
         await this.planSessions?.run();
+        await this.evalRuns?.run();
 
         await this.inner.start();
         this.startConcurrencyWatcher();
@@ -566,11 +570,14 @@ export const JobsModule: ServerKitModule = {
         registry.register(CardStageDeadJob).useClass(CardStageDeadJob).asTransient();
         registry.register(PlanDraftJob).useClass(PlanDraftJob).asTransient();
         registry.register(PlanSessionSweep).useClass(PlanSessionSweep).asTransient();
+        registry.register(EvalRunJob).useClass(EvalRunJob).asTransient();
+        registry.register(EvalRunSweep).useClass(EvalRunSweep).asTransient();
 
         const jobRegistry = new PgBossJobRegistryMap();
         jobRegistry.set('card.stage', { job: CardStageJob, policy: CARD_STAGE_POLICY, worker: CARD_STAGE_WORKER });
         jobRegistry.set('card.stage.dead', { job: CardStageDeadJob, policy: CARD_STAGE_DEAD_POLICY });
         jobRegistry.set('card.plan-draft', { job: PlanDraftJob, policy: PLAN_DRAFT_POLICY, worker: PLAN_DRAFT_WORKER });
+        jobRegistry.set('eval.run', { job: EvalRunJob, policy: EVAL_RUN_POLICY, worker: EVAL_RUN_WORKER });
         registry.register(CardJobs).useClass(CardJobs).asTransient();
         registry.register(PgBossJobRegistryMap).useInstance(jobRegistry);
 
@@ -609,6 +616,7 @@ export const JobsModule: ServerKitModule = {
                     container.get(EventLog),
                     container.get(StageInterrupt),
                     container.get(PlanSessionSweep),
+                    container.get(EvalRunSweep),
                 );
             })
             .asSingleton();

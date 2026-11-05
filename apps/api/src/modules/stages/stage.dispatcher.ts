@@ -20,13 +20,13 @@ import { Notifier } from '#modules/notify/notifier.js';
 import type { CardNotification } from '#modules/notify/notification.js';
 import { DEV_SERVER_PORT_RANGE } from '#modules/settings/dev.server.port.range.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
-import { snapshotDrift, WorktreeManager, type Worktree } from '#modules/worktree/worktree.manager.js';
+import { WorktreeManager, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { cardOverBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
 import { findStage, isPlanCheck, type ProjectStages, type StageConfig } from './stage.config.js';
 import { StageConfigStore } from './stage.config.store.js';
 import { StageResultSchemaMap, type ReviewCriterion, type ReviewFinding, type StageOutcome } from './stage.result.js';
-import { executeStage, type StageExecutionInput } from './stage.execution.js';
+import { checkFinishedTree, executeStage, type StageExecutionInput } from './stage.execution.js';
 import { prepareStage } from './stage.preparation.js';
 import { StageVerifierMap } from './stage.verifier.js';
 import { endingOf } from './terminal.js';
@@ -315,25 +315,9 @@ export class StageDispatcher {
         }
     }
 
-    /**
-     * The last look before a passing stage commits, whatever engine ran it and whatever its verifier
-     * checked. Everything uncommitted must be in this stage's scope, since a command or an engine can
-     * write without asking a guard. And it must be what the verifier saw: an engine can land an edit
-     * after the verifier finished (see `tool.unguarded`), and committing that would record a verdict
-     * on work nobody judged. `testReportPath` is exempt from scope, being the runner's own output.
-     */
-    private async checkBeforeCommit(outcome: StageOutcome, worktree: Worktree, scope: ScopeGuard, stage: StageConfig): Promise<StageOutcome> {
-        const failures: string[] = [];
-        for (const path of await this.worktrees.uncommittedPaths(worktree)) {
-            if (path === stage.testReportPath) continue;
-            const decision = await scope.check(path);
-            if (!decision.allowed) failures.push(`${path} is outside this stage's scope (${decision.reason})`);
-        }
-        if (outcome.verifiedTree) {
-            const drifted = snapshotDrift(outcome.verifiedTree, await this.worktrees.uncommittedSnapshot(worktree));
-            if (drifted.length > 0) failures.push(`changed after the stage was verified: ${drifted.join(', ')}`);
-        }
-        return failures.length === 0 ? outcome : { ...outcome, passed: false, failures: [...outcome.failures, ...failures] };
+    /** See {@link checkFinishedTree}. */
+    private checkBeforeCommit(outcome: StageOutcome, worktree: Worktree, scope: ScopeGuard, stage: StageConfig): Promise<StageOutcome> {
+        return checkFinishedTree(this.worktrees, outcome, worktree, scope, stage);
     }
 
     /**

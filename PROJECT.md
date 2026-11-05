@@ -1066,6 +1066,43 @@ executes. Treat it as data, always:
 Worth stating plainly because this is the one feature that opens the pipeline to
 input the operator did not write.
 
+## Evals
+
+Lanes, prompts and routes are data, and a change to one takes effect on the next dispatch. An eval is
+how to find out whether it helped before real cards pay for finding out.
+
+A **fixture** is one past stage attempt, kept: a copy of the plan as that attempt read it, and the
+commits it started from, held alive by `refs/wilson/eval/<id>/{base,head}`. `wilson eval fixture add
+<card> <stage>` captures one, for `implementing`, `testing` or `review`. Steps are left out, since
+`challenge` takes a review's findings as its input. The base is the fork point the head was committed
+on rather than the one the attempt was about to rebase onto, or everything `main` gained in between
+would read as the card's own diff.
+
+A **batch** runs fixtures again, `wilson eval run <fixtures> --host my-mac --runs 3`, and `wilson eval
+show` reports it. It freezes the lanes and learnings when it starts. Each run gets the same
+preparation, agent and verifier a stage gets (`prepareStage`, `executeStage`), so its result means what
+a stage's does, and then its work is kept as a patch on the run's row and its tree is thrown away.
+
+**Nothing here reaches the board.** A run's id is `eval-<row id>`, which no card can have. It writes
+no `stage.passed` or `stage.failed` and commits nothing, so a card's budget, the daily ceiling, the
+poller and the scope check never see it. Its tool events do land in `wilson.card_events`, which has no
+foreign key to a card, and the activity feed leaves them out. It does hold a real host slot:
+`wilson.leases` checks its card key through a column that is empty for an eval id, and a lease is live
+for as long as its run is `running`.
+
+**What it does share is the account.** A batch spends the same engine quota as real cards, held to its
+own `--max-output-tokens` (300,000 unless it says otherwise) and not to the daily ceiling. A batch stops
+when an account hits its limit rather than waiting, and waits while the server drains. A running eval
+is not something Auto-mode or `wilson card` commands can see, so check `wilson eval list` before a
+deploy as well as the running engines. A restart costs the run in progress: it is marked `abandoned`,
+left out of the counts, and the batch carries on.
+
+**Every run lands on one named host,** because a comparison between two machines measures the machines.
+Tower's container is red on tests that pass on `my-mac`, which is why a batch has no local option.
+
+Starting a batch needs step-up, as saving a lane does, and no eval operation is in the operation
+catalog (decision 8): it spends tokens and runs a config nobody saved.
+
 ## Runner requirements
 
 - **Worktree lifecycle.** Create per card under the project's worktree root,

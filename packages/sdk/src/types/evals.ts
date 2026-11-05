@@ -40,3 +40,132 @@ export interface CaptureEvalFixtureRequest {
     stage: string;
     attempt?: number;
 }
+
+/**
+ * One batch: fixtures run again on one host, up to a limit on what it spends. `waitingReason` says why
+ * nothing is running right now, such as a host with no slot free.
+ * generated from [EvalBatch](../../../../apps/api/data/contracts/evals.ck)
+ */
+export interface EvalBatch {
+    id: string;
+    status: 'running' | 'finished' | 'stopped';
+    host: string;
+    runsPerFixture: number;
+    maxOutputTokens: number;
+    spentOutputTokens: number;
+    stopReason?: string;
+    waitingReason?: string;
+    createdAt: DateTime;
+    finishedAt?: DateTime;
+}
+
+/** Rehydrates every wire-encoded scalar in a EvalBatch into its runtime type. Mutates and returns `raw`. */
+export function reviveEvalBatch(raw: EvalBatch): EvalBatch {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['createdAt'] = __dt(__o0['createdAt'], 'EvalBatch.createdAt');
+    if (__o0['finishedAt'] != null) {
+        __o0['finishedAt'] = __dt(__o0['finishedAt'], 'EvalBatch.finishedAt');
+    }
+    return raw;
+}
+
+/**
+ * One run of one fixture. `interrupted` and `abandoned` say nothing about the config, and are counted
+ * apart from `passed` and `failed`.
+ * generated from [EvalRun](../../../../apps/api/data/contracts/evals.ck)
+ */
+export interface EvalRun {
+    id: string;
+    fixtureId: string;
+    arm: 'current' | 'candidate';
+    status: 'queued' | 'running' | 'passed' | 'failed' | 'errored' | 'interrupted' | 'abandoned' | 'skipped';
+    failures: string[];
+    unjudged: boolean;
+    reportRejected: boolean;
+    truncated: boolean;
+    hasPatch: boolean;
+    error?: string;
+    wallClockMs?: number;
+    inputTokens?: number;
+    cachedInputTokens?: number;
+    outputTokens?: number;
+    toolCalls?: number;
+    scopeDenials?: number;
+}
+
+/**
+ * generated from [EvalSpread](../../../../apps/api/data/contracts/evals.ck)
+ */
+export interface EvalSpread {
+    median: number;
+    min: number;
+    max: number;
+}
+
+/**
+ * generated from [EvalFailureCount](../../../../apps/api/data/contracts/evals.ck)
+ */
+export interface EvalFailureCount {
+    reason: string;
+    count: number;
+}
+
+/**
+ * generated from [EvalRunPatch](../../../../apps/api/data/contracts/evals.ck)
+ */
+export interface EvalRunPatch {
+    patch: string;
+    truncated: boolean;
+}
+
+/**
+ * `runs` is per fixture and defaults to 3. `maxOutputTokens` defaults to 300000.
+ * generated from [CreateEvalBatchRequest](../../../../apps/api/data/contracts/evals.ck)
+ */
+export interface CreateEvalBatchRequest {
+    fixtureIds: string[];
+    host: string;
+    runs?: number;
+    maxOutputTokens?: number;
+}
+
+/**
+ * generated from [ListEvalBatchesQuery](../../../../apps/api/data/contracts/evals.ck)
+ */
+export interface ListEvalBatchesQuery {
+    limit?: number;
+}
+
+/**
+ * One arm on one fixture. There is no verdict here on purpose: with a handful of runs, the honest
+ * report is the counts and the spread.
+ * generated from [EvalArmSummary](../../../../apps/api/data/contracts/evals.ck)
+ */
+export interface EvalArmSummary {
+    fixtureId: string;
+    arm: 'current' | 'candidate';
+    passed: number;
+    failed: number;
+    errored: number;
+    interrupted: number;
+    pending: number;
+    outputTokens?: EvalSpread;
+    wallClockMs?: EvalSpread;
+    failures: EvalFailureCount[];
+}
+
+/**
+ * generated from [EvalBatchDetail](../../../../apps/api/data/contracts/evals.ck)
+ */
+export interface EvalBatchDetail {
+    batch: EvalBatch;
+    runs: EvalRun[];
+    summary: EvalArmSummary[];
+}
+
+/** Rehydrates every wire-encoded scalar in a EvalBatchDetail into its runtime type. Mutates and returns `raw`. */
+export function reviveEvalBatchDetail(raw: EvalBatchDetail): EvalBatchDetail {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    reviveEvalBatch(__o0['batch'] as never);
+    return raw;
+}

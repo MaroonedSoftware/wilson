@@ -2,7 +2,12 @@
 package com.maroonedsoftware.wilson.sdk.clients
 
 import com.maroonedsoftware.wilson.sdk.models.CaptureEvalFixtureRequest
+import com.maroonedsoftware.wilson.sdk.models.CreateEvalBatchRequest
+import com.maroonedsoftware.wilson.sdk.models.EvalBatch
+import com.maroonedsoftware.wilson.sdk.models.EvalBatchDetail
 import com.maroonedsoftware.wilson.sdk.models.EvalFixture
+import com.maroonedsoftware.wilson.sdk.models.EvalRunPatch
+import com.maroonedsoftware.wilson.sdk.models.ListEvalBatchesQuery
 import com.maroonedsoftware.wilson.sdk.runtime.SdkHttp
 import io.ktor.http.HttpMethod
 
@@ -36,5 +41,67 @@ class EvalsClient(private val http: SdkHttp) {
         http.execute(HttpMethod.Delete) {
             path("api", "evals", "fixtures", segment(id))
         }
+    }
+
+    /**
+     * List eval batches
+     * Starting a batch needs `wilson.step.up`, as saving a lane does: it spends tokens and runs a config
+     * nobody has saved, so a leaked `manage` key must not be able to.
+     */
+    suspend fun listEvalBatches(query: ListEvalBatchesQuery? = null): List<EvalBatch> {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "evals", "batches")
+            params(query)
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Create eval batch
+     * Starting a batch needs `wilson.step.up`, as saving a lane does: it spends tokens and runs a config
+     * nobody has saved, so a leaked `manage` key must not be able to.
+     * @throws SdkError on 400, 404
+     */
+    suspend fun createEvalBatch(body: CreateEvalBatchRequest): EvalBatchDetail {
+        val response = http.execute(HttpMethod.Post) {
+            path("api", "evals", "batches")
+            jsonBody(body, "application/json")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Get eval batch
+     * @throws SdkError on 404
+     */
+    suspend fun getEvalBatch(id: String): EvalBatchDetail {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "evals", "batches", segment(id))
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Stop eval batch
+     * What has not started is skipped. A run in progress finishes and is kept.
+     * @throws SdkError on 404
+     */
+    suspend fun stopEvalBatch(id: String): EvalBatchDetail {
+        val response = http.execute(HttpMethod.Post) {
+            path("api", "evals", "batches", segment(id), "stop")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Get eval run patch
+     * What a run left in its tree, cut at 256 KB. Empty for a run that changed nothing.
+     * @throws SdkError on 404
+     */
+    suspend fun getEvalRunPatch(id: String): EvalRunPatch {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "evals", "runs", segment(id), "patch")
+        }
+        return http.decodeJson(response)
     }
 }

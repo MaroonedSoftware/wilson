@@ -251,6 +251,10 @@ export interface StageOutcome {
     splitInto?: string[];
     /** Where the runner moved the card after this stage, when it moved it at all. */
     transitionedTo?: string;
+    /** The run was cut off rather than finishing. Absent otherwise. */
+    truncated?: boolean;
+    /** Every failure was a fault in the stage's own report, not a statement about the code. Absent otherwise. */
+    reportRejected?: boolean;
     /** Whether this transition flagged the card for a human. `decideChain` checks this before re-enqueuing. */
     needsHuman?: boolean;
     /**

@@ -19,7 +19,7 @@ export interface StagePreparationDeps {
     worktrees: Pick<WorktreeManager, 'failedAttemptPatchPath'>;
     events: EventLog;
     logger: Logger;
-    learnings?: LearningsStore;
+    learnings?: Pick<LearningsStore, 'load'>;
 }
 
 export interface StagePreparationInput {

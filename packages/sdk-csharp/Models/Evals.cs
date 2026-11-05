@@ -55,3 +55,470 @@ public sealed record CaptureEvalFixtureRequest
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? Attempt { get; init; }
 }
+
+/// <summary>
+/// One batch: fixtures run again on one host, up to a limit on what it spends. `waitingReason` says why
+/// nothing is running right now, such as a host with no slot free.
+/// </summary>
+public sealed record EvalBatch
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("status")]
+    public required EvalBatchStatus Status { get; init; }
+
+    [JsonPropertyName("host")]
+    public required string Host { get; init; }
+
+    [JsonPropertyName("runsPerFixture")]
+    public required long RunsPerFixture { get; init; }
+
+    [JsonPropertyName("maxOutputTokens")]
+    public required long MaxOutputTokens { get; init; }
+
+    [JsonPropertyName("spentOutputTokens")]
+    public required long SpentOutputTokens { get; init; }
+
+    [JsonPropertyName("stopReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? StopReason { get; init; }
+
+    [JsonPropertyName("waitingReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WaitingReason { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; init; }
+
+    [JsonPropertyName("finishedAt")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? FinishedAt { get; init; }
+}
+
+/// <summary>
+/// One run of one fixture. `interrupted` and `abandoned` say nothing about the config, and are counted
+/// apart from `passed` and `failed`.
+/// </summary>
+public sealed record EvalRun
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("fixtureId")]
+    public required string FixtureId { get; init; }
+
+    [JsonPropertyName("arm")]
+    public required EvalRunArm Arm { get; init; }
+
+    [JsonPropertyName("status")]
+    public required EvalRunStatus Status { get; init; }
+
+    [JsonPropertyName("failures")]
+    public required List<string> Failures { get; init; }
+
+    [JsonPropertyName("unjudged")]
+    public required bool Unjudged { get; init; }
+
+    [JsonPropertyName("reportRejected")]
+    public required bool ReportRejected { get; init; }
+
+    [JsonPropertyName("truncated")]
+    public required bool Truncated { get; init; }
+
+    [JsonPropertyName("hasPatch")]
+    public required bool HasPatch { get; init; }
+
+    [JsonPropertyName("error")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Error { get; init; }
+
+    [JsonPropertyName("wallClockMs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? WallClockMs { get; init; }
+
+    [JsonPropertyName("inputTokens")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? InputTokens { get; init; }
+
+    [JsonPropertyName("cachedInputTokens")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? CachedInputTokens { get; init; }
+
+    [JsonPropertyName("outputTokens")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? OutputTokens { get; init; }
+
+    [JsonPropertyName("toolCalls")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? ToolCalls { get; init; }
+
+    [JsonPropertyName("scopeDenials")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? ScopeDenials { get; init; }
+}
+
+public sealed record EvalSpread
+{
+    [JsonPropertyName("median")]
+    public required long Median { get; init; }
+
+    [JsonPropertyName("min")]
+    public required long Min { get; init; }
+
+    [JsonPropertyName("max")]
+    public required long Max { get; init; }
+}
+
+public sealed record EvalFailureCount
+{
+    [JsonPropertyName("reason")]
+    public required string Reason { get; init; }
+
+    [JsonPropertyName("count")]
+    public required long Count { get; init; }
+}
+
+public sealed record EvalRunPatch
+{
+    [JsonPropertyName("patch")]
+    public required string Patch { get; init; }
+
+    [JsonPropertyName("truncated")]
+    public required bool Truncated { get; init; }
+}
+
+/// <summary>`runs` is per fixture and defaults to 3. `maxOutputTokens` defaults to 300000.</summary>
+public sealed record CreateEvalBatchRequest
+{
+    [JsonPropertyName("fixtureIds")]
+    public required List<string> FixtureIds { get; init; }
+
+    [JsonPropertyName("host")]
+    public required string Host { get; init; }
+
+    [JsonPropertyName("runs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? Runs { get; init; }
+
+    [JsonPropertyName("maxOutputTokens")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? MaxOutputTokens { get; init; }
+}
+
+public sealed record ListEvalBatchesQuery
+{
+    [JsonPropertyName("limit")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? Limit { get; init; }
+}
+
+/// <summary>
+/// One arm on one fixture. There is no verdict here on purpose: with a handful of runs, the honest
+/// report is the counts and the spread.
+/// </summary>
+public sealed record EvalArmSummary
+{
+    [JsonPropertyName("fixtureId")]
+    public required string FixtureId { get; init; }
+
+    [JsonPropertyName("arm")]
+    public required EvalArmSummaryArm Arm { get; init; }
+
+    [JsonPropertyName("passed")]
+    public required long Passed { get; init; }
+
+    [JsonPropertyName("failed")]
+    public required long Failed { get; init; }
+
+    [JsonPropertyName("errored")]
+    public required long Errored { get; init; }
+
+    [JsonPropertyName("interrupted")]
+    public required long Interrupted { get; init; }
+
+    [JsonPropertyName("pending")]
+    public required long Pending { get; init; }
+
+    [JsonPropertyName("outputTokens")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EvalSpread? OutputTokens { get; init; }
+
+    [JsonPropertyName("wallClockMs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EvalSpread? WallClockMs { get; init; }
+
+    [JsonPropertyName("failures")]
+    public required List<EvalFailureCount> Failures { get; init; }
+}
+
+public sealed record EvalBatchDetail
+{
+    [JsonPropertyName("batch")]
+    public required EvalBatch Batch { get; init; }
+
+    [JsonPropertyName("runs")]
+    public required List<EvalRun> Runs { get; init; }
+
+    [JsonPropertyName("summary")]
+    public required List<EvalArmSummary> Summary { get; init; }
+}
+
+[JsonConverter(typeof(EvalBatchStatusConverter))]
+public enum EvalBatchStatus
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("running")]
+    Running,
+
+    [JsonStringEnumMemberName("finished")]
+    Finished,
+
+    [JsonStringEnumMemberName("stopped")]
+    Stopped,
+}
+
+/// <summary>
+/// Reads and writes <see cref="EvalBatchStatus"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="EvalBatchStatus.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class EvalBatchStatusConverter : JsonConverter<EvalBatchStatus>
+{
+    public override EvalBatchStatus Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for EvalBatchStatus, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, EvalBatchStatus value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override EvalBatchStatus ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, EvalBatchStatus value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static EvalBatchStatus FromWire(string? text) => text switch
+    {
+        "running" => EvalBatchStatus.Running,
+        "finished" => EvalBatchStatus.Finished,
+        "stopped" => EvalBatchStatus.Stopped,
+        _ => EvalBatchStatus.Unknown,
+    };
+
+    private static string ToWire(EvalBatchStatus value) => value switch
+    {
+        EvalBatchStatus.Running => "running",
+        EvalBatchStatus.Finished => "finished",
+        EvalBatchStatus.Stopped => "stopped",
+        _ => throw new JsonException($"EvalBatchStatus.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(EvalRunArmConverter))]
+public enum EvalRunArm
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("current")]
+    Current,
+
+    [JsonStringEnumMemberName("candidate")]
+    Candidate,
+}
+
+/// <summary>
+/// Reads and writes <see cref="EvalRunArm"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="EvalRunArm.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class EvalRunArmConverter : JsonConverter<EvalRunArm>
+{
+    public override EvalRunArm Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for EvalRunArm, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, EvalRunArm value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override EvalRunArm ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, EvalRunArm value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static EvalRunArm FromWire(string? text) => text switch
+    {
+        "current" => EvalRunArm.Current,
+        "candidate" => EvalRunArm.Candidate,
+        _ => EvalRunArm.Unknown,
+    };
+
+    private static string ToWire(EvalRunArm value) => value switch
+    {
+        EvalRunArm.Current => "current",
+        EvalRunArm.Candidate => "candidate",
+        _ => throw new JsonException($"EvalRunArm.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(EvalRunStatusConverter))]
+public enum EvalRunStatus
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("queued")]
+    Queued,
+
+    [JsonStringEnumMemberName("running")]
+    Running,
+
+    [JsonStringEnumMemberName("passed")]
+    Passed,
+
+    [JsonStringEnumMemberName("failed")]
+    Failed,
+
+    [JsonStringEnumMemberName("errored")]
+    Errored,
+
+    [JsonStringEnumMemberName("interrupted")]
+    Interrupted,
+
+    [JsonStringEnumMemberName("abandoned")]
+    Abandoned,
+
+    [JsonStringEnumMemberName("skipped")]
+    Skipped,
+}
+
+/// <summary>
+/// Reads and writes <see cref="EvalRunStatus"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="EvalRunStatus.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class EvalRunStatusConverter : JsonConverter<EvalRunStatus>
+{
+    public override EvalRunStatus Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for EvalRunStatus, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, EvalRunStatus value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override EvalRunStatus ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, EvalRunStatus value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static EvalRunStatus FromWire(string? text) => text switch
+    {
+        "queued" => EvalRunStatus.Queued,
+        "running" => EvalRunStatus.Running,
+        "passed" => EvalRunStatus.Passed,
+        "failed" => EvalRunStatus.Failed,
+        "errored" => EvalRunStatus.Errored,
+        "interrupted" => EvalRunStatus.Interrupted,
+        "abandoned" => EvalRunStatus.Abandoned,
+        "skipped" => EvalRunStatus.Skipped,
+        _ => EvalRunStatus.Unknown,
+    };
+
+    private static string ToWire(EvalRunStatus value) => value switch
+    {
+        EvalRunStatus.Queued => "queued",
+        EvalRunStatus.Running => "running",
+        EvalRunStatus.Passed => "passed",
+        EvalRunStatus.Failed => "failed",
+        EvalRunStatus.Errored => "errored",
+        EvalRunStatus.Interrupted => "interrupted",
+        EvalRunStatus.Abandoned => "abandoned",
+        EvalRunStatus.Skipped => "skipped",
+        _ => throw new JsonException($"EvalRunStatus.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(EvalArmSummaryArmConverter))]
+public enum EvalArmSummaryArm
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("current")]
+    Current,
+
+    [JsonStringEnumMemberName("candidate")]
+    Candidate,
+}
+
+/// <summary>
+/// Reads and writes <see cref="EvalArmSummaryArm"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="EvalArmSummaryArm.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class EvalArmSummaryArmConverter : JsonConverter<EvalArmSummaryArm>
+{
+    public override EvalArmSummaryArm Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for EvalArmSummaryArm, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, EvalArmSummaryArm value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override EvalArmSummaryArm ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, EvalArmSummaryArm value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static EvalArmSummaryArm FromWire(string? text) => text switch
+    {
+        "current" => EvalArmSummaryArm.Current,
+        "candidate" => EvalArmSummaryArm.Candidate,
+        _ => EvalArmSummaryArm.Unknown,
+    };
+
+    private static string ToWire(EvalArmSummaryArm value) => value switch
+    {
+        EvalArmSummaryArm.Current => "current",
+        EvalArmSummaryArm.Candidate => "candidate",
+        _ => throw new JsonException($"EvalArmSummaryArm.{value} has no wire spelling, so it cannot be sent."),
+    };
+}

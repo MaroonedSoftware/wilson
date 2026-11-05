@@ -7,7 +7,7 @@ import { StageHeldError, StageInterruptedError, type InterruptedAttempt } from '
 import { REPORT_TOOL, type ToolContext } from '#modules/agent/tools/index.js';
 import type { Card } from '#modules/board/card.js';
 import type { EventLog } from '#modules/events/event.log.js';
-import { worktreeHost, type Worktree, type WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import { snapshotDrift, worktreeHost, type Worktree, type WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { withinCardBudget, withinInterruptedBudget } from './card.budget.js';
 import type { ProjectStages, StageConfig } from './stage.config.js';
 import type { StageResultSchemaMap, StageOutcome } from './stage.result.js';
@@ -205,6 +205,35 @@ export const executeStage = async (deps: StageExecutionDeps, input: StageExecuti
         resultDropped: run.resultDropped,
         engineStopReason: run.engineStopReason,
         trace: run.trace,
+        ...(run.truncated && { truncated: true }),
+        ...(verification.reportRejected && { reportRejected: true }),
         ...(supportedRefusal && { supportedRefusal }),
     };
+};
+
+/**
+ * The last look before a passing stage counts, whatever engine ran it and whatever its verifier
+ * checked. Everything uncommitted must be in this stage's scope, since a command or an engine can
+ * write without asking a guard. And it must be what the verifier saw: an engine can land an edit
+ * after the verifier finished (see `tool.unguarded`), and committing that would record a verdict
+ * on work nobody judged. `testReportPath` is exempt from scope, being the runner's own output.
+ */
+export const checkFinishedTree = async (
+    worktrees: Pick<WorktreeManager, 'uncommittedPaths' | 'uncommittedSnapshot'>,
+    outcome: StageOutcome,
+    worktree: Worktree,
+    scope: ScopeGuard,
+    stage: Pick<StageConfig, 'testReportPath'>,
+): Promise<StageOutcome> => {
+    const failures: string[] = [];
+    for (const path of await worktrees.uncommittedPaths(worktree)) {
+        if (path === stage.testReportPath) continue;
+        const decision = await scope.check(path);
+        if (!decision.allowed) failures.push(`${path} is outside this stage's scope (${decision.reason})`);
+    }
+    if (outcome.verifiedTree) {
+        const drifted = snapshotDrift(outcome.verifiedTree, await worktrees.uncommittedSnapshot(worktree));
+        if (drifted.length > 0) failures.push(`changed after the stage was verified: ${drifted.join(', ')}`);
+    }
+    return failures.length === 0 ? outcome : { ...outcome, passed: false, failures: [...outcome.failures, ...failures] };
 };

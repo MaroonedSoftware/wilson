@@ -280,6 +280,31 @@ export class WorktreeManager {
     }
 
     /**
+     * Remove everything a throwaway run left that `reclaim` does not: its branches and base ref, here
+     * and on its host, and its run folder. For an id no card will ever have again, which is why it is
+     * safe to delete what `reclaim` keeps on purpose. Best effort, like a reclaim.
+     */
+    async forget(id: string, branches: string[], placement?: RemotePlacement): Promise<void> {
+        const roots: [ExecutionHost, string][] = [
+            [localHost, this.config.codeRoot],
+            ...(placement ? [[placement.host, placement.codeRoot] as [ExecutionHost, string]] : []),
+        ];
+        await codeRootLock.run(
+            `${id} worktree forget`,
+            message => this.logger.info(message),
+            async () => {
+                for (const [host, root] of roots) {
+                    for (const branch of branches) await gitOn(host, root, ['branch', '-D', branch]).catch(() => undefined);
+                    for (const ref of [id, `${id}-baseline`])
+                        await gitOn(host, root, ['update-ref', '-d', `refs/wilson/base/${ref}`]).catch(() => undefined);
+                }
+            },
+        );
+        await rm(join(this.config.runRoot, 'cards', id), { recursive: true, force: true }).catch(() => undefined);
+        if (placement) await placement.host.removeTree(posix.join(placement.runRoot, 'cards', id)).catch(() => undefined);
+    }
+
+    /**
      * Bring a branch committed on a host back into this machine's code repo, where merges, the diff
      * view and every later stage read it. Called after `commit` on a remote worktree; a no-op for a
      * worktree on this machine, whose commits are already here.

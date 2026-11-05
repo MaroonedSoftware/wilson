@@ -51,4 +51,74 @@ public sealed class EvalsClient(SdkHttp http)
             http.Path("api", "evals", "fixtures", http.Segment(id)),
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// List eval batches
+    /// Starting a batch needs `wilson.step.up`, as saving a lane does: it spends tokens and runs a config
+    /// nobody has saved, so a leaked `manage` key must not be able to.
+    /// </summary>
+    public async Task<List<EvalBatch>> ListEvalBatchesAsync(ListEvalBatchesQuery? query = null, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "evals", "batches"),
+            query: http.Params(query),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<List<EvalBatch>>(response);
+    }
+
+    /// <summary>
+    /// Create eval batch
+    /// Starting a batch needs `wilson.step.up`, as saving a lane does: it spends tokens and runs a config
+    /// nobody has saved, so a leaked `manage` key must not be able to.
+    /// </summary>
+    /// <exception cref="SdkException">On 400, 404.</exception>
+    public async Task<EvalBatchDetail> CreateEvalBatchAsync(CreateEvalBatchRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Post,
+            http.Path("api", "evals", "batches"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<EvalBatchDetail>(response);
+    }
+
+    /// <summary>Get eval batch</summary>
+    /// <exception cref="SdkException">On 404.</exception>
+    public async Task<EvalBatchDetail> GetEvalBatchAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "evals", "batches", http.Segment(id)),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<EvalBatchDetail>(response);
+    }
+
+    /// <summary>
+    /// Stop eval batch
+    /// What has not started is skipped. A run in progress finishes and is kept.
+    /// </summary>
+    /// <exception cref="SdkException">On 404.</exception>
+    public async Task<EvalBatchDetail> StopEvalBatchAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Post,
+            http.Path("api", "evals", "batches", http.Segment(id), "stop"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<EvalBatchDetail>(response);
+    }
+
+    /// <summary>
+    /// Get eval run patch
+    /// What a run left in its tree, cut at 256 KB. Empty for a run that changed nothing.
+    /// </summary>
+    /// <exception cref="SdkException">On 404.</exception>
+    public async Task<EvalRunPatch> GetEvalRunPatchAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "evals", "runs", http.Segment(id), "patch"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<EvalRunPatch>(response);
+    }
 }
