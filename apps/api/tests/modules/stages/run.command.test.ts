@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+    DEFAULT_COMMAND_TIMEOUT_MS,
     PASSED_THROUGH,
     PASSED_THROUGH_PREFIXES,
     pnpmStoreLock,
@@ -337,5 +338,28 @@ describe('runConfiguredCommandForOutput', () => {
         } finally {
             rmSync(dir, { recursive: true, force: true });
         }
+    });
+});
+
+describe('runConfiguredCommand timeout', () => {
+    const script = (body: string): { dir: string; path: string } => {
+        const dir = mkdtempSync(join(tmpdir(), 'run-timeout-'));
+        const path = join(dir, 'script.sh');
+        writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+        return { dir, path };
+    };
+
+    it('names the limit it killed the command at', async () => {
+        const { dir, path } = script('sleep 30');
+        try {
+            const failure = await runConfiguredCommand(dir, path, 50);
+            expect(failure?.reason).toBe(`\`${path}\` timed out after 50ms`);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('defaults to ten minutes', () => {
+        expect(DEFAULT_COMMAND_TIMEOUT_MS).toBe(600_000);
     });
 });

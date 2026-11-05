@@ -228,7 +228,7 @@ export class TestingVerifier implements StageVerifier {
 
         const startedAt = Date.now();
         const run = stage.testCommand
-            ? await runConfiguredCommand(worktree.path, stage.testCommand, undefined, undefined, worktreeHost(worktree))
+            ? await runConfiguredCommand(worktree.path, stage.testCommand, stage.testTimeoutMs, undefined, worktreeHost(worktree))
             : undefined;
 
         // Read before pushing the red-suite failure below — that failure's first line is built from
@@ -375,7 +375,7 @@ export class TestingVerifier implements StageVerifier {
         const rerun = await runConfiguredCommand(
             worktree.path,
             `${stage.testCommand} ${files.join(' ')}`,
-            undefined,
+            stage.testTimeoutMs,
             undefined,
             worktreeHost(worktree),
         );
@@ -503,7 +503,7 @@ export class TestingVerifier implements StageVerifier {
                 // does not care whether tests failed, only whether the report is readable, so a failing
                 // suite reaches here as ordinary counts rather than a pushed failure.
                 const baselineStartedAt = Date.now();
-                await runConfiguredCommand(baseline.path, stage.testCommand, undefined, undefined, worktreeHost(baseline));
+                await runConfiguredCommand(baseline.path, stage.testCommand, stage.testTimeoutMs, undefined, worktreeHost(baseline));
                 const baselineCounts = await this.readReport(baseline, stage.testReportPath, failures, baselineStartedAt);
                 if (counts && baselineCounts) {
                     failures.push(...checkCounts(counts, baselineCounts, allowedSkipRise));
@@ -524,7 +524,7 @@ export class TestingVerifier implements StageVerifier {
                 const run = await runConfiguredCommand(
                     baseline.path,
                     `${stage.testCommand} ${testPaths.join(' ')}`,
-                    undefined,
+                    stage.testTimeoutMs,
                     undefined,
                     worktreeHost(baseline),
                 );

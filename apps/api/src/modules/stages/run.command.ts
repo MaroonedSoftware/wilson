@@ -2,6 +2,19 @@ import type { ExecFailure, ExecutionHost } from '#modules/host/execution.host.js
 import { localHost } from '#modules/host/local.execution.host.js';
 import { Mutex } from '#shared/mutex.js';
 
+/** How long a configured command may run before it is killed, unless its caller says otherwise. */
+export const DEFAULT_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
+
+/** A kill limit as a person reads it: `10m`, `90s`, `12m 30s`, or `50ms` below a second. */
+const formatTimeout = (ms: number): string => {
+    if (ms < 1000) return `${ms}ms`;
+    const seconds = Math.round(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const rest = seconds % 60;
+    if (minutes === 0) return `${rest}s`;
+    return rest === 0 ? `${minutes}m` : `${minutes}m ${rest}s`;
+};
+
 export interface CommandFailure {
     reason: string;
 }
@@ -80,7 +93,7 @@ const withoutNodeWarnings = (output: string): string =>
 export const runConfiguredCommand = async (
     cwd: string,
     command: string,
-    timeoutMs = 10 * 60 * 1000,
+    timeoutMs = DEFAULT_COMMAND_TIMEOUT_MS,
     port?: number,
     host: ExecutionHost = localHost,
 ): Promise<CommandFailure | undefined> => {
@@ -95,7 +108,7 @@ export const runConfiguredCommand = async (
         return undefined;
     } catch (err) {
         const e = err as ExecFailure;
-        if (e.killed) return { reason: `\`${command}\` timed out` };
+        if (e.killed) return { reason: `\`${command}\` timed out after ${formatTimeout(timeoutMs)}` };
         const output = withoutNodeWarnings([e.stdout?.trim(), e.stderr?.trim()].filter(Boolean).join('\n')).slice(-4000);
         return { reason: `\`${command}\` failed (exit ${e.code ?? 'unknown'})\n${output}` };
     }
@@ -120,7 +133,7 @@ export interface CommandOutput {
 export const runConfiguredCommandForOutput = async (
     cwd: string,
     command: string,
-    timeoutMs = 10 * 60 * 1000,
+    timeoutMs = DEFAULT_COMMAND_TIMEOUT_MS,
     port?: number,
     host: ExecutionHost = localHost,
 ): Promise<CommandOutput> => {

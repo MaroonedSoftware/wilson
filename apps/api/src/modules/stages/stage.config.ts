@@ -242,6 +242,16 @@ export const StageConfigSchema = z
         /** Where the test report lands, relative to the worktree. */
         testReportPath: z.string().optional(),
         /**
+         * How long one run of `testCommand` may take before the runner kills it, in milliseconds.
+         *
+         * Every run the runner makes of the suite gets this limit: the testing verifier's full run, its
+         * baseline runs and failing-file reruns, and the merge's. A run that is killed writes no
+         * report, so the stage fails as though the suite were red. Ten minutes is enough on an idle
+         * machine, but a large suite on a host running two stages at once can need more. Unset: ten
+         * minutes, run.command.ts's `DEFAULT_COMMAND_TIMEOUT_MS`.
+         */
+        testTimeoutMs: z.number().int().min(1000).max(MAX_STAGE_WALL_CLOCK_MS).optional(),
+        /**
          * Whether the testing verifier should run the pre-change baseline: a second worktree, cut from
          * the same base, that proves this card's new tests fail before the change. Defaults on; the
          * escape hatch exists for stages where a baseline run cannot be completed at all rather than for
