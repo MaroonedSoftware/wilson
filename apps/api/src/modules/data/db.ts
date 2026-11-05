@@ -294,6 +294,19 @@ export interface WilsonHosts {
   workerTokenIssuedAt: DateTime | null;
 }
 
+export interface WilsonEvalFixtures {
+  baseSha: string;
+  createdAt: Generated<DateTime>;
+  headSha: string;
+  id: Generated<bigint>;
+  plan: Json;
+  planVersionId: string;
+  project: string;
+  sourceCardId: string;
+  sourceEventId: bigint;
+  stage: string;
+}
+
 export interface WilsonLearnings {
   createdAt: Generated<DateTime>;
   id: Generated<bigint>;
@@ -488,6 +501,7 @@ export interface DB {
   "wilson.engineTokens": WilsonEngineTokens;
   "wilson.hostProjects": WilsonHostProjects;
   "wilson.hosts": WilsonHosts;
+  "wilson.evalFixtures": WilsonEvalFixtures;
   "wilson.learnings": WilsonLearnings;
   "wilson.leases": WilsonLeases;
   "wilson.planComments": WilsonPlanComments;

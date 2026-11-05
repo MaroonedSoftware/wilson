@@ -35,6 +35,7 @@ import { FactorsRouter } from './factors.router.js';
 import { ContextRouter } from './context.router.js';
 import { HealthRouter } from './health.router.js';
 import { HostsRouter } from './hosts.router.js';
+import { EvalsRouter } from './evals.router.js';
 import { LearningsRouter } from './learnings.router.js';
 import { OnboardingRouter } from './onboarding.router.js';
 import { ProjectsRouter } from './projects.router.js';
@@ -362,6 +363,7 @@ export const routers = (signal?: AbortSignal) => [
     DevicesRouter,
     CodeRouter,
     ReviewRouter,
+    EvalsRouter,
     FeedRouter(signal),
     PlanStreamRouter(signal),
     ChatStreamRouter(signal),
