@@ -590,14 +590,15 @@ export class CliStageAgent extends StageAgent {
         const stream = query({
             prompt: resume?.sessionId
                 ? [
-                      `The daemon restarted and interrupted this stage. The worktree at ${context.worktreeRoot} is as you`,
-                      `left it, but any tool call in progress when it stopped may not have finished. Check where your`,
-                      `last step got to, then carry on with the stage and finish it as you were told to.`,
+                      `This stage was interrupted, by a restart or a lost connection rather than anything you did. The`,
+                      `worktree at ${context.worktreeRoot} is as you left it, but any tool call in progress when it stopped`,
+                      `may not have finished. Check where your last step got to, then carry on with the stage and finish`,
+                      `it as you were told to.`,
                   ].join('\n')
                 : [
                       ...(resume
                           ? [
-                                `An earlier attempt at this stage was interrupted by a restart, and its uncommitted work is`,
+                                `An earlier attempt at this stage was interrupted, and its uncommitted work is`,
                                 `still in the worktree. Check it before building on it.`,
                                 '',
                             ]
@@ -753,6 +754,14 @@ export class CliStageAgent extends StageAgent {
         };
         if (this.interrupts?.signal.aborted) interrupt();
         this.interrupts?.signal.addEventListener('abort', interrupt, { once: true });
+        // Heard before the engine's exit reaches this method, which would otherwise read as the engine
+        // failing. Only named as the cause when nothing has stopped the run already: a shutdown closes
+        // worker connections too, and that is not the host going away.
+        let hostLost: string | undefined;
+        const stopListeningForHost = host.onLost?.(reason => {
+            if (stoppedBecause === undefined) hostLost = reason;
+            interrupt();
+        });
 
         let summary = '';
         let usage: AgentRunOutput['usage'];
@@ -795,7 +804,12 @@ export class CliStageAgent extends StageAgent {
             return {
                 usage: spentSoFar(),
                 truncated: true,
-                interrupted: { ...(sessionId && { sessionId }), wallClockMs: Date.now() - startedAt, steps: turns },
+                interrupted: {
+                    ...(sessionId && { sessionId }),
+                    wallClockMs: Date.now() - startedAt,
+                    steps: turns,
+                    ...(hostLost && { hostLost }),
+                },
                 ...traceField(),
             };
         };
@@ -1225,6 +1239,7 @@ export class CliStageAgent extends StageAgent {
             clearTimeout(wallClock);
             clearTimeout(idle);
             this.interrupts?.signal.removeEventListener('abort', interrupt);
+            stopListeningForHost?.();
             // Every exit from this method abandons the stream, including the successful one. Abort so
             // the engine is torn down explicitly rather than left to whatever cleanup breaking out of
             // a `for await` happens to trigger — that assumption is what leaves orphaned processes
