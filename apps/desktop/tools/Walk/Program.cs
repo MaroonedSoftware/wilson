@@ -27,6 +27,7 @@ namespace Walk;
 //
 //     dotnet run --project tools/Walk -- <out dir> <origin> <email> <password> [light|dark] [admin|firstrun|dock]
 //     dotnet run --project tools/Walk -- keychain
+//     dotnet run --project tools/Walk -- app-probe
 //     dotnet run --project tools/Walk -- signin [<claude, or empty to look for it>] [<seconds>]
 //     dotnet run --project tools/Walk -- update <bundle> <zip> <sig> <public key> <version>
 internal static class Program
@@ -40,6 +41,12 @@ internal static class Program
         if (args is ["keychain"])
         {
             Keychain();
+            return;
+        }
+
+        if (args is ["app-probe"])
+        {
+            Environment.ExitCode = AppProbe.Run();
             return;
         }
 
