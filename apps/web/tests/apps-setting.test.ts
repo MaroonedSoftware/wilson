@@ -20,6 +20,7 @@ const burndown: AppSummary = {
     name: 'Burndown',
     description: 'Cards left',
     grants: ['board.read'],
+    apiVersion: 1,
     createdAt: NOW,
     updatedAt: NOW,
 };
@@ -173,9 +174,9 @@ describe('AppsControl', () => {
         expect(screen.getByText('This replaces Burndown')).toBeTruthy();
     });
 
-    it('takes a grant back without a file, sending the HTML already stored', async () => {
+    it('takes a grant back without a file, sending the HTML and versions already stored', async () => {
         listApps().mockResolvedValue([burndown]);
-        vi.spyOn(wilson.apps, 'getApp').mockResolvedValue(stored);
+        vi.spyOn(wilson.apps, 'getApp').mockResolvedValue({ ...stored, version: '1.2.0', apiVersion: 1 });
         const install = installApp();
         renderControl();
         await screen.findByText('Burndown');
@@ -186,7 +187,14 @@ describe('AppsControl', () => {
         fireEvent.click(within(form).getByRole('button', { name: 'Replace' }));
 
         await waitFor(() =>
-            expect(install).toHaveBeenCalledWith('burndown', { name: 'Burndown', description: 'Cards left', html: '<h1>stored</h1>', grants: [] }),
+            expect(install).toHaveBeenCalledWith('burndown', {
+                name: 'Burndown',
+                description: 'Cards left',
+                html: '<h1>stored</h1>',
+                grants: [],
+                version: '1.2.0',
+                apiVersion: 1,
+            }),
         );
     });
 

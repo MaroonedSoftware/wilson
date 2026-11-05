@@ -14,7 +14,16 @@ import { routeTree } from '#src/routeTree.gen.js';
 /** An app's page, `/projects/$project/apps/$slug`, and the way there from Settings. */
 
 const NOW = DateTime.fromISO('2026-11-05T00:00:00.000Z');
-const burndown: App = { slug: 'burndown', name: 'Burndown', description: '', grants: [], html: '<h1>hello</h1>', createdAt: NOW, updatedAt: NOW };
+const burndown: App = {
+    slug: 'burndown',
+    name: 'Burndown',
+    description: '',
+    grants: [],
+    apiVersion: 1,
+    html: '<h1>hello</h1>',
+    createdAt: NOW,
+    updatedAt: NOW,
+};
 const health: Health = { ok: true, project: 'wilson', head: 'abc1234', startedAt: NOW, codeRoot: '/code', worktreeRoot: '/worktrees' };
 
 class FakeEventSource {

@@ -46,12 +46,16 @@ export function AppsControl({ project }: { project?: string | undefined }) {
 
     const install = useMutation({
         mutationFn: async () => {
-            const html = form.file ? await form.file.text() : (await sdk.apps.getApp(slug)).html;
+            // Without a file the app stays what it was, so its versions stay too.
+            const kept = form.file ? undefined : await sdk.apps.getApp(slug);
+            const html = form.file ? await form.file.text() : kept!.html;
             return sdk.apps.installApp(slug, {
                 name: form.name.trim(),
                 ...(form.description.trim() ? { description: form.description.trim() } : {}),
                 html,
                 grants: form.grants,
+                ...(kept?.version ? { version: kept.version } : {}),
+                ...(kept ? { apiVersion: kept.apiVersion } : {}),
             });
         },
         onSuccess: () => {

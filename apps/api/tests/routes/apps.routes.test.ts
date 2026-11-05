@@ -68,6 +68,31 @@ describe('apps', () => {
         expect(await server.db.selectFrom('wilson.apps').select('slug').execute()).toHaveLength(1);
     });
 
+    it('stores the app version and the API version it was written for', async () => {
+        const res = await install('burndown', { ...APP, version: ' 1.2.0 ', apiVersion: 1 });
+
+        expect(await res.json()).toMatchObject({ version: '1.2.0', apiVersion: 1 });
+    });
+
+    it('takes an app that says neither as written for API version 1, with no version', async () => {
+        const app = (await (await install('burndown')).json()) as Record<string, unknown>;
+
+        expect(app.apiVersion).toBe(1);
+        expect(app).not.toHaveProperty('version');
+    });
+
+    it('refuses an API version below 1', async () => {
+        expect((await install('burndown', { ...APP, apiVersion: 0 })).status).toBe(400);
+    });
+
+    it('lists each app with its versions', async () => {
+        await install('burndown', { ...APP, version: '2.0.0', apiVersion: 3 });
+
+        const [app] = (await (await request(server, 'GET', '/api/apps', { token: session })).json()) as Record<string, unknown>[];
+
+        expect(app).toMatchObject({ version: '2.0.0', apiVersion: 3 });
+    });
+
     it('stores a repeated grant once', async () => {
         const res = await install('burndown', { ...APP, grants: ['board.read', 'board.read'] });
 
