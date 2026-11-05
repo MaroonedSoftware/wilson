@@ -59,7 +59,7 @@ The older diff step needs a card with a branch: that API's `code_root` is its ow
 this for the findings step, which brings its own card.
 
 `dotnet run --project tools/Walk -- keychain` round-trips a throwaway item through the real Keychain.
-`apps` as a sixth argument walks only the list and page around an operator app, with no web view in it, as the headless platform has none. `app-probe` and `app-live` need a real window: see Operator apps.
+`menubar` as a sixth argument walks only the menu bar panel. `apps` as a sixth argument walks only the list and page around an operator app, with no web view in it, as the headless platform has none. `app-probe` and `app-live` need a real window: see Operator apps.
 
 The walk is headless and has no menu bar. Ask macOS instead, with the app running:
 
@@ -79,9 +79,23 @@ with no account yet asks for one instead (`SignInStep.Account`, `OnboardingForm`
 Closing the window hides it and the app keeps running, so `ShutdownMode` is `OnExplicitShutdown`. Only
 `WindowClosing` is intercepted: Quit and a restart to update close with a shutdown reason. The Dock icon
 goes with the window (`MacDockIcon`), so while hidden there is no application menu or Cmd+Tab entry
-either, and the tray icon is the way back. Opening the app from Finder or Spotlight still reveals it.
+either, and the menu bar icon is the way back. Opening the app from Finder or Spotlight still reveals it.
 `tools/macos/make-tray-icon.sh` rebuilds `Assets/tray.png`, a template image, so macOS colours it for
 the menu bar.
+
+The icon is `MacStatusItem`, an `NSStatusItem` made directly, because Avalonia's `TrayIcon` raises no click on
+macOS and does not say where it is. A press toggles `MenuBarWindow`, an undecorated window hung from the icon
+in AppKit's own coordinates. It closes on losing focus and, through a global mouse monitor, on a press in another
+application, as macOS can refuse it focus, and a window that never had focus never loses it. `MenuBarViewModel` reads only while it is open,
+every 15 seconds, as `/api/stats` sums the event log on each request. The sums are `Core/MenuBar/MenuBarStats`.
+What a key may not read is absent, not zero. Slots are this machine's `local-stage-slots` plus those of hosts
+still taking work, against `running` from the drain status, which sees local runs as well as hosts'. The daily
+output ceiling has no read in the API, so the panel shows no share of it.
+
+`dotnet run --project tools/Walk -- <out dir> <origin> <email> <password> dark menubar` draws the panel with spending
+written to the throwaway database. `menubar-live <out dir> <origin> <email> <password>` tries the icon and
+window for real: it adds a second icon to the menu bar and captures the panel's part of the screen. Started in the
+background it was refused focus in 3 of 6 runs, and it skips what needs focus when that happens.
 
 ## Packaging
 
@@ -437,6 +451,11 @@ successful attach was not walked, as fetching needs the internet, so that snapsh
 2026-11-02, a card's history: with `tools/Walk`, criteria with a review's verdict, files in scope, a
 placed run, its attempt, the usage table and versions. The run was written to the throwaway database.
 
+2026-11-05, menu bar panel: with `tools/Walk -- menubar-live`, in real windows against the throwaway API. The
+panel opened under the icon, closed on a second press and when another window took focus, and opened with the
+Dock icon gone. Its frame was centred on the icon, 4 points below the bar, on a 5120 by 1440 display.
+The operator then ran it with `dotnet run` against their own server, used the icon by hand and reported that it works.
+
 2026-11-02, Markdown: with `tools/Walk`, a card's plan drawn as Markdown and a real press on `[[0001]]`
 opening that card.
 
@@ -453,7 +472,8 @@ icon's Quit and the app menu's Quit each ended the process.
 
 Not verified:
 
-- How the menu-bar icon looks, which was only checked as a PNG.
+- The panel on a second display, or in a real `Wilson.app`: the live walk presses the icon through AppKit's
+  `performClick:`, and the operator's own try was through `dotnet run`.
 - An update through the running app's own button, or from a real release.
 - A session, and the open chat, surviving a relaunch of the real app. Keystrokes reach the views in
   the walk through Avalonia's headless input, not a real keyboard.

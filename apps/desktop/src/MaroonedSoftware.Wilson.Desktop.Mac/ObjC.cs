@@ -6,6 +6,10 @@ namespace MaroonedSoftware.Wilson.Desktop.Mac;
 [StructLayout(LayoutKind.Sequential)]
 internal readonly record struct CGRect(double X, double Y, double Width, double Height);
 
+/// <summary>A point or a size as AppKit takes one by value.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal readonly record struct CGPoint(double X, double Y);
+
 /// <summary>
 /// The Objective-C runtime, by its C interface, which is how this project reaches AppKit (`MacDockIcon`).
 /// A signature here has to match what the method really takes, as nothing checks it.
@@ -109,6 +113,19 @@ internal static partial class ObjC
 
     [LibraryImport(Runtime, EntryPoint = "objc_msgSend")]
     public static partial nint Send(nint receiver, nint selector, CGRect a, nint b);
+
+    [LibraryImport(Runtime, EntryPoint = "objc_msgSend")]
+    public static partial nint Send(nint receiver, nint selector, double a);
+
+    [LibraryImport(Runtime, EntryPoint = "objc_msgSend")]
+    public static partial void Send(nint receiver, nint selector, CGPoint a);
+
+    [LibraryImport(Runtime, EntryPoint = "objc_msgSend")]
+    public static partial nint SendBytes(nint receiver, nint selector, in byte bytes, nint length);
+
+    /// <summary>On Apple Silicon a rectangle comes back in registers through the ordinary entry point, with no `_stret`.</summary>
+    [LibraryImport(Runtime, EntryPoint = "objc_msgSend")]
+    public static partial CGRect SendRect(nint receiver, nint selector);
 
     [LibraryImport(Runtime, EntryPoint = "objc_msgSend")]
     public static partial nint SendScript(nint receiver, nint selector, nint source, nint injection, [MarshalAs(UnmanagedType.I1)] bool mainFrameOnly, nint world);

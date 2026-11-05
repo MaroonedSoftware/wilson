@@ -29,6 +29,7 @@ namespace Walk;
 //     dotnet run --project tools/Walk -- keychain
 //     dotnet run --project tools/Walk -- app-probe
 //     dotnet run --project tools/Walk -- app-live <out dir> <origin> <email> <password>
+//     dotnet run --project tools/Walk -- menubar-live <out dir> <origin> <email> <password>
 //     dotnet run --project tools/Walk -- signin [<claude, or empty to look for it>] [<seconds>]
 //     dotnet run --project tools/Walk -- update <bundle> <zip> <sig> <public key> <version>
 internal static class Program
@@ -54,6 +55,12 @@ internal static class Program
         if (args is ["app-live", var liveDir, var liveOrigin, var liveEmail, var livePassword])
         {
             Environment.ExitCode = AppLive.Run(liveDir, liveOrigin, liveEmail, livePassword);
+            return;
+        }
+
+        if (args is ["menubar-live", var barDir, var barOrigin, var barEmail, var barPassword])
+        {
+            Environment.ExitCode = MenuBarLive.Run(barDir, barOrigin, barEmail, barPassword);
             return;
         }
 
