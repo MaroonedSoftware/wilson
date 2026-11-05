@@ -8,6 +8,7 @@ import {
     IconChartBar,
     IconGavel,
     IconLayoutKanban,
+    IconTarget,
     IconLogout,
     IconMoon,
     IconRefresh,
@@ -146,6 +147,11 @@ function Shell() {
                                 <Tooltip label="Refresh">
                                     <ActionIcon onClick={feed.reconnect} variant="subtle" aria-label="Refresh">
                                         <IconRefresh size={18} />
+                                    </ActionIcon>
+                                </Tooltip>
+                                <Tooltip label="Goals">
+                                    <ActionIcon component={Link} to="/goals" variant="subtle" aria-label="Goals">
+                                        <IconTarget size={18} />
                                     </ActionIcon>
                                 </Tooltip>
                                 <Tooltip label="Projects">

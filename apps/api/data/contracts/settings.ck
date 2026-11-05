@@ -10,6 +10,7 @@ options {
         EngineTokenSettingService: "#modules/settings/engine.token.setting.service.js"
         DryRunSettingService: "#modules/settings/dry.run.setting.service.js"
         AutoSplitSettingService: "#modules/settings/auto.split.setting.service.js"
+        OrchestratorSettingService: "#modules/settings/orchestrator.setting.service.js"
         GitHubAppSettingService: "#modules/settings/github.app.setting.service.js"
         ChatEngineSettingService: "#modules/chat/chat.engine.setting.service.js"
         RuleJudgeSettingService: "#modules/rules/rule.judge.setting.service.js"
@@ -527,6 +528,44 @@ operation /api/settings/github-app: {
         response: {
             200: { application/json: GitHubAppSetting }
             # `appId` is not a number.
+            400:
+        }
+    }
+}
+
+# Whether events wake this project's goals, and how much its goal threads may spend in a day. See
+# `orchestrator.setting.ts`. The agent can read these and never change them: `mcp: exclude` keeps the
+# write out of the catalog, so it cannot propose widening its own limits (PROJECT.md decision 8).
+contract OrchestratorSetting: {
+    enabled: boolean
+    dailyOutputTokens: int
+}
+
+contract SetOrchestratorSettingRequest: {
+    enabled?: boolean
+    dailyOutputTokens?: int
+}
+
+operation /api/settings/orchestrator: {
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: Get orchestrator setting
+        service: OrchestratorSettingService.get
+        response: {
+            200: { application/json: OrchestratorSetting }
+        }
+    }
+    put: {
+        name: Set orchestrator setting
+        mcp: exclude # Its own limits are a person's to change (PROJECT.md decision 8)
+        service: OrchestratorSettingService.set
+        request: {
+            application/json: SetOrchestratorSettingRequest
+        }
+        response: {
+            200: { application/json: OrchestratorSetting }
             400:
         }
     }

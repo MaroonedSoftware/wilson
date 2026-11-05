@@ -9,6 +9,7 @@ import type {
     GitHubAppSetting,
     LocalStageSlots,
     NotifyWebhookSetting,
+    OrchestratorSetting,
     PollerInterval,
     PollerSetting,
     RuleJudgeSetting,
@@ -21,6 +22,7 @@ import type {
     SetGitHubAppSettingRequest,
     SetLocalStageSlotsRequest,
     SetNotifyWebhookSettingRequest,
+    SetOrchestratorSettingRequest,
     SetPollerIntervalRequest,
     SetPollerSettingRequest,
 } from './types/settings.js';
@@ -245,5 +247,21 @@ export class SettingsClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return await parseJson<GitHubAppSetting>(result);
+    }
+
+    /** @name Get orchestrator setting */
+    async getOrchestratorSetting(): Promise<OrchestratorSetting> {
+        const result = await this.fetch(`/api/settings/orchestrator`, { method: 'GET' });
+        return await parseJson<OrchestratorSetting>(result);
+    }
+
+    /** @name Set orchestrator setting */
+    async setOrchestratorSetting(body: SetOrchestratorSettingRequest): Promise<OrchestratorSetting> {
+        const result = await this.fetch(`/api/settings/orchestrator`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<OrchestratorSetting>(result);
     }
 }

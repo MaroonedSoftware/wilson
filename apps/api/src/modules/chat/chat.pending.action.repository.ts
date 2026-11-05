@@ -1,5 +1,5 @@
 import { Injectable } from 'injectkit';
-import { Kysely, type Selectable } from 'kysely';
+import { Kysely, sql, type Selectable } from 'kysely';
 import { DateTime, type Duration } from 'luxon';
 import type { WilsonChatPendingActions, DB } from '#modules/data/db.js';
 
@@ -75,6 +75,26 @@ export class ChatPendingActionRepository {
             .returningAll()
             .executeTakeFirstOrThrow();
         return toAction(row);
+    }
+
+    /**
+     * A change on `threadId` still waiting on the person that does exactly what `action` would, if there
+     * is one. A turn that failed part way and ran again would otherwise propose everything twice.
+     */
+    async findPending(threadId: string, action: Pick<NewPendingAction, 'project' | 'operation' | 'arguments'>): Promise<PendingAction | undefined> {
+        const row = await this.db
+            .selectFrom('wilson.chatPendingActions')
+            .selectAll()
+            .where('threadId', '=', BigInt(threadId))
+            .where('status', '=', 'pending')
+            .where('expiresAt', '>', DateTime.now())
+            .where('operation', '=', action.operation)
+            .where(sql<boolean>`project is not distinct from ${action.project ?? null}`)
+            .where(sql<boolean>`arguments = ${JSON.stringify(action.arguments)}::jsonb`)
+            .orderBy('id')
+            .limit(1)
+            .executeTakeFirst();
+        return row && toAction(row);
     }
 
     async get(id: string): Promise<PendingAction | undefined> {

@@ -9,6 +9,7 @@ import { EngineTokenSettingService } from '#modules/settings/engine.token.settin
 import { GitHubAppSettingService } from '#modules/settings/github.app.setting.service.js';
 import { LocalStageSlotsSettingService } from '#modules/settings/local.stage.slots.setting.service.js';
 import { NotifyWebhookSettingService } from '#modules/settings/notify.webhook.setting.service.js';
+import { OrchestratorSettingService } from '#modules/settings/orchestrator.setting.service.js';
 import { PollerIntervalSettingService } from '#modules/settings/poller.interval.setting.service.js';
 import { PollerSettingService } from '#modules/settings/poller.setting.service.js';
 import { RuleJudgeSettingService } from '#modules/rules/rule.judge.setting.service.js';
@@ -23,6 +24,7 @@ import {
     GitHubAppSetting,
     LocalStageSlots,
     NotifyWebhookSetting,
+    OrchestratorSetting,
     PollerInterval,
     PollerSetting,
     RuleJudgeSetting,
@@ -35,6 +37,7 @@ import {
     SetGitHubAppSettingRequest,
     SetLocalStageSlotsRequest,
     SetNotifyWebhookSettingRequest,
+    SetOrchestratorSettingRequest,
     SetPollerIntervalRequest,
     SetPollerSettingRequest,
 } from '../generated/settings.js';
@@ -379,6 +382,32 @@ SettingsRouter.put('/api/settings/github-app', requirePolicy({ policy: 'wilson.m
 
     const service = ctx.container.get(GitHubAppSettingService);
     const result: GitHubAppSetting = await service.set(body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/orchestrator`
+ */
+SettingsRouter.get('/api/settings/orchestrator', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const service = ctx.container.get(OrchestratorSettingService);
+    const result: OrchestratorSetting = await service.get();
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/orchestrator`
+ */
+SettingsRouter.put('/api/settings/orchestrator', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const body = await parseAndValidate(ctx.parsedBody, SetOrchestratorSettingRequest);
+
+    const service = ctx.container.get(OrchestratorSettingService);
+    const result: OrchestratorSetting = await service.set(body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

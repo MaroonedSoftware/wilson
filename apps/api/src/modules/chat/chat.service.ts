@@ -3,6 +3,7 @@ import type { AuthenticationSession } from '@maroonedsoftware/authentication';
 import { httpError } from '@maroonedsoftware/errors';
 import type { Logger } from '@maroonedsoftware/logger';
 import { ProjectRepository } from '#modules/board/project.repository.js';
+import { GoalRepository } from '#modules/goal/goal.repository.js';
 import { parseAttachmentId, type AttachmentImageType } from '#modules/context/attachment.bytes.js';
 import { Mutex } from '#shared/mutex.js';
 import type {
@@ -29,6 +30,7 @@ import { ChatPendingActionRepository, type PendingAction } from './chat.pending.
 import { chatSystemPrompt } from './chat.prompt.js';
 import { ChatThreadRepository, type ChatEngineName, type ChatThread } from './chat.thread.repository.js';
 import { chatTools, type ChatTurnContext } from './chat.tools.js';
+import { ChatUsageRepository } from './chat.usage.repository.js';
 import { toWireAction, toWireMessage, toWireQuestion, toWireThread } from './chat.wire.js';
 
 /** A thread's title until its first message names it. */
@@ -68,6 +70,13 @@ export const titleFrom = (text: string): string => {
     const line = text.trim().split('\n')[0]!.trim();
     return line.length <= TITLE_LENGTH ? line : `${line.slice(0, TITLE_LENGTH - 1).trimEnd()}…`;
 };
+
+/** What a turn left behind: its answer, unless it had nothing to say, and what it proposed and asked. */
+export interface NoteOutcome {
+    reply?: ChatMessage;
+    proposed: PendingAction[];
+    asked: PendingQuestion[];
+}
 
 /** What a follow-up answers when the change it was told about leaves nothing to say or do. */
 export const NOTHING_MORE = 'NOTHING_MORE';
@@ -130,6 +139,8 @@ export class ChatService {
         private readonly attachments: ChatAttachmentRepository,
         private readonly actions: ChatPendingActionRepository,
         private readonly questions: ChatQuestionRepository,
+        private readonly usage: ChatUsageRepository,
+        private readonly goals: GoalRepository,
         private readonly catalog: ChatCatalog,
         private readonly projects: ProjectRepository,
         private readonly engines: Record<ChatEngineName, ChatEngine | undefined>,
@@ -266,6 +277,35 @@ export class ChatService {
         return toWireQuestion(answered);
     }
 
+    /**
+     * Run one turn on `threadId`, told `note` in place of a message from a person, and resolve once it
+     * is finished. Takes the thread's lock, so a message sent meanwhile waits for it rather than racing
+     * it. `note` is never stored as anyone's message, and a turn answering {@link NOTHING_MORE} stores
+     * no answer either.
+     *
+     * Takes `session` rather than reading the request's, so it can run where there is no request. Every
+     * operation in the turn runs as that session. Rejects when the turn fails, which the turn has also
+     * published as `failed`. Resolves with `undefined` for a thread that does not exist.
+     */
+    async runNote(
+        threadId: string,
+        note: string,
+        session: AuthenticationSession,
+        project?: string,
+        { maxSteps }: { maxSteps?: number } = {},
+    ): Promise<NoteOutcome | undefined> {
+        return threadLock(threadId).run(
+            `note to chat thread ${threadId}`,
+            message => this.logger.info(message),
+            async () => {
+                const thread = await this.threads.get(threadId);
+                if (!thread) return undefined;
+                const history = await this.messages.since(thread.id);
+                return this.answer(thread, history, note, session, project, { followUp: true, maxSteps });
+            },
+        );
+    }
+
     /** Resolves once every follow-up this service started has finished: for tests, and an orderly shutdown. */
     async whenIdle(): Promise<void> {
         while (this.followUps.size > 0) await Promise.all(this.followUps);
@@ -281,20 +321,7 @@ export class ChatService {
      * to anyone.
      */
     private followUp(action: PendingAction, session: AuthenticationSession): void {
-        const run = threadLock(action.threadId)
-            .run(
-                `follow-up to chat action ${action.id}`,
-                message => this.logger.info(message),
-                async () => {
-                    const thread = await this.threads.get(action.threadId);
-                    if (!thread) return;
-                    const history = await this.messages.since(thread.id);
-                    await this.answer(thread, history, followUpNote(action), session, action.project, { followUp: true });
-                },
-            )
-            .catch(err => this.logger.warn(`chat action ${action.id}: the follow-up failed: ${explainError(err)}`))
-            .finally(() => this.followUps.delete(run));
-        this.followUps.add(run);
+        this.inBackground(this.runNote(action.threadId, followUpNote(action), session, action.project), `chat action ${action.id}`);
     }
 
     /**
@@ -306,18 +333,14 @@ export class ChatService {
      * message sent meanwhile waits for it rather than racing it, the same as {@link followUp}.
      */
     private followUpQuestions(question: PendingQuestion, answers: QuestionAnswer[], session: AuthenticationSession): void {
-        const run = threadLock(question.threadId)
-            .run(
-                `follow-up to chat question ${question.id}`,
-                message => this.logger.info(message),
-                async () => {
-                    const thread = await this.threads.get(question.threadId);
-                    if (!thread) return;
-                    const history = await this.messages.since(thread.id);
-                    await this.answer(thread, history, answerNote(question, answers), session, undefined, { followUp: true });
-                },
-            )
-            .catch(err => this.logger.warn(`chat question ${question.id}: the follow-up failed: ${explainError(err)}`))
+        this.inBackground(this.runNote(question.threadId, answerNote(question, answers), session), `chat question ${question.id}`);
+    }
+
+    /** Let `work` finish after its request has, logging a failure rather than throwing it, and tracked so `whenIdle` covers it. */
+    private inBackground(work: Promise<unknown>, about: string): void {
+        const run: Promise<void> = work
+            .then(() => undefined)
+            .catch(err => this.logger.warn(`${about}: the follow-up failed: ${explainError(err)}`))
             .finally(() => this.followUps.delete(run));
         this.followUps.add(run);
     }
@@ -332,8 +355,8 @@ export class ChatService {
         text: string,
         session: AuthenticationSession,
         project?: string,
-        { followUp = false, images }: { followUp?: boolean; images?: ChatImage[] } = {},
-    ): Promise<{ reply?: ChatMessage; proposed: PendingAction[]; asked: PendingQuestion[] }> {
+        { followUp = false, images, maxSteps }: { followUp?: boolean; images?: ChatImage[]; maxSteps?: number } = {},
+    ): Promise<NoteOutcome> {
         const fail = (reason: string): never => {
             publishChat(thread.id, { event: 'failed', data: { reason } });
             throw httpError(503).withDetails({ reason });
@@ -344,6 +367,7 @@ export class ChatService {
 
         const { provider, model } = await this.choose();
         const projects = (await this.projects.list()).map(row => row.name);
+        const [goal] = await this.goals.list({ threadId: thread.id });
         const context: ChatTurnContext = {
             threadId: thread.id,
             container: this.container,
@@ -362,10 +386,14 @@ export class ChatService {
                 history: await this.withImages(thread, history),
                 text,
                 images,
-                system: chatSystemPrompt({ projects, currentProject: project }),
+                system: chatSystemPrompt({ projects, currentProject: project, threadId: thread.id, goal }),
                 tools: chatTools(this.catalog, context),
                 provider,
                 model,
+                // What keeps a turn from changing anything is that it holds only `chatTools`, so a turn
+                // whose engine offers anything else, or runs it, fails rather than carrying on.
+                onlyOwnTools: 'ran',
+                maxSteps,
                 onText: delta => publishChat(thread.id, { event: 'delta', data: delta }),
             });
         } catch (err) {
@@ -373,6 +401,18 @@ export class ChatService {
             return fail(`the chat could not answer: ${explainError(err)}`);
         }
 
+        if (output.refusedTools) {
+            this.logger.warn(
+                `chat thread ${thread.id}: the model named tools it does not have, and the engine refused: ${output.refusedTools.join(', ')}`,
+            );
+        }
+        if (output.usage) {
+            // Recorded before anything below can stop the turn, because a silent turn stores no message.
+            // The answer is already paid for, so failing to count it must not lose it.
+            await this.usage
+                .record(thread.id, { engine: thread.engine, model, usage: output.usage })
+                .catch(err => this.logger.warn(`chat thread ${thread.id}: could not record the turn's usage: ${explainError(err)}`));
+        }
         if (output.engineSessionId) await this.threads.setEngineSessionId(thread.id, output.engineSessionId);
         const { text: written, suggestions } = splitSuggestions(output.text.trim());
         if (followUp && written === NOTHING_MORE && context.proposed.length === 0) {

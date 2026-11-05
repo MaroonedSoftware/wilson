@@ -9,6 +9,7 @@ import { AppsRouter } from '#src/routes/apps.router.js';
 import { AuthRouter } from '#src/routes/auth.router.js';
 import { BoardRouter } from '#src/routes/board.router.js';
 import { ChatRouter } from '#src/routes/chat.router.js';
+import { GoalsRouter } from '#src/routes/goals.router.js';
 import { CodeRouter } from '#src/routes/code.router.js';
 import { DevicesRouter } from '#src/routes/devices.router.js';
 import { FactorsRouter } from '#src/routes/factors.router.js';
@@ -59,11 +60,11 @@ describe('routers', () => {
     // `LearningsRouter` right after `StagesRouter`, pushing the two hand-written SSE routers one
     // place later again. `ChatRouter`, generated from `chat.ck`, follows `LearningsRouter` the same way, and `HostsRouter` follows `ProjectsRouter`.
     // Onboarding (PROJECT.md, Authentication) added `OnboardingRouter` after `ChatRouter`, then `AuthRouter`
-    // (signing in), `ApiKeysRouter` and `FactorsRouter`.
+    // (signing in), `ApiKeysRouter` and `FactorsRouter`. `GoalsRouter`, from `goals.ck`, sits right after `ChatRouter`.
     it('mounts the project-context router first, then the generated health, board, context, settings, projects, hosts, stages, learnings, chat, onboarding, auth, API-key, factor and app routers plus the three hand-written SSE routers, and nothing else', () => {
         const mounted = routers();
 
-        expect(mounted).toHaveLength(25);
+        expect(mounted).toHaveLength(26);
         expect(mounted[1]).toBe(HealthRouter);
         expect(mounted[2]).toBe(BoardRouter);
         expect(mounted[3]).toBe(ContextRouter);
@@ -75,22 +76,23 @@ describe('routers', () => {
         expect(mounted[9]).toBe(LearningsRouter);
         expect(mounted[10]).toBe(RulesRouter);
         expect(mounted[11]).toBe(ChatRouter);
-        expect(mounted[12]).toBe(OnboardingRouter);
-        expect(mounted[13]).toBe(AuthRouter);
-        expect(mounted[14]).toBe(ApiKeysRouter);
-        expect(mounted[15]).toBe(FactorsRouter);
-        expect(mounted[16]).toBe(DevicesRouter);
-        expect(mounted[17]).toBe(CodeRouter);
-        expect(mounted[18]).toBe(ReviewRouter);
-        expect(mounted[19]).toBe(EvalsRouter);
-        expect(mounted[20]).toBe(AppsRouter);
+        expect(mounted[12]).toBe(GoalsRouter);
+        expect(mounted[13]).toBe(OnboardingRouter);
+        expect(mounted[14]).toBe(AuthRouter);
+        expect(mounted[15]).toBe(ApiKeysRouter);
+        expect(mounted[16]).toBe(FactorsRouter);
+        expect(mounted[17]).toBe(DevicesRouter);
+        expect(mounted[18]).toBe(CodeRouter);
+        expect(mounted[19]).toBe(ReviewRouter);
+        expect(mounted[20]).toBe(EvalsRouter);
+        expect(mounted[21]).toBe(AppsRouter);
         // FeedRouter (card 0042) and PlanStreamRouter (card 0133) are factories, not constants: each
         // call builds a fresh router, so this checks they mount a working route rather than
         // comparing object identity against another freshly-built instance.
-        expect(mounted[21]!.match('/api/feed', 'GET').route).toBe(true);
-        expect(mounted[22]!.match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
-        expect(mounted[23]!.match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
-        expect(mounted[24]!.match('/api/cards/0001/review/stream', 'GET').route).toBe(true);
+        expect(mounted[22]!.match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[23]!.match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[24]!.match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
+        expect(mounted[25]!.match('/api/cards/0001/review/stream', 'GET').route).toBe(true);
     });
 
     // Card 0042: `routers` and `FeedRouter` became factories that take the server's lifecycle
@@ -102,7 +104,7 @@ describe('routers', () => {
         const controller = new AbortController();
         const mounted = routers(controller.signal);
 
-        expect(mounted).toHaveLength(25);
+        expect(mounted).toHaveLength(26);
         expect(mounted[1]).toBe(HealthRouter);
         expect(mounted[2]).toBe(BoardRouter);
         expect(mounted[3]).toBe(ContextRouter);
@@ -113,19 +115,20 @@ describe('routers', () => {
         expect(mounted[9]).toBe(LearningsRouter);
         expect(mounted[10]).toBe(RulesRouter);
         expect(mounted[11]).toBe(ChatRouter);
-        expect(mounted[12]).toBe(OnboardingRouter);
-        expect(mounted[13]).toBe(AuthRouter);
-        expect(mounted[14]).toBe(ApiKeysRouter);
-        expect(mounted[15]).toBe(FactorsRouter);
-        expect(mounted[16]).toBe(DevicesRouter);
-        expect(mounted[17]).toBe(CodeRouter);
-        expect(mounted[18]).toBe(ReviewRouter);
-        expect(mounted[19]).toBe(EvalsRouter);
-        expect(mounted[20]).toBe(AppsRouter);
-        expect(mounted[21]!.match('/api/feed', 'GET').route).toBe(true);
-        expect(mounted[22]!.match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
-        expect(mounted[23]!.match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
-        expect(mounted[24]!.match('/api/cards/0001/review/stream', 'GET').route).toBe(true);
+        expect(mounted[12]).toBe(GoalsRouter);
+        expect(mounted[13]).toBe(OnboardingRouter);
+        expect(mounted[14]).toBe(AuthRouter);
+        expect(mounted[15]).toBe(ApiKeysRouter);
+        expect(mounted[16]).toBe(FactorsRouter);
+        expect(mounted[17]).toBe(DevicesRouter);
+        expect(mounted[18]).toBe(CodeRouter);
+        expect(mounted[19]).toBe(ReviewRouter);
+        expect(mounted[20]).toBe(EvalsRouter);
+        expect(mounted[21]).toBe(AppsRouter);
+        expect(mounted[22]!.match('/api/feed', 'GET').route).toBe(true);
+        expect(mounted[23]!.match('/api/cards/0001/plan/stream', 'GET').route).toBe(true);
+        expect(mounted[24]!.match('/api/chat/threads/7/stream', 'GET').route).toBe(true);
+        expect(mounted[25]!.match('/api/cards/0001/review/stream', 'GET').route).toBe(true);
     });
 
     it('builds a working feed router whether or not a signal is given', () => {

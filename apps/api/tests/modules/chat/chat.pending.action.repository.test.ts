@@ -47,6 +47,28 @@ describe('ChatPendingActionRepository', () => {
         expect(await actions().get(action.id)).toEqual(action);
     });
 
+    it('finds a pending proposal doing exactly the same thing, and no other', async () => {
+        const thread = await newThread();
+        const proposed = await actions().propose(thread, moveCard);
+
+        expect((await actions().findPending(thread, moveCard))?.id).toBe(proposed.id);
+        expect(await actions().findPending(await newThread(), moveCard)).toBeUndefined();
+        expect(await actions().findPending(thread, { ...moveCard, project: 'other' })).toBeUndefined();
+        expect(await actions().findPending(thread, { ...moveCard, project: undefined })).toBeUndefined();
+        expect(await actions().findPending(thread, { ...moveCard, operation: 'release_card' })).toBeUndefined();
+        expect(await actions().findPending(thread, { ...moveCard, arguments: { id: 'other' } })).toBeUndefined();
+    });
+
+    it('does not count a proposal that was declined or has expired', async () => {
+        const declined = await newThread();
+        await actions().decline((await actions().propose(declined, moveCard)).id);
+        const expired = await newThread();
+        await actions().propose(expired, { ...moveCard, expiresIn: Duration.fromObject({ minutes: -1 }) });
+
+        expect(await actions().findPending(declined, moveCard)).toBeUndefined();
+        expect(await actions().findPending(expired, moveCard)).toBeUndefined();
+    });
+
     it('keeps no project for an operation that names none', async () => {
         const action = await actions().propose(await newThread(), { ...moveCard, project: undefined, operation: 'register_project' });
 

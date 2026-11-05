@@ -15,6 +15,8 @@
             "wilson.engine_tokens.kind": "Generated<'subscription' | 'api_key'>",
             "wilson.plan_turns.role": "'user' | 'assistant'",
             "wilson.chat_threads.engine": "'api' | 'cli'",
+            "wilson.chat_turn_usage.engine": "'api' | 'cli'",
+            "wilson.goals.status": "Generated<'active' | 'paused' | 'done' | 'abandoned'>",
             "wilson.chat_messages.role": "'user' | 'assistant'",
             "wilson.chat_pending_actions.status": "Generated<'pending' | 'running' | 'done' | 'failed' | 'declined'>",
             "wilson.reviews.status": "Generated<'open' | 'changes_requested' | 'approved' | 'superseded'>",
