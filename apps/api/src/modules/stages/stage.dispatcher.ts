@@ -98,6 +98,12 @@ class CardMovedDuringRunError extends Error {
 const BLOCKED_QUESTION_CAP = 3;
 
 /**
+ * How many times losing its host may stop one stage before that counts against the queue's retries.
+ * An interruption charges nothing, so a host that keeps dropping would otherwise repeat it forever.
+ */
+export const MAX_HOST_LOSSES = 3;
+
+/**
  * Thrown by `assertDispatchable` in place of a bare `Error`.
  *
  * None of its conditions is a provider hiccup or a dropped connection, so retrying is a
@@ -821,7 +827,11 @@ export class StageDispatcher {
                     cardId,
                     stage: stageName,
                     type: 'stage.interrupted',
-                    payload: { usage: err.usage, ...(err instanceof StageHeldError && { usageLimit: err.limit, heldUntil: err.heldUntil }) },
+                    payload: {
+                        usage: err.usage,
+                        ...(err instanceof StageHeldError && { usageLimit: err.limit, heldUntil: err.heldUntil }),
+                        ...(err.hostLost && { hostLost: err.hostLost }),
+                    },
                 });
                 throw err;
             }
@@ -1509,7 +1519,18 @@ export class StageDispatcher {
      */
     private async throwIfHostLost(placement: RemotePlacement, cardId: string, stageName: string, reason: string, cause?: unknown): Promise<void> {
         if (!this.placer || (await this.placer.isAlive(placement))) return;
-        await this.placer.markLost(placement, `${cardId} ${stageName}: ${reason}`);
+        throw await this.recordHostLost(placement, cardId, stageName, reason, cause);
+    }
+
+    /** Mark `placement`'s host failed and record why; the error that sends the stage back to the queue. */
+    private async recordHostLost(
+        placement: RemotePlacement,
+        cardId: string,
+        stageName: string,
+        reason: string,
+        cause?: unknown,
+    ): Promise<HostLostError> {
+        await this.placer?.markLost(placement, `${cardId} ${stageName}: ${reason}`);
         await this.events.append({
             project: this.config.project,
             cardId,
@@ -1517,7 +1538,7 @@ export class StageDispatcher {
             type: 'stage.host-lost',
             payload: { host: placement.hostName, reason },
         });
-        throw new HostLostError(placement.hostName, reason, { cause });
+        return new HostLostError(placement.hostName, reason, { cause });
     }
 
     /**
@@ -1618,12 +1639,19 @@ export class StageDispatcher {
             ...(interrupted && { resume: interrupted.sessionId ? { sessionId: interrupted.sessionId } : {} }),
         });
         if (run.interrupted) {
-            const { sessionId, wallClockMs, steps } = run.interrupted;
+            const { sessionId, wallClockMs, steps, hostLost } = run.interrupted;
+            const hostLosses = (interrupted?.hostLosses ?? 0) + (hostLost ? 1 : 0);
+            // Past the cap the host is not coming back steadily enough to keep sending the stage to it
+            // for free, so from here it spends the queue's retries like any other lost host.
+            if (hostLost && worktree.placement && hostLosses >= MAX_HOST_LOSSES) {
+                throw await this.recordHostLost(worktree.placement, card.frontmatter.id, stage.name, hostLost);
+            }
             const attempt: InterruptedAttempt = {
                 baseSha: worktree.baseSha,
                 ...(worktree.placement && { host: worktree.placement.hostName }),
                 ...(sessionId && { sessionId }),
                 ...(stage.depth && { depth: stage.depth }),
+                ...(hostLosses > 0 && { hostLosses }),
                 spent: {
                     wallClockMs: (interrupted?.spent?.wallClockMs ?? 0) + wallClockMs,
                     steps: (interrupted?.spent?.steps ?? 0) + steps,
@@ -1640,7 +1668,7 @@ export class StageDispatcher {
                     run.heldUntil ?? run.usageLimit.resetsAt,
                 );
             }
-            throw new StageInterruptedError(card.frontmatter.id, stage.name, run.usage, attempt);
+            throw new StageInterruptedError(card.frontmatter.id, stage.name, run.usage, attempt, hostLost);
         }
 
         // A question ends the run with nothing to verify: the stage said it could not finish, and why.

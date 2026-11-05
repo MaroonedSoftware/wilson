@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Kysely } from 'kysely';
-import { StageDispatcher, NotDispatchableError } from '#modules/stages/stage.dispatcher.js';
+import { MAX_HOST_LOSSES, StageDispatcher, NotDispatchableError } from '#modules/stages/stage.dispatcher.js';
 import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
@@ -63,7 +63,7 @@ stages:
 const build = async (
     place: HostPlacer['place'],
     createWorktree?: (placement?: RemotePlacement) => Promise<Worktree>,
-    options: { passes?: boolean; alive?: boolean; localBusy?: boolean; interrupted?: boolean; stages?: string } = {},
+    options: { passes?: boolean; alive?: boolean; localBusy?: boolean; interrupted?: boolean; hostLost?: string; stages?: string } = {},
 ) => {
     const base = await mkdtemp(join(tmpdir(), 'stage-dispatcher-placement-'));
     const config = new StaticBoardConfig(uniqueProject(), join(base, 'code'), join(base, 'worktrees'), join(base, 'run'));
@@ -103,7 +103,11 @@ const build = async (
             inputs.push(input);
             contexts.push({ ...context, planPath } as ToolContext & { planPath: string });
             if (options.interrupted) {
-                return { usage: { inputTokens: 5 }, truncated: true, interrupted: { sessionId: 'session-2', wallClockMs: 1000, steps: 2 } };
+                return {
+                    usage: { inputTokens: 5 },
+                    truncated: true,
+                    interrupted: { sessionId: 'session-2', wallClockMs: 1000, steps: 2, ...(options.hostLost && { hostLost: options.hostLost }) },
+                };
             }
             return { result: { summary: 'did it', caveats: [] }, usage: { inputTokens: 1 }, truncated: false };
         },
@@ -290,6 +294,69 @@ describe('StageDispatcher placement', () => {
         expect(placer.releaseSlot).toHaveBeenCalledWith('host:agent-3:slot:1', expect.any(String), '0001');
         expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ type: 'stage.interrupted', payload: { usage: { inputTokens: 5 } } }));
         expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'stage.failed' }));
+    });
+
+    describe('when the stage’s host is lost', () => {
+        const lost = { interrupted: true, hostLost: 'closed with 1006' };
+        const attemptOn = (hostLosses?: number) => ({ baseSha: 'cafe', host: 'agent-3', ...(hostLosses !== undefined && { hostLosses }) });
+
+        it('keeps the tree and the session, charges no failure, and says why', async () => {
+            const { dispatcher, worktrees, events, placer } = await build(async () => placementOn(new MemoryHost()), undefined, lost);
+
+            const error = (await dispatcher.run('0001', 'implementing').catch((err: unknown) => err)) as StageInterruptedError;
+
+            expect(error).toBeInstanceOf(StageInterruptedError);
+            expect(error.message).toContain('closed with 1006');
+            expect(error.attempt).toMatchObject({ host: 'agent-3', sessionId: 'session-2', hostLosses: 1 });
+            expect(worktrees.reclaim).not.toHaveBeenCalled();
+            expect(placer.markLost).not.toHaveBeenCalled();
+            expect(placer.releaseSlot).toHaveBeenCalledWith('host:agent-3:slot:1', expect.any(String), '0001');
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({ type: 'stage.interrupted', payload: { usage: { inputTokens: 5 }, hostLost: 'closed with 1006' } }),
+            );
+            expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'stage.failed' }));
+        });
+
+        it('adds to the losses of the attempt it picked up from', async () => {
+            const { dispatcher } = await build(async () => placementOn(new MemoryHost()), undefined, lost);
+
+            const error = await dispatcher.run('0001', 'implementing', attemptOn(MAX_HOST_LOSSES - 2)).catch((err: unknown) => err);
+
+            expect((error as StageInterruptedError).attempt.hostLosses).toBe(MAX_HOST_LOSSES - 1);
+        });
+
+        it('sends the stage to the queue’s retries once the losses reach the cap, and passes the host over', async () => {
+            const { dispatcher, worktrees, events, placer } = await build(async () => placementOn(new MemoryHost()), undefined, lost);
+
+            const error = await dispatcher.run('0001', 'implementing', attemptOn(MAX_HOST_LOSSES - 1)).catch((err: unknown) => err);
+
+            expect(error).toBeInstanceOf(HostLostError);
+            expect(classifyDispatchFailure(error)).toEqual({ kind: 'retry' });
+            expect(placer.markLost).toHaveBeenCalledWith(
+                expect.objectContaining({ hostName: 'agent-3' }),
+                expect.stringContaining('closed with 1006'),
+            );
+            expect(events.append).toHaveBeenCalledWith(expect.objectContaining({ type: 'stage.host-lost' }));
+            expect(events.append).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'stage.interrupted' }));
+            expect(worktrees.reclaim).toHaveBeenCalled();
+        });
+
+        it('keeps the count through a shutdown, which adds nothing to it', async () => {
+            const { dispatcher } = await build(async () => placementOn(new MemoryHost()), undefined, { interrupted: true });
+
+            const error = await dispatcher.run('0001', 'implementing', attemptOn(1)).catch((err: unknown) => err);
+
+            expect((error as StageInterruptedError).attempt.hostLosses).toBe(1);
+        });
+
+        it('leaves a shutdown with no count to report', async () => {
+            const { dispatcher } = await build(async () => placementOn(new MemoryHost()), undefined, { interrupted: true });
+
+            const error = await dispatcher.run('0001', 'implementing').catch((err: unknown) => err);
+
+            expect((error as StageInterruptedError).attempt).not.toHaveProperty('hostLosses');
+            expect((error as StageInterruptedError).hostLost).toBeUndefined();
+        });
     });
 
     it('asks for the interrupted attempt’s host and reopens its tree there, without a rebase', async () => {
