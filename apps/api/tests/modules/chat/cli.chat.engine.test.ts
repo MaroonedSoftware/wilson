@@ -85,6 +85,12 @@ describe('CliChatEngine', () => {
         expect(options.env).not.toHaveProperty('ANTHROPIC_API_KEY');
     });
 
+    it('fails a turn the engine ended in an error, rather than answering with the error', async () => {
+        engineReplying([{ type: 'result', subtype: 'success', is_error: true, result: 'Failed to authenticate. API Error: 401', session_id: 's-1' }]);
+
+        await expect(turn({})).rejects.toThrow('Failed to authenticate');
+    });
+
     it('takes a step limit, and reports what the turn cost', async () => {
         engineReplying([
             {

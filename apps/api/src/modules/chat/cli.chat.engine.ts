@@ -156,6 +156,9 @@ export class CliChatEngine extends ChatEngine {
                     }
                     if (message.subtype !== 'success')
                         throw new Error(`the engine stopped (${message.subtype}): ${message.errors.join('; ') || 'no reason given'}`);
+                    // A login the engine could not use ends a turn as a "success" whose text is the error.
+                    // Returned as an answer, it would read as the chat's own words and count as a turn that worked.
+                    if (message.is_error) throw new Error(message.result || 'the engine reported an error');
                     usage = message.usage
                         ? {
                               inputTokens: message.usage.input_tokens,
