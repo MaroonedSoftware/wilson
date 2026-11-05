@@ -7,6 +7,7 @@ import { BoardConfig, StaticBoardConfig } from '#modules/board/board.config.js';
 import { currentProject } from '#modules/board/project.context.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
 import { ChatCatalog } from '#modules/chat/chat.catalog.js';
+import { McpConnectionsService } from '#modules/connections/mcp.connections.service.js';
 import { ChatPendingActionRepository, type NewPendingAction, type PendingAction } from '#modules/chat/chat.pending.action.repository.js';
 import { ChatQuestionRepository, type NewPendingQuestion, type PendingQuestion } from '#modules/chat/chat.question.repository.js';
 import type { ChatTurnContext } from '#modules/chat/chat.tools.js';
@@ -128,6 +129,7 @@ export const fakeContainer = (
     } as unknown as ProjectRepository);
     registry.register(ChatPendingActionRepository).useValue(proposals);
     registry.register(ChatQuestionRepository).useValue(questions);
+    registry.register(McpConnectionsService).useValue({ usableTools: async () => [] } as unknown as McpConnectionsService);
     return registry.build();
 };
 

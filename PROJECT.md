@@ -1636,6 +1636,27 @@ only when retrying cannot help.
   not revoke it with Anthropic. Wilson and its workers must be the same protocol version, so update
   them together.
 
+- **Secrets.** Wilson holds named values in `wilson.secrets`, encrypted under the same key (`wilson secret
+set|list|remove`). Saving or removing one takes a recently proved factor (`wilson.step.up`), so a leaked API
+  key cannot replace one. No operation returns a value, and none is reachable by MCP. `SecretsService.resolve`
+  is the only way to read one back. `SecretsService.redactor` replaces exact values in text from outside
+  Wilson, so it stops an accident and not a value that was encoded or split. Removing one does not revoke it
+  with whoever issued it.
+
+- **MCP connections.** Wilson is the only client of outside MCP servers (`wilson mcp add|list|tools|review|refresh|remove`,
+  `wilson.mcp_connections`), so a server's credential is a saved secret that never reaches whatever calls its tools. Only
+  Streamable HTTP with a bearer token is supported, a redirect is refused, and engines are never given the server's
+  config. A connection's tools are unusable until a person reviews them: `read` runs without asking, `change` runs only once
+  a person confirms it, and `disabled` is never offered. A server's `readOnlyHint` is shown and never trusted. A model only
+  ever sees the stored text a person reviewed. Each call lists the tools again and refuses one whose name, description,
+  schema or hints changed, until it is reviewed again. That cannot catch a server that changes what a tool does and keeps
+  describing it the same way. Plain `http` is allowed for a server on the local network, with a warning when a secret goes
+  over it. Every saved secret's value is taken out of results and failures by exact match.
+  In the chat, a reviewed tool is an operation named `<connection>.<tool>`, found and read through the same meta tools
+  as Wilson's own, and a `change` tool goes through the same confirmation. A read takes `wilson.view` and a change
+  `wilson.manage`. A wake-up (`orchestratorSession`) is offered none and refused all, reads included, since nobody asked
+  for that turn and what a tool answers is untrusted. Stages and operator apps cannot reach these tools.
+
 ### Moving the board to the server
 
 The development stack keeps the board in `wilson-db`'s anonymous volume. Move it with a dump, never

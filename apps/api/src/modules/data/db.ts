@@ -423,6 +423,27 @@ export interface WilsonPlanComments {
   text: string;
 }
 
+export interface WilsonMcpConnections {
+  createdAt: Generated<DateTime>;
+  name: string;
+  project: string | null;
+  refreshedAt: Generated<DateTime>;
+  secret: string | null;
+  updatedAt: Generated<DateTime>;
+  url: string;
+}
+
+export interface WilsonMcpConnectionTools {
+  access: Generated<"read" | "change" | "disabled">;
+  approvedFingerprint: string | null;
+  connection: string;
+  description: Generated<string>;
+  fingerprint: string;
+  inputSchema: Json;
+  name: string;
+  readOnlyHint: Generated<boolean>;
+}
+
 export interface WilsonPlanTurns {
   cachedInputTokens: number | null;
   cardId: string;
@@ -487,6 +508,13 @@ export interface WilsonReviews {
   status: Generated<"open" | "changes_requested" | "approved" | "superseded">;
   tour: Json | null;
   verdictAt: DateTime | null;
+}
+
+export interface WilsonSecrets {
+  ciphertext: string;
+  createdAt: Generated<DateTime>;
+  name: string;
+  updatedAt: Generated<DateTime>;
 }
 
 export interface WilsonSettings {
@@ -658,6 +686,9 @@ export interface DB {
   "wilson.reviewComments": WilsonReviewComments;
   "wilson.reviews": WilsonReviews;
   "wilson.reviewTurns": WilsonReviewTurns;
+  "wilson.mcpConnections": WilsonMcpConnections;
+  "wilson.mcpConnectionTools": WilsonMcpConnectionTools;
+  "wilson.secrets": WilsonSecrets;
   "wilson.settings": WilsonSettings;
   "wilson.sourceCursors": WilsonSourceCursors;
   "wilson.laneRevisions": WilsonLaneRevisions;
