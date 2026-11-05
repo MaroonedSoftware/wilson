@@ -157,6 +157,10 @@ export class BoardWriteService {
      * flag rather than being a no-op, and a terminal target reclaims the card's worktree
      * (best-effort, never unwinding the transition that already committed).
      *
+     * Card 0014: a terminal target also cancels a `card.stage` job still queued for the card
+     * (`created` or `retry`) and clears its claim, best-effort in the same way. An `active` job is
+     * left to notice the move itself.
+     *
      * Card 0127: entering `backlog` — from anywhere, `planning`, `parking-lot`, or a `scope-check`
      * refusal routed back through `planning` — is now the approval gate `approve` used to be. This
      * is the one place that pins the plan version and refuses an empty "Files in scope", so a card
