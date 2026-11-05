@@ -275,6 +275,24 @@ export interface WilsonEngineTokens {
   updatedAt: Generated<DateTime>;
 }
 
+export interface WilsonGoalCards {
+  cardId: string;
+  createdAt: Generated<DateTime>;
+  goalId: bigint;
+  project: string;
+}
+
+export interface WilsonGoals {
+  createdAt: Generated<DateTime>;
+  id: Generated<bigint>;
+  outcome: string;
+  project: string;
+  status: Generated<"active" | "paused" | "done" | "abandoned">;
+  threadId: bigint;
+  title: string;
+  updatedAt: Generated<DateTime>;
+}
+
 export interface WilsonHostProjects {
   codeRoot: string;
   host: string;
@@ -551,6 +569,8 @@ export interface DB {
   "wilson.codeReads": WilsonCodeReads;
   "wilson.engineLimits": WilsonEngineLimits;
   "wilson.engineTokens": WilsonEngineTokens;
+  "wilson.goalCards": WilsonGoalCards;
+  "wilson.goals": WilsonGoals;
   "wilson.hostProjects": WilsonHostProjects;
   "wilson.hosts": WilsonHosts;
   "wilson.learnings": WilsonLearnings;
