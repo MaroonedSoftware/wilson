@@ -8,327 +8,331 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from './routes/__root';
-import { Route as IndexRouteImport } from './routes/index';
-import { Route as HostsRouteImport } from './routes/hosts';
-import { Route as SettingsRouteImport } from './routes/settings';
-import { Route as GoalsIndexRouteImport } from './routes/goals.index';
-import { Route as GoalsGoalIdRouteImport } from './routes/goals.$goalId';
-import { Route as ProjectsIndexRouteImport } from './routes/projects.index';
-import { Route as ProjectsProjectIndexRouteImport } from './routes/projects.$project.index';
-import { Route as ProjectsProjectActivityRouteImport } from './routes/projects.$project.activity';
-import { Route as ProjectsProjectFlaggedRouteImport } from './routes/projects.$project.flagged';
-import { Route as ProjectsProjectRulesRouteImport } from './routes/projects.$project.rules';
-import { Route as ProjectsProjectStatsRouteImport } from './routes/projects.$project.stats';
-import { Route as ProjectsProjectAppsIndexRouteImport } from './routes/projects.$project.apps.index';
-import { Route as ProjectsProjectAppsSlugRouteImport } from './routes/projects.$project.apps.$slug';
-import { Route as ProjectsProjectCardsCardIdRouteImport } from './routes/projects.$project.cards.$cardId';
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as HostsRouteImport } from './routes/hosts'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as GoalsIndexRouteImport } from './routes/goals.index'
+import { Route as GoalsGoalIdRouteImport } from './routes/goals.$goalId'
+import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
+import { Route as ProjectsProjectIndexRouteImport } from './routes/projects.$project.index'
+import { Route as ProjectsProjectActivityRouteImport } from './routes/projects.$project.activity'
+import { Route as ProjectsProjectFlaggedRouteImport } from './routes/projects.$project.flagged'
+import { Route as ProjectsProjectRulesRouteImport } from './routes/projects.$project.rules'
+import { Route as ProjectsProjectStatsRouteImport } from './routes/projects.$project.stats'
+import { Route as ProjectsProjectAppsIndexRouteImport } from './routes/projects.$project.apps.index'
+import { Route as ProjectsProjectAppsSlugRouteImport } from './routes/projects.$project.apps.$slug'
+import { Route as ProjectsProjectCardsCardIdRouteImport } from './routes/projects.$project.cards.$cardId'
 
 const IndexRoute = IndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HostsRoute = HostsRouteImport.update({
-    id: '/hosts',
-    path: '/hosts',
-    getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/hosts',
+  path: '/hosts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
-    id: '/settings',
-    path: '/settings',
-    getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GoalsIndexRoute = GoalsIndexRouteImport.update({
-    id: '/goals/',
-    path: '/goals/',
-    getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/goals/',
+  path: '/goals/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GoalsGoalIdRoute = GoalsGoalIdRouteImport.update({
-    id: '/goals/$goalId',
-    path: '/goals/$goalId',
-    getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/goals/$goalId',
+  path: '/goals/$goalId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
-    id: '/projects/',
-    path: '/projects/',
-    getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/projects/',
+  path: '/projects/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProjectsProjectIndexRoute = ProjectsProjectIndexRouteImport.update({
-    id: '/projects/$project/',
-    path: '/projects/$project/',
-    getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/projects/$project/',
+  path: '/projects/$project/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProjectsProjectActivityRoute = ProjectsProjectActivityRouteImport.update({
-    id: '/projects/$project/activity',
-    path: '/projects/$project/activity',
-    getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/projects/$project/activity',
+  path: '/projects/$project/activity',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProjectsProjectFlaggedRoute = ProjectsProjectFlaggedRouteImport.update({
-    id: '/projects/$project/flagged',
-    path: '/projects/$project/flagged',
-    getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/projects/$project/flagged',
+  path: '/projects/$project/flagged',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProjectsProjectRulesRoute = ProjectsProjectRulesRouteImport.update({
-    id: '/projects/$project/rules',
-    path: '/projects/$project/rules',
-    getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/projects/$project/rules',
+  path: '/projects/$project/rules',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProjectsProjectStatsRoute = ProjectsProjectStatsRouteImport.update({
-    id: '/projects/$project/stats',
-    path: '/projects/$project/stats',
-    getParentRoute: () => rootRouteImport,
-} as any);
-const ProjectsProjectAppsIndexRoute = ProjectsProjectAppsIndexRouteImport.update({
+  id: '/projects/$project/stats',
+  path: '/projects/$project/stats',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProjectsProjectAppsIndexRoute =
+  ProjectsProjectAppsIndexRouteImport.update({
     id: '/projects/$project/apps/',
     path: '/projects/$project/apps/',
     getParentRoute: () => rootRouteImport,
-} as any);
+  } as any)
 const ProjectsProjectAppsSlugRoute = ProjectsProjectAppsSlugRouteImport.update({
-    id: '/projects/$project/apps/$slug',
-    path: '/projects/$project/apps/$slug',
-    getParentRoute: () => rootRouteImport,
-} as any);
-const ProjectsProjectCardsCardIdRoute = ProjectsProjectCardsCardIdRouteImport.update({
+  id: '/projects/$project/apps/$slug',
+  path: '/projects/$project/apps/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProjectsProjectCardsCardIdRoute =
+  ProjectsProjectCardsCardIdRouteImport.update({
     id: '/projects/$project/cards/$cardId',
     path: '/projects/$project/cards/$cardId',
     getParentRoute: () => rootRouteImport,
-} as any);
+  } as any)
 
 export interface FileRoutesByFullPath {
-    '/': typeof IndexRoute;
-    '/hosts': typeof HostsRoute;
-    '/settings': typeof SettingsRoute;
-    '/goals/$goalId': typeof GoalsGoalIdRoute;
-    '/goals/': typeof GoalsIndexRoute;
-    '/projects/': typeof ProjectsIndexRoute;
-    '/projects/$project/activity': typeof ProjectsProjectActivityRoute;
-    '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute;
-    '/projects/$project/rules': typeof ProjectsProjectRulesRoute;
-    '/projects/$project/stats': typeof ProjectsProjectStatsRoute;
-    '/projects/$project/': typeof ProjectsProjectIndexRoute;
-    '/projects/$project/apps/$slug': typeof ProjectsProjectAppsSlugRoute;
-    '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute;
-    '/projects/$project/apps/': typeof ProjectsProjectAppsIndexRoute;
+  '/': typeof IndexRoute
+  '/hosts': typeof HostsRoute
+  '/settings': typeof SettingsRoute
+  '/goals/$goalId': typeof GoalsGoalIdRoute
+  '/goals/': typeof GoalsIndexRoute
+  '/projects/': typeof ProjectsIndexRoute
+  '/projects/$project/activity': typeof ProjectsProjectActivityRoute
+  '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
+  '/projects/$project/rules': typeof ProjectsProjectRulesRoute
+  '/projects/$project/stats': typeof ProjectsProjectStatsRoute
+  '/projects/$project/': typeof ProjectsProjectIndexRoute
+  '/projects/$project/apps/$slug': typeof ProjectsProjectAppsSlugRoute
+  '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
+  '/projects/$project/apps/': typeof ProjectsProjectAppsIndexRoute
 }
 export interface FileRoutesByTo {
-    '/': typeof IndexRoute;
-    '/hosts': typeof HostsRoute;
-    '/settings': typeof SettingsRoute;
-    '/goals/$goalId': typeof GoalsGoalIdRoute;
-    '/goals': typeof GoalsIndexRoute;
-    '/projects': typeof ProjectsIndexRoute;
-    '/projects/$project/activity': typeof ProjectsProjectActivityRoute;
-    '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute;
-    '/projects/$project/rules': typeof ProjectsProjectRulesRoute;
-    '/projects/$project/stats': typeof ProjectsProjectStatsRoute;
-    '/projects/$project': typeof ProjectsProjectIndexRoute;
-    '/projects/$project/apps/$slug': typeof ProjectsProjectAppsSlugRoute;
-    '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute;
-    '/projects/$project/apps': typeof ProjectsProjectAppsIndexRoute;
+  '/': typeof IndexRoute
+  '/hosts': typeof HostsRoute
+  '/settings': typeof SettingsRoute
+  '/goals/$goalId': typeof GoalsGoalIdRoute
+  '/goals': typeof GoalsIndexRoute
+  '/projects': typeof ProjectsIndexRoute
+  '/projects/$project/activity': typeof ProjectsProjectActivityRoute
+  '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
+  '/projects/$project/rules': typeof ProjectsProjectRulesRoute
+  '/projects/$project/stats': typeof ProjectsProjectStatsRoute
+  '/projects/$project': typeof ProjectsProjectIndexRoute
+  '/projects/$project/apps/$slug': typeof ProjectsProjectAppsSlugRoute
+  '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
+  '/projects/$project/apps': typeof ProjectsProjectAppsIndexRoute
 }
 export interface FileRoutesById {
-    __root__: typeof rootRouteImport;
-    '/': typeof IndexRoute;
-    '/hosts': typeof HostsRoute;
-    '/settings': typeof SettingsRoute;
-    '/goals/$goalId': typeof GoalsGoalIdRoute;
-    '/goals/': typeof GoalsIndexRoute;
-    '/projects/': typeof ProjectsIndexRoute;
-    '/projects/$project/activity': typeof ProjectsProjectActivityRoute;
-    '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute;
-    '/projects/$project/rules': typeof ProjectsProjectRulesRoute;
-    '/projects/$project/stats': typeof ProjectsProjectStatsRoute;
-    '/projects/$project/': typeof ProjectsProjectIndexRoute;
-    '/projects/$project/apps/$slug': typeof ProjectsProjectAppsSlugRoute;
-    '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute;
-    '/projects/$project/apps/': typeof ProjectsProjectAppsIndexRoute;
+  __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
+  '/hosts': typeof HostsRoute
+  '/settings': typeof SettingsRoute
+  '/goals/$goalId': typeof GoalsGoalIdRoute
+  '/goals/': typeof GoalsIndexRoute
+  '/projects/': typeof ProjectsIndexRoute
+  '/projects/$project/activity': typeof ProjectsProjectActivityRoute
+  '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
+  '/projects/$project/rules': typeof ProjectsProjectRulesRoute
+  '/projects/$project/stats': typeof ProjectsProjectStatsRoute
+  '/projects/$project/': typeof ProjectsProjectIndexRoute
+  '/projects/$project/apps/$slug': typeof ProjectsProjectAppsSlugRoute
+  '/projects/$project/cards/$cardId': typeof ProjectsProjectCardsCardIdRoute
+  '/projects/$project/apps/': typeof ProjectsProjectAppsIndexRoute
 }
 export interface FileRouteTypes {
-    fileRoutesByFullPath: FileRoutesByFullPath;
-    fullPaths:
-        | '/'
-        | '/hosts'
-        | '/settings'
-        | '/goals/$goalId'
-        | '/goals/'
-        | '/projects/'
-        | '/projects/$project/activity'
-        | '/projects/$project/flagged'
-        | '/projects/$project/rules'
-        | '/projects/$project/stats'
-        | '/projects/$project/'
-        | '/projects/$project/apps/$slug'
-        | '/projects/$project/cards/$cardId'
-        | '/projects/$project/apps/';
-    fileRoutesByTo: FileRoutesByTo;
-    to:
-        | '/'
-        | '/hosts'
-        | '/settings'
-        | '/goals/$goalId'
-        | '/goals'
-        | '/projects'
-        | '/projects/$project/activity'
-        | '/projects/$project/flagged'
-        | '/projects/$project/rules'
-        | '/projects/$project/stats'
-        | '/projects/$project'
-        | '/projects/$project/apps/$slug'
-        | '/projects/$project/cards/$cardId'
-        | '/projects/$project/apps';
-    id:
-        | '__root__'
-        | '/'
-        | '/hosts'
-        | '/settings'
-        | '/goals/$goalId'
-        | '/goals/'
-        | '/projects/'
-        | '/projects/$project/activity'
-        | '/projects/$project/flagged'
-        | '/projects/$project/rules'
-        | '/projects/$project/stats'
-        | '/projects/$project/'
-        | '/projects/$project/apps/$slug'
-        | '/projects/$project/cards/$cardId'
-        | '/projects/$project/apps/';
-    fileRoutesById: FileRoutesById;
+  fileRoutesByFullPath: FileRoutesByFullPath
+  fullPaths:
+    | '/'
+    | '/hosts'
+    | '/settings'
+    | '/goals/$goalId'
+    | '/goals/'
+    | '/projects/'
+    | '/projects/$project/activity'
+    | '/projects/$project/flagged'
+    | '/projects/$project/rules'
+    | '/projects/$project/stats'
+    | '/projects/$project/'
+    | '/projects/$project/apps/$slug'
+    | '/projects/$project/cards/$cardId'
+    | '/projects/$project/apps/'
+  fileRoutesByTo: FileRoutesByTo
+  to:
+    | '/'
+    | '/hosts'
+    | '/settings'
+    | '/goals/$goalId'
+    | '/goals'
+    | '/projects'
+    | '/projects/$project/activity'
+    | '/projects/$project/flagged'
+    | '/projects/$project/rules'
+    | '/projects/$project/stats'
+    | '/projects/$project'
+    | '/projects/$project/apps/$slug'
+    | '/projects/$project/cards/$cardId'
+    | '/projects/$project/apps'
+  id:
+    | '__root__'
+    | '/'
+    | '/hosts'
+    | '/settings'
+    | '/goals/$goalId'
+    | '/goals/'
+    | '/projects/'
+    | '/projects/$project/activity'
+    | '/projects/$project/flagged'
+    | '/projects/$project/rules'
+    | '/projects/$project/stats'
+    | '/projects/$project/'
+    | '/projects/$project/apps/$slug'
+    | '/projects/$project/cards/$cardId'
+    | '/projects/$project/apps/'
+  fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-    IndexRoute: typeof IndexRoute;
-    HostsRoute: typeof HostsRoute;
-    SettingsRoute: typeof SettingsRoute;
-    GoalsGoalIdRoute: typeof GoalsGoalIdRoute;
-    GoalsIndexRoute: typeof GoalsIndexRoute;
-    ProjectsIndexRoute: typeof ProjectsIndexRoute;
-    ProjectsProjectActivityRoute: typeof ProjectsProjectActivityRoute;
-    ProjectsProjectFlaggedRoute: typeof ProjectsProjectFlaggedRoute;
-    ProjectsProjectRulesRoute: typeof ProjectsProjectRulesRoute;
-    ProjectsProjectStatsRoute: typeof ProjectsProjectStatsRoute;
-    ProjectsProjectIndexRoute: typeof ProjectsProjectIndexRoute;
-    ProjectsProjectAppsSlugRoute: typeof ProjectsProjectAppsSlugRoute;
-    ProjectsProjectCardsCardIdRoute: typeof ProjectsProjectCardsCardIdRoute;
-    ProjectsProjectAppsIndexRoute: typeof ProjectsProjectAppsIndexRoute;
+  IndexRoute: typeof IndexRoute
+  HostsRoute: typeof HostsRoute
+  SettingsRoute: typeof SettingsRoute
+  GoalsGoalIdRoute: typeof GoalsGoalIdRoute
+  GoalsIndexRoute: typeof GoalsIndexRoute
+  ProjectsIndexRoute: typeof ProjectsIndexRoute
+  ProjectsProjectActivityRoute: typeof ProjectsProjectActivityRoute
+  ProjectsProjectFlaggedRoute: typeof ProjectsProjectFlaggedRoute
+  ProjectsProjectRulesRoute: typeof ProjectsProjectRulesRoute
+  ProjectsProjectStatsRoute: typeof ProjectsProjectStatsRoute
+  ProjectsProjectIndexRoute: typeof ProjectsProjectIndexRoute
+  ProjectsProjectAppsSlugRoute: typeof ProjectsProjectAppsSlugRoute
+  ProjectsProjectCardsCardIdRoute: typeof ProjectsProjectCardsCardIdRoute
+  ProjectsProjectAppsIndexRoute: typeof ProjectsProjectAppsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
-    interface FileRoutesByPath {
-        '/': {
-            id: '/';
-            path: '/';
-            fullPath: '/';
-            preLoaderRoute: typeof IndexRouteImport;
-            parentRoute: typeof rootRouteImport;
-        };
-        '/hosts': {
-            id: '/hosts';
-            path: '/hosts';
-            fullPath: '/hosts';
-            preLoaderRoute: typeof HostsRouteImport;
-            parentRoute: typeof rootRouteImport;
-        };
-        '/settings': {
-            id: '/settings';
-            path: '/settings';
-            fullPath: '/settings';
-            preLoaderRoute: typeof SettingsRouteImport;
-            parentRoute: typeof rootRouteImport;
-        };
-        '/goals/': {
-            id: '/goals/';
-            path: '/goals';
-            fullPath: '/goals/';
-            preLoaderRoute: typeof GoalsIndexRouteImport;
-            parentRoute: typeof rootRouteImport;
-        };
-        '/goals/$goalId': {
-            id: '/goals/$goalId';
-            path: '/goals/$goalId';
-            fullPath: '/goals/$goalId';
-            preLoaderRoute: typeof GoalsGoalIdRouteImport;
-            parentRoute: typeof rootRouteImport;
-        };
-        '/projects/': {
-            id: '/projects/';
-            path: '/projects';
-            fullPath: '/projects/';
-            preLoaderRoute: typeof ProjectsIndexRouteImport;
-            parentRoute: typeof rootRouteImport;
-        };
-        '/projects/$project/': {
-            id: '/projects/$project/';
-            path: '/projects/$project';
-            fullPath: '/projects/$project/';
-            preLoaderRoute: typeof ProjectsProjectIndexRouteImport;
-            parentRoute: typeof rootRouteImport;
-        };
-        '/projects/$project/activity': {
-            id: '/projects/$project/activity';
-            path: '/projects/$project/activity';
-            fullPath: '/projects/$project/activity';
-            preLoaderRoute: typeof ProjectsProjectActivityRouteImport;
-            parentRoute: typeof rootRouteImport;
-        };
-        '/projects/$project/flagged': {
-            id: '/projects/$project/flagged';
-            path: '/projects/$project/flagged';
-            fullPath: '/projects/$project/flagged';
-            preLoaderRoute: typeof ProjectsProjectFlaggedRouteImport;
-            parentRoute: typeof rootRouteImport;
-        };
-        '/projects/$project/rules': {
-            id: '/projects/$project/rules';
-            path: '/projects/$project/rules';
-            fullPath: '/projects/$project/rules';
-            preLoaderRoute: typeof ProjectsProjectRulesRouteImport;
-            parentRoute: typeof rootRouteImport;
-        };
-        '/projects/$project/stats': {
-            id: '/projects/$project/stats';
-            path: '/projects/$project/stats';
-            fullPath: '/projects/$project/stats';
-            preLoaderRoute: typeof ProjectsProjectStatsRouteImport;
-            parentRoute: typeof rootRouteImport;
-        };
-        '/projects/$project/apps/': {
-            id: '/projects/$project/apps/';
-            path: '/projects/$project/apps';
-            fullPath: '/projects/$project/apps/';
-            preLoaderRoute: typeof ProjectsProjectAppsIndexRouteImport;
-            parentRoute: typeof rootRouteImport;
-        };
-        '/projects/$project/apps/$slug': {
-            id: '/projects/$project/apps/$slug';
-            path: '/projects/$project/apps/$slug';
-            fullPath: '/projects/$project/apps/$slug';
-            preLoaderRoute: typeof ProjectsProjectAppsSlugRouteImport;
-            parentRoute: typeof rootRouteImport;
-        };
-        '/projects/$project/cards/$cardId': {
-            id: '/projects/$project/cards/$cardId';
-            path: '/projects/$project/cards/$cardId';
-            fullPath: '/projects/$project/cards/$cardId';
-            preLoaderRoute: typeof ProjectsProjectCardsCardIdRouteImport;
-            parentRoute: typeof rootRouteImport;
-        };
+  interface FileRoutesByPath {
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
+    '/hosts': {
+      id: '/hosts'
+      path: '/hosts'
+      fullPath: '/hosts'
+      preLoaderRoute: typeof HostsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/goals/': {
+      id: '/goals/'
+      path: '/goals'
+      fullPath: '/goals/'
+      preLoaderRoute: typeof GoalsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/goals/$goalId': {
+      id: '/goals/$goalId'
+      path: '/goals/$goalId'
+      fullPath: '/goals/$goalId'
+      preLoaderRoute: typeof GoalsGoalIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/': {
+      id: '/projects/'
+      path: '/projects'
+      fullPath: '/projects/'
+      preLoaderRoute: typeof ProjectsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$project/': {
+      id: '/projects/$project/'
+      path: '/projects/$project'
+      fullPath: '/projects/$project/'
+      preLoaderRoute: typeof ProjectsProjectIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$project/activity': {
+      id: '/projects/$project/activity'
+      path: '/projects/$project/activity'
+      fullPath: '/projects/$project/activity'
+      preLoaderRoute: typeof ProjectsProjectActivityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$project/flagged': {
+      id: '/projects/$project/flagged'
+      path: '/projects/$project/flagged'
+      fullPath: '/projects/$project/flagged'
+      preLoaderRoute: typeof ProjectsProjectFlaggedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$project/rules': {
+      id: '/projects/$project/rules'
+      path: '/projects/$project/rules'
+      fullPath: '/projects/$project/rules'
+      preLoaderRoute: typeof ProjectsProjectRulesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$project/stats': {
+      id: '/projects/$project/stats'
+      path: '/projects/$project/stats'
+      fullPath: '/projects/$project/stats'
+      preLoaderRoute: typeof ProjectsProjectStatsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$project/apps/': {
+      id: '/projects/$project/apps/'
+      path: '/projects/$project/apps'
+      fullPath: '/projects/$project/apps/'
+      preLoaderRoute: typeof ProjectsProjectAppsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$project/apps/$slug': {
+      id: '/projects/$project/apps/$slug'
+      path: '/projects/$project/apps/$slug'
+      fullPath: '/projects/$project/apps/$slug'
+      preLoaderRoute: typeof ProjectsProjectAppsSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$project/cards/$cardId': {
+      id: '/projects/$project/cards/$cardId'
+      path: '/projects/$project/cards/$cardId'
+      fullPath: '/projects/$project/cards/$cardId'
+      preLoaderRoute: typeof ProjectsProjectCardsCardIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+  }
 }
 
 const rootRouteChildren: RootRouteChildren = {
-    IndexRoute: IndexRoute,
-    HostsRoute: HostsRoute,
-    SettingsRoute: SettingsRoute,
-    GoalsGoalIdRoute: GoalsGoalIdRoute,
-    GoalsIndexRoute: GoalsIndexRoute,
-    ProjectsIndexRoute: ProjectsIndexRoute,
-    ProjectsProjectActivityRoute: ProjectsProjectActivityRoute,
-    ProjectsProjectFlaggedRoute: ProjectsProjectFlaggedRoute,
-    ProjectsProjectRulesRoute: ProjectsProjectRulesRoute,
-    ProjectsProjectStatsRoute: ProjectsProjectStatsRoute,
-    ProjectsProjectIndexRoute: ProjectsProjectIndexRoute,
-    ProjectsProjectAppsSlugRoute: ProjectsProjectAppsSlugRoute,
-    ProjectsProjectCardsCardIdRoute: ProjectsProjectCardsCardIdRoute,
-    ProjectsProjectAppsIndexRoute: ProjectsProjectAppsIndexRoute,
-};
-export const routeTree = rootRouteImport._addFileChildren(rootRouteChildren)._addFileTypes<FileRouteTypes>();
+  IndexRoute: IndexRoute,
+  HostsRoute: HostsRoute,
+  SettingsRoute: SettingsRoute,
+  GoalsGoalIdRoute: GoalsGoalIdRoute,
+  GoalsIndexRoute: GoalsIndexRoute,
+  ProjectsIndexRoute: ProjectsIndexRoute,
+  ProjectsProjectActivityRoute: ProjectsProjectActivityRoute,
+  ProjectsProjectFlaggedRoute: ProjectsProjectFlaggedRoute,
+  ProjectsProjectRulesRoute: ProjectsProjectRulesRoute,
+  ProjectsProjectStatsRoute: ProjectsProjectStatsRoute,
+  ProjectsProjectIndexRoute: ProjectsProjectIndexRoute,
+  ProjectsProjectAppsSlugRoute: ProjectsProjectAppsSlugRoute,
+  ProjectsProjectCardsCardIdRoute: ProjectsProjectCardsCardIdRoute,
+  ProjectsProjectAppsIndexRoute: ProjectsProjectAppsIndexRoute,
+}
+export const routeTree = rootRouteImport
+  ._addFileChildren(rootRouteChildren)
+  ._addFileTypes<FileRouteTypes>()
