@@ -16,6 +16,7 @@ vi.mock('node:timers/promises', () => ({ setTimeout: delayMock }));
 
 const { AbandonedCardJobsError, JobsModule, SHUTDOWN_DEADLINE_MS, stopCardStageJobs } = await import('#modules/jobs/jobs.module.js');
 const { RunningCards } = await import('#modules/jobs/running.cards.js');
+const { GoalWatcher } = await import('#modules/jobs/goal.watcher.js');
 const { JobRunner: JobRunnerToken } = await import('@maroonedsoftware/jobbroker');
 
 /**
@@ -185,6 +186,7 @@ describe('JobsModule.shutdown', () => {
         ({
             get: (token: unknown) => {
                 if (token === JobRunnerToken) return runner;
+                if (token === GoalWatcher) return { stop: async () => {} };
                 if (token === Logger) return logger;
                 throw new Error(`buildContainer: unexpected token ${String(token)}`);
             },

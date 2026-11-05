@@ -22,6 +22,7 @@ import { CardStageDeadJob } from './card.stage.dead.job.js';
 import { CardJobs, type ActiveCardStageJob } from './card.jobs.js';
 import { EvalRunJob, EVAL_RUN_POLICY, EVAL_RUN_WORKER } from '#modules/evals/eval.run.job.js';
 import { EvalRunSweep } from '#modules/evals/eval.run.sweep.js';
+import { GoalWatcher } from './goal.watcher.js';
 import { GoalWakeJob, GOAL_WAKE_POLICY, GOAL_WAKE_WORKER } from './goal.wake.job.js';
 import { PlanDraftJob, PLAN_DRAFT_POLICY, PLAN_DRAFT_WORKER } from './plan.draft.job.js';
 import { RuleProposalJob, RULE_PROPOSAL_POLICY, RULE_PROPOSAL_WORKER } from './rule.proposal.job.js';
@@ -595,6 +596,8 @@ export const JobsModule: ServerKitModule = {
         // no I/O — so the on/off decision lives in one place: `PollerSettingService`, asked by
         // `BoundedCardStageJobRunner.start()` below rather than decided once, here, at setup time.
         registry.register(Poller).useClass(Poller).asSingleton();
+        // Singleton for the same reason: one timer. Stays off per project until `ORCHESTRATOR_ENABLED` says otherwise.
+        registry.register(GoalWatcher).useClass(GoalWatcher).asSingleton();
 
         // Default executor (pg-boss's own pool): enqueues here are not part of a surrounding
         // database transaction, so there is nothing to override.
@@ -632,6 +635,7 @@ export const JobsModule: ServerKitModule = {
     // `CardStageJob` dispatches into) — module order in modules.ts controls that.
     start: async (container: Container) => {
         await container.get(JobRunner).start();
+        container.get(GoalWatcher).start();
         // Logged after `start()`, not before: `BoundedCardStageJobRunner.start()` is what resolves
         // the `card-stage-concurrency` setting (card 0115) and writes it onto `CARD_STAGE_WORKER`, so
         // this is the daemon's own startup output saying what it actually chose, not what the
@@ -659,6 +663,8 @@ export const JobsModule: ServerKitModule = {
     // from a job handler rather than from shutdown. Card 0102 covers them; do not read this comment
     // as a claim that the path is clear.
     shutdown: async (container: Container) => {
+        // First, so nothing sends a wake-up to a runner that is stopping.
+        await container.get(GoalWatcher).stop();
         try {
             await container.get(JobRunner).stop();
         } catch (error) {
