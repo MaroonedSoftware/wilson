@@ -1,5 +1,16 @@
 # @wilson/desktop
 
+## 0.20.0
+
+### Minor Changes
+
+- 5636834: An operator app written for a version of the app API this build does not offer is not opened, and its page says why. This needs a server that records each app's API version.
+- eb62006: An operator app can open one of the project's cards with `wilson.openCard(id)`, which leaves the app for the card's page.
+
+### Patch Changes
+
+- 8e05c9a: Operator apps read through version 1 of the app API, so they receive the same fields in the desktop and web apps. This needs a server that has the app API.
+
 ## 0.19.1
 
 ### Patch Changes
