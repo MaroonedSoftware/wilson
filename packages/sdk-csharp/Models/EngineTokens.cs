@@ -146,6 +146,43 @@ public sealed record EngineLimit
     public required DateTimeOffset ResetsAt { get; init; }
 }
 
+/// <summary>
+/// How many days `GET /api/engine-accounts/usage` reads, today included. Defaults to 30, and is held to
+/// between 1 and 365. A day starts at the server's midnight, as in `GET /api/stats`.
+/// </summary>
+public sealed record EngineAccountUsageQuery
+{
+    [JsonPropertyName("days")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? Days { get; init; }
+}
+
+/// <summary>
+/// What one engine account spent, across every project: stage runs, chat turns and planning turns. `account`
+/// is named as `EngineLimit.account` is. `inputTokens` includes `cachedInputTokens`, as in `ProjectStatsCounts`.
+/// Spend recorded before accounts were named, by the `api` engine, by a rule judge, or in a review
+/// conversation, is in no row.
+/// </summary>
+public sealed record EngineAccountUsage
+{
+    [JsonPropertyName("account")]
+    public required string Account { get; init; }
+
+    /// <summary>Output tokens since the server's midnight.</summary>
+    [JsonPropertyName("todayOutputTokens")]
+    public required long TodayOutputTokens { get; init; }
+
+    /// <summary>The rest are over the whole window.</summary>
+    [JsonPropertyName("outputTokens")]
+    public required long OutputTokens { get; init; }
+
+    [JsonPropertyName("inputTokens")]
+    public required long InputTokens { get; init; }
+
+    [JsonPropertyName("cachedInputTokens")]
+    public required long CachedInputTokens { get; init; }
+}
+
 /// <summary>What is shown of a saved token: its name, what it signs in to and when it was saved, never the token.</summary>
 public sealed record EngineTokenSummary
 {

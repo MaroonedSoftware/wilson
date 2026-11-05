@@ -33,6 +33,36 @@ export const EngineLimit = z.strictObject({
 export type EngineLimit = z.infer<typeof EngineLimit>;
 
 /**
+ * How many days `GET /api/engine-accounts/usage` reads, today included. Defaults to 30, and is held to
+ * between 1 and 365. A day starts at the server's midnight, as in `GET /api/stats`.
+ * generated from [EngineAccountUsageQuery](../../data/contracts/engine.tokens.ck)
+ */
+export const EngineAccountUsageQuery = z.strictObject({
+    days: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
+});
+export type EngineAccountUsageQuery = z.infer<typeof EngineAccountUsageQuery>;
+
+/**
+ * What one engine account spent, across every project: stage runs, chat turns and planning turns. `account`
+ * is named as `EngineLimit.account` is. `inputTokens` includes `cachedInputTokens`, as in `ProjectStatsCounts`.
+ * Spend recorded before accounts were named, by the `api` engine, by a rule judge, or in a review
+ * conversation, is in no row.
+ * generated from [EngineAccountUsage](../../data/contracts/engine.tokens.ck)
+ */
+export const EngineAccountUsage = z.strictObject({
+    account: z.string(),
+    todayOutputTokens: z
+        .preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int())
+        .describe("Output tokens since the server's midnight."),
+    outputTokens: z
+        .preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int())
+        .describe('The rest are over the whole window.'),
+    inputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    cachedInputTokens: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type EngineAccountUsage = z.infer<typeof EngineAccountUsage>;
+
+/**
  * What is shown of a saved token: its name, what it signs in to and when it was saved, never the token.
  * generated from [EngineTokenSummary](../../data/contracts/engine.tokens.ck)
  */

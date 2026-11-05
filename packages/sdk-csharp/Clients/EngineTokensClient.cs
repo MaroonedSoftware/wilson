@@ -84,4 +84,18 @@ public sealed class EngineTokensClient(SdkHttp http)
             http.Path("api", "engine-tokens", http.Segment(name)),
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// List engine account usage
+    /// Each account that spent anything in the window, most output first.
+    /// </summary>
+    public async Task<List<EngineAccountUsage>> ListEngineAccountUsageAsync(EngineAccountUsageQuery? query = null, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "engine-accounts", "usage"),
+            query: http.Params(query),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<List<EngineAccountUsage>>(response);
+    }
 }

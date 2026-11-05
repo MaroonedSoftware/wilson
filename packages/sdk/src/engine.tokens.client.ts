@@ -1,7 +1,14 @@
-import type { EngineLimit, EngineTokenSummary, PutEngineTokenRequest, UpdateEngineTokenRequest } from './types/engine.tokens.js';
+import type {
+    EngineAccountUsage,
+    EngineAccountUsageQuery,
+    EngineLimit,
+    EngineTokenSummary,
+    PutEngineTokenRequest,
+    UpdateEngineTokenRequest,
+} from './types/engine.tokens.js';
 import { reviveEngineLimit, reviveEngineTokenSummary } from './types/engine.tokens.js';
 import type { SdkFetch } from './sdk-options.js';
-import { bigIntReplacer, parseJson } from './sdk-options.js';
+import { bigIntReplacer, parseJson, buildQueryString } from './sdk-options.js';
 
 /**
  * generated from [engine.tokens.ck](../../../apps/api/data/contracts/engine.tokens.ck)
@@ -55,5 +62,17 @@ export class EngineTokensClient {
      */
     async removeEngineToken(name: string): Promise<void> {
         await this.fetch(`/api/engine-tokens/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    }
+
+    /**
+     * @name List engine account usage
+     * @description Each account that spent anything in the window, most output first.
+     */
+    async listEngineAccountUsage(query?: EngineAccountUsageQuery): Promise<EngineAccountUsage[]> {
+        const qs = buildQueryString(query);
+        const result = await this.fetch(`/api/engine-accounts/usage${qs}`, {
+            method: 'GET',
+        });
+        return await parseJson<EngineAccountUsage[]>(result);
     }
 }

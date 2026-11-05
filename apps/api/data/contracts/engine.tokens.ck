@@ -1,6 +1,7 @@
 options {
     services: {
         EngineTokensService: "#modules/host/engine.tokens.service.js"
+        EngineUsageService: "#modules/host/engine.usage.service.js"
     }
     security: {
         policy: wilson.manage
@@ -61,6 +62,26 @@ contract EngineLimit: {
     account: string
     limitType: string
     resetsAt: datetime
+}
+
+# How many days `GET /api/engine-accounts/usage` reads, today included. Defaults to 30, and is held to
+# between 1 and 365. A day starts at the server's midnight, as in `GET /api/stats`.
+contract EngineAccountUsageQuery: {
+    days?: int
+}
+
+# What one engine account spent, across every project: stage runs, chat turns and planning turns. `account`
+# is named as `EngineLimit.account` is. `inputTokens` includes `cachedInputTokens`, as in `ProjectStatsCounts`.
+# Spend recorded before accounts were named, by the `api` engine, by a rule judge, or in a review
+# conversation, is in no row.
+contract EngineAccountUsage: {
+    account: string
+    # Output tokens since the server's midnight.
+    todayOutputTokens: int
+    # The rest are over the whole window.
+    outputTokens: int
+    inputTokens: int
+    cachedInputTokens: int
 }
 
 operation /api/engine-limits: {
@@ -143,6 +164,24 @@ operation /api/engine-tokens/{name}: {
         response: {
             204:
             404:
+        }
+    }
+}
+
+# Each account that spent anything in the window, most output first.
+operation /api/engine-accounts/usage: {
+    get: {
+        mcp: exclude # Which credentials exist is not an agent's business
+        security: {
+            policy: wilson.view
+        }
+        name: List engine account usage
+        service: EngineUsageService.usage
+        query: EngineAccountUsageQuery
+        response: {
+            200: {
+                application/json: array(EngineAccountUsage)
+            }
         }
     }
 }

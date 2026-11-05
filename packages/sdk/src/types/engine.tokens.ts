@@ -39,6 +39,32 @@ export function reviveEngineLimit(raw: EngineLimit): EngineLimit {
 }
 
 /**
+ * How many days `GET /api/engine-accounts/usage` reads, today included. Defaults to 30, and is held to
+ * between 1 and 365. A day starts at the server's midnight, as in `GET /api/stats`.
+ * generated from [EngineAccountUsageQuery](../../../../apps/api/data/contracts/engine.tokens.ck)
+ */
+export interface EngineAccountUsageQuery {
+    days?: number;
+}
+
+/**
+ * What one engine account spent, across every project: stage runs, chat turns and planning turns. `account`
+ * is named as `EngineLimit.account` is. `inputTokens` includes `cachedInputTokens`, as in `ProjectStatsCounts`.
+ * Spend recorded before accounts were named, by the `api` engine, by a rule judge, or in a review
+ * conversation, is in no row.
+ * generated from [EngineAccountUsage](../../../../apps/api/data/contracts/engine.tokens.ck)
+ */
+export interface EngineAccountUsage {
+    account: string;
+    /** Output tokens since the server's midnight. */
+    todayOutputTokens: number;
+    /** The rest are over the whole window. */
+    outputTokens: number;
+    inputTokens: number;
+    cachedInputTokens: number;
+}
+
+/**
  * What is shown of a saved token: its name, what it signs in to and when it was saved, never the token.
  * generated from [EngineTokenSummary](../../../../apps/api/data/contracts/engine.tokens.ck)
  */
