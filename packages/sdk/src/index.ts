@@ -19,6 +19,7 @@ export * from './projects.client.js';
 export * from './review.client.js';
 export * from './rules.client.js';
 export * from './sdk-options.js';
+export * from './secrets.client.js';
 export * from './settings.client.js';
 export * from './stages.client.js';
 export * from './types/index.js';

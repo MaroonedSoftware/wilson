@@ -1601,6 +1601,13 @@ only when retrying cannot help.
   not revoke it with Anthropic. Wilson and its workers must be the same protocol version, so update
   them together.
 
+- **Secrets.** Wilson holds named values in `wilson.secrets`, encrypted under the same key (`wilson secret
+set|list|remove`). Saving or removing one takes a recently proved factor (`wilson.step.up`), so a leaked API
+  key cannot replace one. No operation returns a value, and none is reachable by MCP. `SecretsService.resolve`
+  is the only way to read one back. `SecretsService.redact` replaces exact values in text from outside
+  Wilson, so it stops an accident and not a value that was encoded or split. Removing one does not revoke it
+  with whoever issued it.
+
 ### Moving the board to the server
 
 The development stack keeps the board in `wilson-db`'s anonymous volume. Move it with a dump, never

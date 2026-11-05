@@ -18,6 +18,7 @@ import { LeaseModule } from './lease/lease.module.js';
 import { NotifyModule } from './notify/notify.module.js';
 import { PolicyModule } from './policy/policy.module.js';
 import { ReviewModule } from './review/review.module.js';
+import { SecretsModule } from './secrets/secrets.module.js';
 import { EvalsModule } from './evals/evals.module.js';
 import { RulesModule } from './rules/rules.module.js';
 import { LearningsModule } from './learnings/learnings.module.js';
@@ -56,7 +57,8 @@ import { WorktreeModule } from './worktree/worktree.module.js';
  *
  * Policy and then Authentication are listed right after Sources: `AuthenticationSessionService`
  * stores sessions through the `CacheProvider` that Sources registers, and `PasswordFactorService`
- * asks `PolicyService` whether a password may be stored.
+ * asks `PolicyService` whether a password may be stored. Secrets follows them, since it encrypts with
+ * the `EncryptionProvider` that Authentication registers.
  *
  * Mcp is listed after every module whose service a contract operation calls: its catalog handlers
  * resolve those services per call, not at registration, so this too is for a reader rather than
@@ -70,6 +72,7 @@ export const modules: ServerKitModule[] = [
     SourcesModule,
     PolicyModule,
     AuthenticationModule,
+    SecretsModule,
     ContextModule,
     HealthModule,
     LeaseModule,

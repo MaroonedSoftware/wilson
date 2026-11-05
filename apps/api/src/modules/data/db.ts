@@ -487,6 +487,13 @@ export interface WilsonReviews {
   verdictAt: DateTime | null;
 }
 
+export interface WilsonSecrets {
+  ciphertext: string;
+  createdAt: Generated<DateTime>;
+  name: string;
+  updatedAt: Generated<DateTime>;
+}
+
 export interface WilsonSettings {
   key: string;
   project: string;
@@ -656,6 +663,7 @@ export interface DB {
   "wilson.reviewComments": WilsonReviewComments;
   "wilson.reviews": WilsonReviews;
   "wilson.reviewTurns": WilsonReviewTurns;
+  "wilson.secrets": WilsonSecrets;
   "wilson.settings": WilsonSettings;
   "wilson.sourceCursors": WilsonSourceCursors;
   "wilson.laneRevisions": WilsonLaneRevisions;

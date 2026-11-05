@@ -51,6 +51,9 @@ import hostSetCommand from './commands/host/set.command.js';
 import hostTokenCommand from './commands/host/token.command.js';
 import hostUnserveCommand from './commands/host/unserve.command.js';
 import projectCreateCommand from './commands/project/create.command.js';
+import secretListCommand from './commands/secret/list.command.js';
+import secretRemoveCommand from './commands/secret/remove.command.js';
+import secretSetCommand from './commands/secret/set.command.js';
 import serverDrainCommand from './commands/server/drain.command.js';
 import serverResumeCommand from './commands/server/resume.command.js';
 import serverStatusCommand from './commands/server/status.command.js';
@@ -145,6 +148,9 @@ const app = await createCliApp({
         reg(['engine-token', 'set'], engineTokenSetCommand),
         reg(['engine-token', 'update'], engineTokenUpdateCommand),
         reg(['engine-token', 'remove'], engineTokenRemoveCommand),
+        reg(['secret', 'list'], secretListCommand),
+        reg(['secret', 'set'], secretSetCommand),
+        reg(['secret', 'remove'], secretRemoveCommand),
         reg(['host', 'probe'], hostProbeCommand),
         reg(['server', 'drain'], serverDrainCommand),
         reg(['server', 'resume'], serverResumeCommand),
