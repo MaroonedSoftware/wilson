@@ -1,4 +1,5 @@
 import { Injectable } from 'injectkit';
+import { evalRunRowId } from '#modules/evals/eval.run.id.js';
 import { Kysely, type Transaction } from 'kysely';
 import type { DB } from '#modules/data/db.js';
 import { EventLog, type AppendableCardEvent } from '#modules/events/event.log.js';
@@ -188,6 +189,18 @@ export class PostgresBoardRepository extends BoardRepository {
      * they held one because of the stage they happened to sit in.
      */
     async hasLiveClaim(project: string, cardId: string): Promise<boolean> {
+        // An eval run holds leases under an id with no card and no `card.stage` job.
+        const evalRun = evalRunRowId(cardId);
+        if (evalRun !== undefined) {
+            const running = await this.db
+                .selectFrom('wilson.evalRuns')
+                .select('id')
+                .where('project', '=', project)
+                .where('id', '=', evalRun)
+                .where('status', '=', 'running')
+                .executeTakeFirst();
+            return running !== undefined;
+        }
         const row = await this.db
             .selectFrom('wilson.cardJobs')
             .select('cardId')

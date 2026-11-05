@@ -7,6 +7,7 @@ export * from './code.client.js';
 export * from './context.client.js';
 export * from './devices.client.js';
 export * from './engine.tokens.client.js';
+export * from './evals.client.js';
 export * from './factors.client.js';
 export * from './goals.client.js';
 export * from './health.client.js';

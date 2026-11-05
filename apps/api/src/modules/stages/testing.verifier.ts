@@ -9,7 +9,7 @@ import { assertionDelta, isAssertionTestFile, type AssertionDelta, type LocatedA
 import { withBaselineWorktree } from './baseline.worktree.js';
 import { runConfiguredCommand, type CommandFailure } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
-import { checkFormat, type StageVerifier, type VerificationInput, type VerificationOutcome } from './stage.verifier.js';
+import { checkFormat, checkSecrets, type StageVerifier, type VerificationInput, type VerificationOutcome } from './stage.verifier.js';
 import { archiveTestReport } from './test.report.archive.js';
 import { parseTestReport, type FailingTest, type TestCounts, type TestReport } from './test.report.js';
 
@@ -221,7 +221,9 @@ export class TestingVerifier implements StageVerifier {
     ) {}
 
     async verify({ worktree, stage, cardId, card }: VerificationInput): Promise<VerificationOutcome> {
-        const failures: string[] = [];
+        // First, so that it is the failure an operator reads: it is the one no retry can settle.
+        const secrets = await checkSecrets(this.worktrees, worktree, card);
+        const failures: string[] = [...secrets.failures];
         const changedPaths = await this.worktrees.changedPaths(worktree);
 
         const startedAt = Date.now();
@@ -267,7 +269,12 @@ export class TestingVerifier implements StageVerifier {
             this.logger.warn('baselineCheck disabled: the baseline and test-count checks were skipped, not passed');
         }
 
-        return { passed: failures.length === 0, failures, changedPaths };
+        return {
+            passed: failures.length === 0,
+            failures,
+            changedPaths,
+            ...(secrets.needsHumanReason ? { needsHumanReason: secrets.needsHumanReason } : {}),
+        };
     }
 
     /**

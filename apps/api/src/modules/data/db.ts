@@ -324,6 +324,63 @@ export interface WilsonHosts {
   workerTokenIssuedAt: DateTime | null;
 }
 
+export interface WilsonEvalBatches {
+  candidate: Json | null;
+  candidateLanes: Json | null;
+  createdAt: Generated<DateTime>;
+  currentLanes: Json;
+  finishedAt: DateTime | null;
+  host: string;
+  id: Generated<bigint>;
+  learnings: string;
+  maxOutputTokens: number;
+  project: string;
+  runsPerFixture: number;
+  status: Generated<string>;
+  stopReason: string | null;
+  waitingReason: string | null;
+}
+
+export interface WilsonEvalFixtures {
+  baseSha: string;
+  createdAt: Generated<DateTime>;
+  expected: Json | null;
+  headSha: string;
+  id: Generated<bigint>;
+  plan: Json;
+  planVersionId: string;
+  project: string;
+  sourceCardId: string;
+  sourceEventId: bigint;
+  stage: string;
+}
+
+export interface WilsonEvalRuns {
+  arm: string;
+  batchId: bigint;
+  cachedInputTokens: number | null;
+  error: string | null;
+  failures: Generated<Json>;
+  finishedAt: DateTime | null;
+  fixtureId: bigint;
+  id: Generated<bigint>;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  patch: string | null;
+  patchTruncated: Generated<boolean>;
+  position: number;
+  project: string;
+  reportRejected: Generated<boolean>;
+  result: Json | null;
+  scopeDenials: number | null;
+  startedAt: DateTime | null;
+  status: Generated<string>;
+  toolCalls: number | null;
+  truncated: Generated<boolean>;
+  unjudged: Generated<boolean>;
+  wallClockMs: number | null;
+}
+
 export interface WilsonLearnings {
   createdAt: Generated<DateTime>;
   id: Generated<bigint>;
@@ -335,6 +392,7 @@ export interface WilsonLearnings {
 export interface WilsonLeases {
   acquiredAt: Generated<DateTime>;
   cardId: string;
+  heldCardId: Generated<string | null>;
   project: string;
   resourceKey: string;
 }
@@ -573,6 +631,9 @@ export interface DB {
   "wilson.goals": WilsonGoals;
   "wilson.hostProjects": WilsonHostProjects;
   "wilson.hosts": WilsonHosts;
+  "wilson.evalBatches": WilsonEvalBatches;
+  "wilson.evalFixtures": WilsonEvalFixtures;
+  "wilson.evalRuns": WilsonEvalRuns;
   "wilson.learnings": WilsonLearnings;
   "wilson.leases": WilsonLeases;
   "wilson.planComments": WilsonPlanComments;

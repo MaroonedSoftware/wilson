@@ -156,6 +156,17 @@ describe('HostPlacer', () => {
         expect(await placer().place(project, '0002', stage('remote'), name)).toMatchObject({ hostName: other });
     });
 
+    it('does not fall through when only the preferred host will do', async () => {
+        const { project, name } = await setUp();
+        const other = `a-${uniqueProject()}`;
+        await service.create({ name: other, slots: 1 });
+        await service.putProject(other, project, { codeRoot: '/opt/agent/TGA', worktreeRoot: '/opt/agent/wt', runRoot: '/opt/agent/run' });
+        await hosts.recordProbe(other, { probedAt: DateTime.now(), ok: true });
+        await hosts.recordProbe(name, { probedAt: DateTime.now(), ok: false });
+
+        expect(await placer().place(project, '0001', stage('remote'), name, true)).toBeInstanceOf(NoHostAvailable);
+    });
+
     it('defers a remote or `any` stage when every slot is held by a running card', async () => {
         const { project, name } = await setUp();
         await recordLiveClaim(project, '0001');

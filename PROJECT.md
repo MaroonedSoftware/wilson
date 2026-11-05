@@ -433,8 +433,8 @@ job is to add files nobody could have declared in advance.
 | parking lot | — | none | never dispatched | promote (human only) |
 | planning | manual | none | a person approves, then the `scope-check` step passes | backlog |
 | backlog | manual | none | picked up by the poller | implementing |
-| implementing | agent | rw | build passes, diff non-empty, diff within scope | testing |
-| testing | agent | rw | suite green, test count non-decreasing, no new skips, no weakened tests, new tests fail against the pre-change tree | review |
+| implementing | agent | rw | build passes, diff non-empty, diff within scope, no credential added | testing |
+| testing | agent | rw | suite green, test count non-decreasing, no new skips, no weakened tests, new tests fail against the pre-change tree, no credential added | review |
 | review | agent | readonly | findings schema valid, every finding cites a file:line in the card's diff, severity in enum; rule judges' failures are merged in; a `revise` then has to survive the `challenge` step | ready |
 | ready | manual | none | human approval | merge, then `done` |
 | done | — | — | never dispatched | — |
@@ -446,6 +446,19 @@ and the like are not flagged. It does not depend on `baselineCheck`, and a lane 
 `assertionCheck: false`. A card with a good reason declares it as a plan Constraint,
 `Expected assertion drop: N (reason)`, whose `N` covers drops and new tautologies together; a stage's
 `caveats` do not count. Other languages' test files are not read.
+
+Implementing and testing also fail on a credential in the card's diff: a private key with its body,
+a GitHub token, an AWS access key, or an Anthropic or OpenAI key, on any line added since the fork
+point. Each format must also look random, so a header in a parser, the AWS documentation key and
+`ghp_xxxx` pass. Failures name the file, line and kind and never the value. It measures the card's whole
+diff, and flags a person at once rather than kicking back, because nothing a retry can do settles it: a
+real key has to be rotated, and a second attempt that deleted it would pass and advance with nobody
+told. With no retry there is also nothing to get stuck on inherited work (see "Whose work a stage is
+judged on"). The value stays in the worktree, and the next run saves it to the failed-attempt patch,
+which that run can read. A fixture is declared in the plan, one file to a bullet, as a Constraint
+`Expected secret: path (reason)`; a path and not a count, since a count could be spent on a real key
+anywhere. It reads text only, decodes nothing, and looks at no intermediate history. Command output and
+run traces are not redacted, so a value a command prints can still reach `stage.failed`.
 
 A lane can hold **steps**: runs of their own, with their own prompt, verifier and budgets, on the
 lane's provider, model and routes, with the card staying in the lane throughout. `planning` runs
@@ -1261,6 +1274,65 @@ executes. Treat it as data, always:
 
 Worth stating plainly because this is the one feature that opens the pipeline to
 input the operator did not write.
+
+## Evals
+
+Lanes, prompts and routes are data, and a change to one takes effect on the next dispatch. An eval is
+how to find out whether it helped before real cards pay for finding out.
+
+A **fixture** is one past stage attempt, kept: a copy of the plan as that attempt read it, and the
+commits it started from, held alive by `refs/wilson/eval/<id>/{base,head}`. `wilson eval fixture add
+<card> <stage>` captures one, for `implementing`, `testing` or `review`. Steps are left out, since
+`challenge` takes a review's findings as its input. The base is the fork point the head was committed
+on rather than the one the attempt was about to rebase onto, or everything `main` gained in between
+would read as the card's own diff.
+
+A **batch** runs fixtures again, `wilson eval run <fixtures> --host my-mac --runs 3`, and `wilson eval
+show` reports it. It freezes the lanes and learnings when it starts. Each run gets the same
+preparation, agent and verifier a stage gets (`prepareStage`, `executeStage`), so its result means what
+a stage's does, and then its work is kept as a patch on the run's row and its tree is thrown away.
+
+`--candidate <file>` adds a second arm: a YAML file naming a lane and what to change on it
+(`instructions`, `settings`, `adapter`, `provider`, `model`), validated as saving it would be and never
+saved. Each fixture must be an attempt at that lane, and the arms alternate so a slow hour falls on both.
+The report gives counts, medians and ranges and names no winner, because a few runs each cannot carry
+one. A candidate that changes nothing makes an A/A batch, which measures how far runs differ by chance;
+run one first, since a real difference has to clear that noise.
+
+**A review needs more than a verifier.** `ReviewVerifier` checks that a report is coherent, not that it
+is right, so a review that passes everything looks flawless to it. A `review` fixture therefore carries
+what the review should find, read at capture from what the card's own review concluded, with a
+`challenge` step's result taking precedence. A batch reports caught, missed, false alarms and clean. That
+default is the model agreeing with itself, so `wilson eval fixture label <id> --verdict revise --blockers
+<files>` replaces it with a person's word, and `wilson eval fixture list` shows which each one has. An
+eval's review runs no `challenge` step, so its false alarms include blockers a challenge might refute.
+
+**What a replay leaves out.** It gets review evidence and scales to its diff like a stage does, but it
+runs no rule judges and gets no rule guidance, because a judge's spend counts toward the daily ceiling
+and an eval's is held apart from it. A stage that stops to ask a question counts as not finishing, since
+nobody is there to answer. This is separate from `pnpm eval:review` (`apps/api/evals/review`), which
+scores the review stage against a curated corpus with hidden answers on the operator's own machine; a
+batch here replays the board's own history, for any of three stages, on a host, with two arms.
+
+**Nothing here reaches the board.** A run's id is `eval-<row id>`, which no card can have. It writes
+no `stage.passed`, `stage.failed` or `stage.blocked` and commits nothing, so a card's budget, the daily ceiling, the
+poller and the scope check never see it. Its tool events do land in `wilson.card_events`, which has no
+foreign key to a card, and the activity feed leaves them out. It does hold a real host slot:
+`wilson.leases` checks its card key through a column that is empty for an eval id, and a lease is live
+for as long as its run is `running`.
+
+**What it does share is the account.** A batch spends the same engine quota as real cards, held to its
+own `--max-output-tokens` (300,000 unless it says otherwise) and not to the daily ceiling. A batch stops
+when an account hits its limit rather than waiting, and waits while the server drains. A running eval
+is not something Auto-mode or `wilson card` commands can see, so check `wilson eval list` before a
+deploy as well as the running engines. A restart costs the run in progress: it is marked `abandoned`,
+left out of the counts, and the batch carries on.
+
+**Every run lands on one named host,** because a comparison between two machines measures the machines.
+Tower's container is red on tests that pass on `my-mac`, which is why a batch has no local option.
+
+Starting a batch needs step-up, as saving a lane does, and no eval operation is in the operation
+catalog (decision 8): it spends tokens and runs a config nobody saved.
 
 ## Runner requirements
 

@@ -1,5 +1,3 @@
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { join, posix } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
 import { AutoSplitter } from '#modules/board/auto.splitter.js';
@@ -10,14 +8,10 @@ import { withAttempt, withoutAttempts, type Attempt } from '#modules/board/appen
 import { withFindings } from '#modules/board/append.findings.js';
 import { blockedRetryKey, filesInScope, type Card } from '#modules/board/card.js';
 import { unsatisfiedDependencies } from '#modules/board/next.card.js';
-import { serializeCard } from '#modules/board/card.parser.js';
-import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import type { BlockedReport } from '#modules/agent/blocked.report.js';
-import { budgetedInputTokens } from '#modules/agent/budget.js';
-import { collateralPaths } from '#modules/agent/collateral.js';
 import { StageHeldError, StageInterruptedError, type InterruptedAttempt } from '#modules/agent/stage.interrupt.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
-import { REPORT_TOOL, ScopeKickbackError, type ToolContext } from '#modules/agent/tools/index.js';
+import { ScopeKickbackError } from '#modules/agent/tools/index.js';
 import { StageAgentMap } from '#modules/agent/stage.agent.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { HostPlacer, NoHostAvailable } from '#modules/host/host.placer.js';
@@ -25,31 +19,21 @@ import { HostLostError, type RemotePlacement } from '#modules/host/placement.js'
 import { LearningsStore } from '#modules/learnings/learnings.store.js';
 import { DevServerPortAllocator } from '#modules/lease/dev.server.port.allocator.js';
 import { Notifier } from '#modules/notify/notifier.js';
-import { withRulesGuidance } from '#modules/rules/rule.guidance.js';
-import { isRuleFinding, ruleFinding, ruleVerdictsMarkdown, withRuleFindings } from '#modules/rules/rule.findings.js';
-import { RuleJudge, type RuleVerdict } from '#modules/rules/rule.judge.js';
+import { isRuleFinding } from '#modules/rules/rule.findings.js';
+import { RuleJudge } from '#modules/rules/rule.judge.js';
 import { RuleStore } from '#modules/rules/rule.store.js';
 import type { CardNotification } from '#modules/notify/notification.js';
 import { DEV_SERVER_PORT_RANGE } from '#modules/settings/dev.server.port.range.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
-import { snapshotDrift, WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
-import { cardOverBudget, withinCardBudget, withinInterruptedBudget } from './card.budget.js';
-import { incomingReview } from './challenge.verifier.js';
+import { WorktreeManager, type Worktree } from '#modules/worktree/worktree.manager.js';
+import { cardOverBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
-import { computeReviewEvidence, REVIEW_PREPARATION_DEADLINE_MS, reviewEvidenceApplies } from './review.evidence.js';
-import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
 import { atDepth, scalesWithDiff, withDepth } from './lane.depth.js';
 import { findStage, isPlanCheck, type ProjectStages, type StageConfig } from './stage.config.js';
 import { StageConfigStore } from './stage.config.store.js';
-import {
-    failureClassOf,
-    REASON_LIMIT,
-    ReviewResultSchema,
-    StageResultSchemaMap,
-    type ReviewCriterion,
-    type ReviewFinding,
-    type StageOutcome,
-} from './stage.result.js';
+import { REASON_LIMIT, StageResultSchemaMap, type ReviewCriterion, type ReviewFinding, type StageOutcome } from './stage.result.js';
+import { checkFinishedTree, executeStage, type StageExecutionInput } from './stage.execution.js';
+import { prepareStage } from './stage.preparation.js';
 import { StageVerifierMap } from './stage.verifier.js';
 import { endingOf } from './terminal.js';
 
@@ -159,78 +143,6 @@ const findingsFrom = (result: unknown): ReviewFinding[] | undefined => {
 const criteriaFrom = (result: unknown): ReviewCriterion[] | undefined => {
     const criteria = (result as { criteria?: unknown } | undefined)?.criteria;
     return Array.isArray(criteria) ? (criteria as ReviewCriterion[]) : undefined;
-};
-
-/**
- * The `extraScope` the running stage may itself write, beyond this card's own "Files in scope" —
- * the fact `materializePlan` folds into that stage's own plan so it knows what it can already
- * write, instead of calling `request_scope` for paths `ScopeGuard`'s allow list (`scoped` in `run`,
- * above) already covers.
- *
- * `ScopeGuard` is built from `[...filesInScope(card), ...stage.extraScope]`, but that allow list
- * lives inside the guard — nothing the agent reads ever names it. A plan that lists only the card's
- * own "Files in scope" and says nothing about `extraScope` reads as "everything else is out of
- * bounds," which is exactly what led card 0154's testing stage to request and be granted four test
- * files its own `*.test.ts` glob already allowed.
- *
- * Deliberately a separate note from `otherStagesScopeNote`, not folded into one list: that one tells
- * a reviewer "a file here is another stage doing its job"; this one tells the running stage "you may
- * write these yourself." Merging them would leave a reader guessing which sense applied to which
- * line.
- *
- * Returns the empty string when this stage configures no `extraScope`, so a stage with none gets no
- * heading and no dangling sentence, matching `otherStagesScopeNote`.
- */
-const ownScopeNote = (stage: StageConfig): string => {
-    if (stage.extraScope.length === 0) return '';
-
-    return [
-        '## Your scope',
-        '',
-        'Beyond this card\'s own "Files in scope" above, this stage may also write, under its own',
-        'configured scope:',
-        '',
-        ...stage.extraScope.map(g => `- \`${g}\``),
-    ].join('\n');
-};
-
-/**
- * The paths another stage may add on top of this card's own "Files in scope" — the fact
- * `materializePlan` folds into every stage's plan so a file a later stage legitimately adds under
- * its own `extraScope` (`stage.config.ts`) reads as expected, not as undeclared scope creep.
- *
- * A card's "Files in scope" is written for `implementing`; nothing else about the pipeline is in
- * that document, so a stage reading only the plan has no way to tell a test file the testing stage
- * added under its own `extraScope` apart from one that was never declared at all (card 0139).
- *
- * Generated from the loaded `stages.yaml`, not duplicated here as a second copy of it: a project
- * that configures different globs, or a different stage entirely, gets those globs with no code
- * change. Excludes the stage this plan is being materialized for — not because restating it would
- * say nothing new (`ScopeGuard`'s allow list enforces that stage's own `extraScope` but never shows
- * it to the agent, which is exactly why `ownScopeNote`, above, exists), but because it is a different
- * fact for a different reader: this list tells a reviewer "a file here is that stage doing its job,"
- * not "you may write this." Returns the empty string when no other stage configures one, so a project
- * with no `extraScope` anywhere gets no heading and no dangling sentence.
- */
-const otherStagesScopeNote = (stages: ProjectStages, currentStageName: string): string => {
-    const others = stages.stages.filter(s => s.name !== currentStageName && s.extraScope.length > 0);
-    if (others.length === 0) return '';
-
-    return [
-        '## Also in scope',
-        '',
-        'Not this card\'s own "Files in scope" above, but paths another stage may add under its own',
-        'configured scope. A file here in the diff is that stage doing its job, not undeclared scope',
-        'creep:',
-        '',
-        ...others.map(s => `- \`${s.name}\`: ${s.extraScope.map(g => `\`${g}\``).join(', ')}`),
-    ].join('\n');
-};
-
-/** What a stage's plan file holds: the card, then the scope notes, then any evidence. */
-export const planMaterial = (card: Card, stages: ProjectStages, stage: StageConfig, evidence?: string): string => {
-    const notes = [ownScopeNote(stage), otherStagesScopeNote(stages, stage.name), evidence ?? ''].filter(note => note.length > 0);
-    return notes.length > 0 ? `${serializeCard(card).trimEnd()}\n\n${notes.join('\n\n')}\n` : serializeCard(card);
 };
 
 /**
@@ -451,25 +363,9 @@ export class StageDispatcher {
         return withDepth(lane, diffstat);
     }
 
-    /**
-     * The last look before a passing stage commits, whatever engine ran it and whatever its verifier
-     * checked. Everything uncommitted must be in this stage's scope, since a command or an engine can
-     * write without asking a guard. And it must be what the verifier saw: an engine can land an edit
-     * after the verifier finished (see `tool.unguarded`), and committing that would record a verdict
-     * on work nobody judged. `testReportPath` is exempt from scope, being the runner's own output.
-     */
-    private async checkBeforeCommit(outcome: StageOutcome, worktree: Worktree, scope: ScopeGuard, stage: StageConfig): Promise<StageOutcome> {
-        const failures: string[] = [];
-        for (const path of await this.worktrees.uncommittedPaths(worktree)) {
-            if (path === stage.testReportPath) continue;
-            const decision = await scope.check(path);
-            if (!decision.allowed) failures.push(`${path} is outside this stage's scope (${decision.reason})`);
-        }
-        if (outcome.verifiedTree) {
-            const drifted = snapshotDrift(outcome.verifiedTree, await this.worktrees.uncommittedSnapshot(worktree));
-            if (drifted.length > 0) failures.push(`changed after the stage was verified: ${drifted.join(', ')}`);
-        }
-        return failures.length === 0 ? outcome : { ...outcome, passed: false, failures: [...outcome.failures, ...failures] };
+    /** See {@link checkFinishedTree}. */
+    private checkBeforeCommit(outcome: StageOutcome, worktree: Worktree, scope: ScopeGuard, stage: StageConfig): Promise<StageOutcome> {
+        return checkFinishedTree(this.worktrees, outcome, worktree, scope, stage);
     }
 
     /**
@@ -579,139 +475,32 @@ export class StageDispatcher {
             }
         }
 
-        // Before the agent sees the tree, not as its first task: a fresh worktree has no
-        // node_modules, and card 0001 twice spent its whole run installing dependencies and
-        // confirming the baseline built, then reported that as the work.
-        //
-        // Wrapped in `pnpmStoreLock` because this is an install: two of these racing pnpm's shared
-        // store is what broke four of five cards started together in card 0081, and an agent's own
-        // `pnpm install` through the bash tool takes the same lock, so either side waits for the
-        // other rather than corrupting the store. The wait happens here, before `runAgent` below
-        // ever starts the stage's `maxWallClockMs` clock — that clock opens inside the adapter's own
-        // `generate()` call (`api.stage.agent.ts`/`cli.stage.agent.ts`), well after this returns — so
-        // a stage queued behind another card's install is not charged for a queue it did not choose.
-        if (stage.setupCommand) {
-            const setupCommand = stage.setupCommand;
-            // Captured alongside the log line `pnpmStoreLock` already emits, so a wait shows up in
-            // the durable event trail too, not only in the log an operator has to be watching live —
-            // the same reasoning `withCollateralCaveats` above applies to `scope.collateral`: a log
-            // entry nobody reads before the review runs is not the same as recorded.
-            let installWaitedMs: number | undefined;
-            const failure = await pnpmStoreLock.run(
-                `${cardId} ${stageName} setup`,
-                message => this.logger.info(message),
-                () => runConfiguredCommand(worktree.path, setupCommand, undefined, port, worktreeHost(worktree)),
-                waitedMs => {
-                    installWaitedMs = waitedMs;
-                },
-            );
-            await this.events.append({
-                project: this.config.project,
-                cardId,
-                stage: stageName,
-                type: 'worktree.prepared',
-                payload: {
-                    command: setupCommand,
-                    ok: !failure,
-                    ...(failure ? { reason: failure.reason } : {}),
-                    ...(installWaitedMs !== undefined ? { installWaitedMs } : {}),
-                },
-            });
-            if (failure) {
-                // Not retried: the race that used to produce this exact failure is gone now that the
-                // install is serialized, so what reaches here is a genuine failure — a real lockfile
-                // mismatch, a registry outage, a full disk — and retrying identical work against an
-                // unpinned cause is exactly the waste `isPermanentFailure` exists to avoid elsewhere.
-                // An unprepared worktree makes every later signal meaningless — the build would fail
-                // for reasons that have nothing to do with the card.
-                throw new Error(`worktree setup failed for ${cardId}: ${failure.reason}`);
-            }
-            this.logger.info(`worktree prepared with \`${setupCommand}\``);
-        }
-
-        // Here because evidence needs what setup installed and both need the rebased `baseSha`, and the
-        // plan is how they reach the agent. Side by side, since neither reads what the other writes and
-        // every minute here comes out of the job's margin.
-        const prepares = reviewEvidenceApplies(stage);
-        const [evidence, ruleVerdicts] = await Promise.all([
-            prepares
-                ? computeReviewEvidence({ worktrees: this.worktrees, logger: this.logger, runRoot: this.config.runRoot }, { cardId, worktree, stage })
-                : undefined,
-            prepares ? this.judgeRules(cardId, stageName, card, worktree) : undefined,
-        ]);
-        if (evidence) {
-            await this.events.append({ project: this.config.project, cardId, stage: stageName, type: 'review.evidence', payload: evidence.summary });
-        }
-
-        const notes = [evidence?.markdown, ruleVerdictsMarkdown(ruleVerdicts ?? [])];
-        const localPlanPath = await this.materializePlan(
-            await this.withIncomingReview(card, stage),
-            pinnedSha,
-            stages,
-            stage,
-            notes.filter(Boolean).join('\n\n'),
+        const { planPath, learningsPath, scoped, scope, ruleVerdicts } = await prepareStage(
+            {
+                config: this.config,
+                worktrees: this.worktrees,
+                events: this.events,
+                logger: this.logger,
+                learnings: this.learnings,
+                rules: this.rules,
+                ruleJudge: this.ruleJudge,
+            },
+            { cardId, stageName, stages, stage, card, pinnedSha, worktree, placement, port, boardCards },
         );
-        // The agent reads the plan where its worktree is. A placed stage gets a copy on the host,
-        // under the host's run root, outside its worktree for the same reason the local one is.
-        const planPath = placement ? await this.mirrorToHost(placement, cardId, localPlanPath, true) : localPlanPath;
-
-        // Card 0244: the project's human-approved learnings document, materialized outside the
-        // worktree the same way the plan is — so it can never be committed to the card's branch
-        // either. Empty (`load()`'s own contract: no document yet reads the same as an empty one,
-        // PROJECT.md decision 8) or `this.learnings` altogether unset (see the constructor's own
-        // comment) both mean no file is written and no path reaches the adapter at all — an empty
-        // document means "no learnings", not an empty file to hand the agent.
-        //
-        // The rules go with them where work gets written, so it can meet them before review judges it.
-        const learningsMarkdown = withRulesGuidance(
-            (await this.learnings?.load()) ?? '',
-            (stage.verifier ?? stage.name) === 'implementing' ? ((await this.rules?.list()) ?? []) : [],
-        );
-        const localLearningsPath = learningsMarkdown.trim().length > 0 ? await this.materializeLearnings(cardId, learningsMarkdown) : undefined;
-        const learningsPath = placement && localLearningsPath ? await this.mirrorToHost(placement, cardId, localLearningsPath) : localLearningsPath;
-
-        // Structural dependencies of a scoped file, one hop out — so the stage does not have to ask
-        // for the file defining a type it is already using because something in scope imports it.
-        const scoped = [...filesInScope(card), ...stage.extraScope];
-        const collateral = await collateralPaths(worktree.path, scoped, worktreeHost(worktree));
-
-        // Every card's preserved patch, not just this one's (card 0161): a split card's plan
-        // routinely names its parent's `last-failed-attempt.patch` as the single most useful
-        // artifact around, and the stage running it has no way to know in advance which card that
-        // will be — `boardCards`, already fetched above for `assertDispatchable`, is every card on
-        // the board. Listed unconditionally, with no `stat` first: most cards have never failed, so
-        // most of these paths do not exist, and an unconditional grant just lets that read fail with
-        // an ordinary "no such file" — the same as any other in-scope path that happens to be
-        // absent — rather than the scope refusal this card exists to remove.
-        //
-        // A placed stage gets the same set, copied to the same place under the host's run root.
-        // Only the patches that exist are copied: whether one does is a local `stat`, and the
-        // copies are what cost a round trip, so a board of cards that never failed costs nothing.
-        const preservedPatchPaths = placement
-            ? await this.mirrorPatches(placement, boardCards)
-            : boardCards.map(c => this.worktrees.failedAttemptPatchPath(c.frontmatter.id));
-
-        const scope = new ScopeGuard({
-            worktreeRoot: worktree.path,
-            allow: scoped,
-            alwaysAllowed: stages.alwaysAllowed,
-            deny: stages.deny,
-            collateral,
-            // The plan and every card's preserved patch live outside the worktree so neither can be
-            // committed to the card's branch. Without this both are also unreadable, and the agent
-            // either infers its own contract or is refused the one artifact its plan told it to read.
-            // `learningsPath` joins them on the same footing, present only when the document is
-            // non-empty — see its own comment above.
-            readableExtras: [planPath, ...preservedPatchPaths, ...(learningsPath ? [learningsPath] : [])],
-            host: worktreeHost(worktree),
-        });
 
         await this.events.append({
             project: this.config.project,
             cardId,
             stage: stageName,
             type: 'stage.dispatched',
-            payload: { provider: stage.provider, model: stage.model, planPath, scope: scoped, ...(stage.depth && { depth: stage.depth }) },
+            payload: {
+                provider: stage.provider,
+                model: stage.model,
+                planPath,
+                scope: scoped,
+                ...(stage.depth && { depth: stage.depth }),
+                ...(pinnedSha ? { planVersionId: pinnedSha } : {}),
+            },
         });
 
         let outcome: StageOutcome;
@@ -932,6 +721,12 @@ export class StageDispatcher {
         const advanced = shouldAdvance(outcome.passed, outcome.result);
         const refused = planCheck && !advanced && !outcome.unjudged && !outcome.resultDropped;
         if (planCheck && !advanced) decision = { ...decision, target: stageName };
+
+        // A verifier that says this needs a person is not asking for a kickback, however many retries
+        // are left. Ahead of the halt below, whose reason says less about what to do.
+        if (outcome.needsHumanReason) {
+            decision = { target: stageName, retries: decision.retries, needsHuman: { reason: outcome.needsHumanReason } };
+        }
 
         // Card 0200: a card whose ticket closed externally while this stage was running halts here
         // instead of advancing or kicking back further, once this one stage — already bounded by its
@@ -1392,112 +1187,6 @@ export class StageDispatcher {
     }
 
     /**
-     * Write the plan where the agent can read it — outside the worktree.
-     *
-     * The board is a sibling repo, so the plan is not in the tree the agent is editing. Materializing
-     * it outside means it can never be accidentally committed to the card's branch.
-     *
-     * Appends `ownScopeNote` and `otherStagesScopeNote` after the card's own body — the one place
-     * every stage's agent, review included, actually reads (card 0139). `stages` is the same config
-     * `run` already loaded for this dispatch, not a second load. `evidence` goes after them, for a
-     * stage that was given some.
-     */
-    private async materializePlan(
-        card: Card,
-        sha: string | undefined,
-        stages: ProjectStages,
-        stage: StageConfig,
-        evidence?: string,
-    ): Promise<string> {
-        const dir = join(this.config.runRoot, 'cards', card.frontmatter.id);
-        await mkdir(dir, { recursive: true });
-        const path = join(dir, 'plan.md');
-        await writeFile(path, planMaterial(card, stages, stage, evidence), 'utf8');
-        this.logger.info(`plan for ${card.frontmatter.id} materialized at ${path}${sha ? ` (${sha.slice(0, 8)})` : ''}`);
-        return path;
-    }
-
-    /**
-     * Write the project's learnings document where the agent can read it — outside the worktree,
-     * for the identical reason `materializePlan` above lives there: so it can never be committed to
-     * the card's branch. Called only when `run` already knows the document is non-empty, so unlike
-     * `materializePlan` this has no "absent" case of its own to handle.
-     */
-    private async materializeLearnings(cardId: string, markdown: string): Promise<string> {
-        const dir = join(this.config.runRoot, 'cards', cardId);
-        await mkdir(dir, { recursive: true });
-        const path = join(dir, 'learnings.md');
-        await writeFile(path, markdown, 'utf8');
-        return path;
-    }
-
-    /**
-     * Have the judges look at this card's diff, and record what they said and what it cost, which is
-     * how it reaches the card's budget. Nothing here stops the stage: with no rule matching there is no
-     * trace of this at all, and whatever goes wrong leaves it as if there were no rules.
-     */
-    private async judgeRules(cardId: string, stageName: string, card: Card, worktree: Worktree): Promise<RuleVerdict[] | undefined> {
-        if (!this.rules || !this.ruleJudge) return undefined;
-        try {
-            const { verdicts, usage } = await this.ruleJudge.judge({
-                rules: await this.rules.list(),
-                host: worktreeHost(worktree),
-                cwd: worktree.path,
-                range: [worktree.baseSha],
-                plan: serializeCard(card),
-                cardId,
-                deadlineMs: REVIEW_PREPARATION_DEADLINE_MS,
-            });
-            if (verdicts.length === 0) return undefined;
-            await this.events.append({
-                project: this.config.project,
-                cardId,
-                stage: stageName,
-                type: 'rule.verdicts',
-                payload: { verdicts, ...(usage ? { usage } : {}) },
-            });
-            return verdicts;
-        } catch (err) {
-            this.logger.warn(`could not judge ${cardId}'s rules: ${(err as Error).message}`);
-            return undefined;
-        }
-    }
-
-    /**
-     * The card as a challenge step reads it: with what it is challenging under `## Review findings`,
-     * where its instructions say to look. A `revise` waiting on its step is written nowhere else but the
-     * event log until the step has spoken, so this goes on the plan and not on the card.
-     */
-    private async withIncomingReview(card: Card, stage: StageConfig): Promise<Card> {
-        if (!stage.step || stage.verifier !== 'challenge') return card;
-        const incoming = await incomingReview(this.events, this.config.project, card.frontmatter.id);
-        return incoming ? { ...card, body: withFindings(card.body, incoming.findings, incoming.criteria) } : card;
-    }
-
-    /**
-     * A review's report with the rules' failures in it, once what they cite has been checked against the
-     * tree. A report that does not parse has nothing to add to: the stage is sent again for that anyway,
-     * and the verdicts are kept, so the rules cost nothing the second time.
-     */
-    private async withRuleFailures(result: unknown, verdicts: readonly RuleVerdict[], worktree: Worktree): Promise<unknown> {
-        const failed = verdicts.filter(verdict => verdict.verdict === 'fail');
-        const parsed = ReviewResultSchema.safeParse(result);
-        if (failed.length === 0 || !parsed.success) return result;
-
-        const host = worktreeHost(worktree);
-        const paths = new Set(failed.flatMap(verdict => [...verdict.paths, ...(verdict.file ? [verdict.file] : [])]));
-        const lines = new Map<string, number>();
-        for (const path of paths) {
-            const text = await host.readFile(join(worktree.path, path)).catch(() => undefined);
-            if (text !== undefined) lines.set(path, text.split('\n').length);
-        }
-        return withRuleFindings(
-            parsed.data,
-            failed.flatMap(verdict => ruleFinding(verdict, lines) ?? []),
-        );
-    }
-
-    /**
      * Throw a `HostLostError` when `placement`'s host no longer answers, after marking it failed and
      * recording why. Returns quietly when it answers: then whatever went wrong is the stage's own.
      */
@@ -1514,265 +1203,18 @@ export class StageDispatcher {
         throw new HostLostError(placement.hostName, reason, { cause });
     }
 
-    /**
-     * Copy a file materialized here to the same card's folder under the host's run root.
-     *
-     * `rehome` rewrites this machine's run root to the host's wherever it appears in the text: a
-     * plan names preserved patches by path (its attempts section records each failed attempt's
-     * `patchPath`, and a split card's plan cites its parent's), and on the host those paths are the
-     * copies `mirrorPatches` makes, not the originals.
-     */
-    private async mirrorToHost(placement: RemotePlacement, cardId: string, localPath: string, rehome = false): Promise<string> {
-        const dir = posix.join(placement.runRoot, 'cards', cardId);
-        const remotePath = posix.join(dir, posix.basename(localPath));
-        const text = await readFile(localPath, 'utf8');
-        await placement.host.mkdir(dir);
-        await placement.host.writeFile(
-            remotePath,
-            rehome ? text.replaceAll(`${join(this.config.runRoot, 'cards')}/`, `${posix.join(placement.runRoot, 'cards')}/`) : text,
+    private runAgent(input: StageExecutionInput): Promise<StageOutcome> {
+        return executeStage(
+            {
+                project: this.config.project,
+                worktrees: this.worktrees,
+                agents: this.agents,
+                verifiers: this.verifiers,
+                resultSchemas: this.resultSchemas,
+                events: this.events,
+                logger: this.logger,
+            },
+            input,
         );
-        return remotePath;
-    }
-
-    /** Every board card's preserved patch that exists here, copied to the host; the copies' paths. */
-    private async mirrorPatches(placement: RemotePlacement, boardCards: Card[]): Promise<string[]> {
-        const copied: string[] = [];
-        for (const board of boardCards) {
-            const local = this.worktrees.failedAttemptPatchPath(board.frontmatter.id);
-            const exists = await stat(local).then(
-                () => true,
-                () => false,
-            );
-            if (exists) copied.push(await this.mirrorToHost(placement, board.frontmatter.id, local));
-        }
-        return copied;
-    }
-
-    private async runAgent(input: {
-        card: Card;
-        stage: StageConfig;
-        worktree: Worktree;
-        scope: ScopeGuard;
-        planPath: string;
-        /** Set only when the project's learnings document is non-empty — see `materializeLearnings`. */
-        learningsPath?: string;
-        stages: ProjectStages;
-        /** `run`'s allocated dev server port for this worktree (card 0027), or `undefined` when no range is configured. */
-        port?: number;
-        /** The attempt whose tree this run reopened, to continue from where it stopped. */
-        interrupted?: InterruptedAttempt;
-        /** What the rule judges said, when any rule matched this review's diff. */
-        ruleVerdicts?: RuleVerdict[];
-    }): Promise<StageOutcome> {
-        const { card, stage, worktree, scope, planPath, learningsPath, stages, port, interrupted, ruleVerdicts } = input;
-
-        const context: ToolContext = {
-            project: this.config.project,
-            cardId: card.frontmatter.id,
-            stage: stage.name,
-            worktreeRoot: worktree.path,
-            scope,
-            commands: new CommandAllowlist(stage.allowedCommands),
-            // The stage's own value wins when it sets one; otherwise the project-wide default applies,
-            // exactly as it did before this field existed (`stage.config.ts`).
-            scopeViolationPolicy: stage.scopeViolation ?? stages.scopeViolation,
-            port,
-            host: worktreeHost(worktree),
-            events: this.events,
-            logger: this.logger,
-        };
-
-        const resultSchema = this.resultSchemas.get(stage.verifier ?? stage.name);
-        if (!resultSchema) {
-            throw new Error(
-                `stage "${stage.name}" names verifier "${stage.verifier ?? stage.name}", which has no registered result schema (have: ${[...this.resultSchemas.keys()].join(', ')})`,
-            );
-        }
-
-        const adapter = this.agents.get(stage.adapter);
-        if (!adapter) {
-            throw new Error(
-                `stage "${stage.name}" names adapter "${stage.adapter}", which is not registered (have: ${[...this.agents.keys()].join(', ')})`,
-            );
-        }
-
-        // Read again rather than passed down from `run`'s own check: nothing here has spent anything
-        // since, and `run` reaches this through three separate call sites.
-        const spent = stage.maxCardInputTokens === undefined ? 0 : await this.events.budgetedInputTokens(this.config.project, card.frontmatter.id);
-
-        const budgeted = withinCardBudget(stage, spent);
-        const run = await adapter.run({
-            stage: interrupted?.spent ? withinInterruptedBudget(budgeted, interrupted.spent) : budgeted,
-            context,
-            planPath,
-            learningsPath,
-            title: card.frontmatter.title,
-            resultSchema,
-            baseSha: worktree.baseSha,
-            ...(interrupted && { resume: interrupted.sessionId ? { sessionId: interrupted.sessionId } : {} }),
-        });
-        if (run.interrupted) {
-            const { sessionId, wallClockMs, steps } = run.interrupted;
-            const attempt: InterruptedAttempt = {
-                baseSha: worktree.baseSha,
-                ...(worktree.placement && { host: worktree.placement.hostName }),
-                ...(sessionId && { sessionId }),
-                ...(stage.depth && { depth: stage.depth }),
-                spent: {
-                    wallClockMs: (interrupted?.spent?.wallClockMs ?? 0) + wallClockMs,
-                    steps: (interrupted?.spent?.steps ?? 0) + steps,
-                    inputTokens: (interrupted?.spent?.inputTokens ?? 0) + (budgetedInputTokens(run.usage) ?? 0),
-                },
-            };
-            if (run.usageLimit) {
-                throw new StageHeldError(
-                    card.frontmatter.id,
-                    stage.name,
-                    run.usage,
-                    attempt,
-                    run.usageLimit,
-                    run.heldUntil ?? run.usageLimit.resetsAt,
-                );
-            }
-            throw new StageInterruptedError(card.frontmatter.id, stage.name, run.usage, attempt);
-        }
-
-        // A question ends the run with nothing to verify: the stage said it could not finish, and why.
-        if (run.blocked) {
-            return {
-                passed: false,
-                failures: [],
-                blocked: run.blocked,
-                changedPaths: await this.worktrees.uncommittedPaths(worktree),
-                scopeGrants: scope.grants(),
-                usage: run.usage,
-                trace: run.trace,
-            };
-        }
-
-        // A loop stop skips the verifier too. The run never said it had finished, so the outcome is the
-        // same whatever a verifier finds, and testing's would run the whole suite to say so. Unjudged,
-        // so it retries here in a fresh session, and charged like any other failure, so the retries are
-        // bounded. Never `StageInterruptedError`, which charges nothing and could repeat without limit.
-        if (run.loopFailure) {
-            return {
-                passed: false,
-                failures: [run.loopFailure],
-                unjudged: true,
-                loopStopped: true,
-                failureClass: 'loop',
-                changedPaths: await this.worktrees.uncommittedPaths(worktree),
-                scopeGrants: scope.grants(),
-                result: run.result,
-                usage: run.usage,
-                trace: run.trace,
-            };
-        }
-
-        const verifier = this.verifiers.get(stage.verifier ?? stage.name);
-        if (!verifier) {
-            throw new Error(
-                `stage "${stage.name}" names verifier "${stage.verifier ?? stage.name}", which is not registered (have: ${[...this.verifiers.keys()].join(', ')})`,
-            );
-        }
-        const reported = ruleVerdicts ? await this.withRuleFailures(run.result, ruleVerdicts, worktree) : run.result;
-        const verification = await verifier.verify({ worktree, scope, stage, cardId: card.frontmatter.id, card, result: reported });
-        const verifiedTree = await this.worktrees.uncommittedSnapshot(worktree);
-        const failures = [...verification.failures];
-
-        // A result that never parsed against the stage's own schema carries no judgment about the
-        // code — there is nothing coherent for a verifier to have judged. Checked here, against the
-        // same schema the report tool itself enforces, so every stage gets this for free instead of
-        // each verifier re-parsing its own schema just to tell the dispatcher what it already knows
-        // for its own reasons (`ReviewVerifier` does this today, to return early on a hallucinated
-        // result before checking findings' provenance). Guarded on `safeParse` actually being a
-        // function: every stage registered through `StagesModule` gets a real Zod schema here, but a
-        // test double standing in for one is not this check's business to reject.
-        const schemaInvalid = reported !== undefined && typeof resultSchema.safeParse === 'function' && !resultSchema.safeParse(reported).success;
-
-        // A stage that never called the report tool never said it was finished. Whatever is in the
-        // tree is where it happened to stop, not what it set out to produce. A stage that *did* call
-        // it is a different sentence: the work is done and the runner lost the paperwork, not the
-        // agent's fault, which is exactly what `run.resultDropped` distinguishes (`stage.agent.ts`).
-        if (reported === undefined) {
-            failures.unshift(
-                run.resultDropped
-                    ? `the stage called ${REPORT_TOOL} and the result did not arrive, so the runner never saw it`
-                    : `the stage ended without calling ${REPORT_TOOL}, so it never reported finishing`,
-            );
-        }
-
-        // A loop that ran out of steps did not finish; it stopped. Card 0002 exhausted its 60 steps
-        // a third of the way through its plan, emitted a placeholder result, and passed — because
-        // the diff was non-empty, in scope, and built. Truncation is knowable, so it is checked.
-        //
-        // Only when no more specific cause is known: a wall-clock or token-budget cutoff can land
-        // with `truncated: true` well before the step count is exhausted, and naming the step cap
-        // there would be false — `run.budgetFailure`, pushed below, already names the real cause.
-        if (run.truncated && !run.budgetFailure && !run.engineFailure) {
-            failures.unshift(
-                `the stage used all ${stage.maxSteps} of its steps and was cut off mid-run — its work is partial whatever the diff shows`,
-            );
-        }
-
-        if (run.budgetFailure) {
-            failures.unshift(run.budgetFailure);
-        }
-
-        // Ahead of everything else: when the engine stopped responding, nothing downstream of it —
-        // an empty diff, a missing result, a build that never ran — describes a decision the stage
-        // made. Leading with the cause stops the operator reading the symptoms as the problem.
-        if (run.engineFailure) {
-            failures.unshift(run.engineFailure);
-        }
-
-        // None of the checks above is a verdict on the code: a truncated run, a budget or engine
-        // cutoff, a missing report and an unparseable result are all the stage failing to finish, not
-        // a judgment of what it produced. Left `false` when a verifier's own substantive checks are
-        // what failed — a bad citation, an empty diff, a verdict that contradicts its severities —
-        // since those are exactly the judgments `writeTransition`/`kickback` should route past.
-        //
-        // `verification.reportRejected` (card 0250) joins the same list for the same reason: a review
-        // or challenge rejected only for a fault in its own report — not a statement about the card's
-        // code — has nothing for `onFail`'s next stage to act on either, so it retries this stage
-        // instead of routing onward, the same as a truncated run or a dropped result do.
-        const unjudged =
-            failures.length > 0 &&
-            (reported === undefined ||
-                schemaInvalid ||
-                run.truncated ||
-                Boolean(run.budgetFailure) ||
-                Boolean(run.engineFailure) ||
-                Boolean(verification.reportRejected));
-
-        // Only the verifier's own failures may stand: one added above means the run did not finish,
-        // and a report from a run that did not finish is not a division to act on.
-        const supportedRefusal = !unjudged && failures.length === verification.failures.length ? verification.supportedRefusal : undefined;
-
-        return {
-            passed: failures.length === 0,
-            failures,
-            changedPaths: verification.changedPaths,
-            verifiedTree,
-            scopeGrants: scope.grants(),
-            result: reported,
-            usage: run.usage,
-            unjudged,
-            resultDropped: run.resultDropped,
-            engineStopReason: run.engineStopReason,
-            trace: run.trace,
-            ...(failures.length > 0 && {
-                failureClass: failureClassOf({
-                    engineFailure: run.engineFailure,
-                    budgetFailure: run.budgetFailure,
-                    truncated: run.truncated,
-                    resultDropped: run.resultDropped,
-                    noReport: reported === undefined,
-                    schemaInvalid,
-                    reportRejected: verification.reportRejected,
-                }),
-            }),
-            ...(supportedRefusal && { supportedRefusal }),
-        };
     }
 }

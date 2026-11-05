@@ -4,6 +4,7 @@ import type { DateTime } from 'luxon';
 import { Logger } from '@maroonedsoftware/logger';
 import { budgetedInputTokens } from '#modules/agent/budget.js';
 import type { DB } from '#modules/data/db.js';
+import { EVAL_RUN_ID_PREFIX } from '#modules/evals/eval.run.id.js';
 import { CARD_FEED_CHANNEL } from '#modules/feed/card.feed.js';
 import type { ProjectConversationStats, ProjectGateStats, ProjectStageStats, ProjectStats, ProjectStatsCounts } from '../../generated/board.js';
 import type { CardEvent, CardEventType } from './card.event.js';
@@ -215,6 +216,7 @@ export class EventLog {
             .leftJoin('wilson.cards as card', join => join.onRef('card.project', '=', 'event.project').onRef('card.id', '=', 'event.cardId'))
             .where('event.project', '=', project)
             .where('event.type', 'not in', QUIET_ACTIVITY_TYPES)
+            .where('event.cardId', 'not like', `${EVAL_RUN_ID_PREFIX}%`)
             .orderBy('event.id', 'desc')
             .limit(limit)
             .select(['event.id', 'event.cardId', 'card.title as cardTitle', 'event.stage', 'event.type', 'event.payload', 'event.createdAt']);
