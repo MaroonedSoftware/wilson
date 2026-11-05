@@ -268,6 +268,31 @@ public sealed record SetGitHubAppSettingRequest
 }
 
 /// <summary>
+/// Whether events wake this project's goals, and how much its goal threads may spend in a day. See
+/// `orchestrator.setting.ts`. The agent can read these and never change them: `mcp: exclude` keeps the
+/// write out of the catalog, so it cannot propose widening its own limits (PROJECT.md decision 8).
+/// </summary>
+public sealed record OrchestratorSetting
+{
+    [JsonPropertyName("enabled")]
+    public required bool Enabled { get; init; }
+
+    [JsonPropertyName("dailyOutputTokens")]
+    public required long DailyOutputTokens { get; init; }
+}
+
+public sealed record SetOrchestratorSettingRequest
+{
+    [JsonPropertyName("enabled")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? Enabled { get; init; }
+
+    [JsonPropertyName("dailyOutputTokens")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? DailyOutputTokens { get; init; }
+}
+
+/// <summary>
 /// Whether the server is draining, and what a restart would interrupt. `safeToRestart` is true only
 /// while draining with nothing running, since an idle moment without a drain lasts only until the next
 /// stage starts. `held` counts every `card.stage` job waiting to run. `planDrafts` counts running plan

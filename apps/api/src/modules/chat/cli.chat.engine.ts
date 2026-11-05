@@ -52,21 +52,48 @@ async function* promptWithImages(text: string, images: ChatImage[], done: Promis
     await done;
 }
 
-/** The tools this message offers or attempts that are not served from {@link CHAT_SERVER}. */
-const foreignTools = (message: SDKMessage): string[] => {
+const isForeign = (name: string): boolean => !name.startsWith(`mcp__${CHAT_SERVER}__`);
+
+/** Fails on any tool this message offers or attempts that is not served from {@link CHAT_SERVER}. */
+const assertOwnTools = (message: SDKMessage): void => {
     const names =
         message.type === 'system' && message.subtype === 'init'
             ? message.tools
             : message.type === 'assistant'
               ? message.message.content.flatMap(part => (part.type === 'tool_use' ? [part.name] : []))
               : [];
-    return names.filter(name => !name.startsWith(`mcp__${CHAT_SERVER}__`));
-};
-
-const assertOwnTools = (message: SDKMessage): void => {
-    const foreign = foreignTools(message);
+    const foreign = names.filter(isForeign);
     if (foreign.length > 0) throw new Error(`the engine reached for a tool it was not given: ${foreign.join(', ')}`);
 };
+
+/**
+ * `onlyOwnTools: 'ran'`, across a turn: fails on a foreign tool the engine offers, or on a foreign call
+ * whose result is anything but a refusal, and remembers the rest. A result that does not say it was
+ * refused counts as having run, so anything unexpected here fails the turn.
+ */
+class RanToolsCheck {
+    private readonly attempted = new Map<string, string>();
+    readonly refused: string[] = [];
+
+    observe(message: SDKMessage): void {
+        if (message.type === 'system' && message.subtype === 'init') {
+            const foreign = message.tools.filter(isForeign);
+            if (foreign.length > 0) throw new Error(`the engine offered a tool it was not given: ${foreign.join(', ')}`);
+        } else if (message.type === 'assistant') {
+            for (const part of message.message.content) {
+                if (part.type === 'tool_use' && isForeign(part.name)) this.attempted.set(part.id, part.name);
+            }
+        } else if (message.type === 'user' && Array.isArray(message.message.content)) {
+            for (const part of message.message.content) {
+                if (part.type !== 'tool_result') continue;
+                const name = this.attempted.get(part.tool_use_id);
+                if (!name) continue;
+                if (part.is_error !== true) throw new Error(`the engine ran a tool it was not given: ${name}`);
+                this.refused.push(name);
+            }
+        }
+    }
+}
 
 /**
  * The 'cli' engine: the Claude Agent SDK on the operator's subscription (`subscriptionEnv`, the same
@@ -103,6 +130,7 @@ export class CliChatEngine extends ChatEngine {
         const account = await this.accounts?.local();
         if (account?.limit) throw new Error(describeUsageLimit(account.limit));
         const usageWatch = new UsageLimitWatch(account?.name ?? LOCAL_ACCOUNT);
+        const ranTools = onlyOwnTools === 'ran' ? new RanToolsCheck() : undefined;
         const server = createSdkMcpServer({
             name: CHAT_SERVER,
             tools: tools.map(chatTool =>
@@ -142,7 +170,8 @@ export class CliChatEngine extends ChatEngine {
         try {
             for await (const message of stream) {
                 usageWatch.observe(message);
-                if (onlyOwnTools) assertOwnTools(message);
+                if (onlyOwnTools === true) assertOwnTools(message);
+                ranTools?.observe(message);
                 if ('session_id' in message && message.session_id) sessionId = message.session_id;
                 if (message.type === 'stream_event' && message.event.type === 'content_block_delta' && message.event.delta.type === 'text_delta') {
                     streamed += message.event.delta.text;
@@ -156,6 +185,9 @@ export class CliChatEngine extends ChatEngine {
                     }
                     if (message.subtype !== 'success')
                         throw new Error(`the engine stopped (${message.subtype}): ${message.errors.join('; ') || 'no reason given'}`);
+                    // A login the engine could not use ends a turn as a "success" whose text is the error.
+                    // Returned as an answer, it would read as the chat's own words and count as a turn that worked.
+                    if (message.is_error) throw new Error(message.result || 'the engine reported an error');
                     usage = message.usage
                         ? {
                               inputTokens: message.usage.input_tokens,
@@ -172,6 +204,11 @@ export class CliChatEngine extends ChatEngine {
 
         // The streamed deltas are the answer as the person watched it arrive; the completed blocks
         // are the fallback for an engine build that sends no partial messages.
-        return { text: streamed || written, engineSessionId: sessionId, usage };
+        return {
+            text: streamed || written,
+            engineSessionId: sessionId,
+            usage,
+            ...(ranTools && ranTools.refused.length > 0 ? { refusedTools: ranTools.refused } : {}),
+        };
     }
 }

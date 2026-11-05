@@ -71,6 +71,7 @@ export const fakeCatalog = (handlers: McpToolHandler[]): ChatCatalog => {
 export const fakeProposals = (): { stored: PendingAction[]; repository: ChatPendingActionRepository } => {
     const stored: PendingAction[] = [];
     const repository = {
+        findPending: async () => undefined,
         propose: async (threadId: string, action: NewPendingAction): Promise<PendingAction> => {
             const created: PendingAction = {
                 id: String(stored.length + 1),

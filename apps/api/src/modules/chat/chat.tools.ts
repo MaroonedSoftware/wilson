@@ -163,9 +163,17 @@ export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatT
                 const entry = catalog.get(name);
                 if (!entry) return `There is no operation named "${name}". Search for one first.`;
                 if (entry.readOnly) return `"${name}" only reads. Run it directly instead of proposing it.`;
-                const action = await context.container
-                    .get(ChatPendingActionRepository)
-                    .propose(context.threadId, { project, operation: name, arguments: args, summary, expiresIn: PROPOSAL_TTL });
+                const proposals = context.container.get(ChatPendingActionRepository);
+                const waiting = await proposals.findPending(context.threadId, { project, operation: name, arguments: args });
+                if (waiting)
+                    return `Already proposed as change ${waiting.id}: "${waiting.summary}". It still waits on the person, so do not propose it again.`;
+                const action = await proposals.propose(context.threadId, {
+                    project,
+                    operation: name,
+                    arguments: args,
+                    summary,
+                    expiresIn: PROPOSAL_TTL,
+                });
                 context.proposed.push(action);
                 context.emit?.({ type: 'proposed', action });
                 return `Proposed as change ${action.id}: "${summary}". It has not been made. The person will confirm or decline it within ${PROPOSAL_TTL.as('minutes')} minutes.`;

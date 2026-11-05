@@ -29,6 +29,7 @@ public sealed class WilsonSdk : IDisposable
         EngineTokens = new EngineTokensClient(Http);
         Evals = new EvalsClient(Http);
         Factors = new FactorsClient(Http);
+        Goals = new GoalsClient(Http);
         Health = new HealthClient(Http);
         Hosts = new HostsClient(Http);
         Learnings = new LearningsClient(Http);
@@ -61,6 +62,8 @@ public sealed class WilsonSdk : IDisposable
     public EvalsClient Evals { get; }
 
     public FactorsClient Factors { get; }
+
+    public GoalsClient Goals { get; }
 
     public HealthClient Health { get; }
 

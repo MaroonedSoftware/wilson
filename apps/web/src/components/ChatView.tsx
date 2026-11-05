@@ -8,6 +8,7 @@ import { ChatActionCard, isAwaiting } from '#src/components/ChatActionCard.js';
 import { ChatQuestionCard, isUnanswered } from '#src/components/ChatQuestionCard.js';
 import { AnswerInProgress, Message, UserMessage } from '#src/components/ChatMessages.js';
 import { ThreadList, ThreadMenu } from '#src/components/ChatThreads.js';
+import { GoalStrip } from '#src/components/GoalStrip.js';
 import {
     draftWithoutSuggestions,
     setActiveThread,
@@ -152,6 +153,7 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
         </Center>
     ) : (
         <Stack gap={0} h="100%">
+            <GoalStrip threadId={threadId} />
             <ScrollArea style={{ flex: 1 }} viewportRef={scrollableRef} type="auto">
                 <Stack gap="md" px="md" py="lg" mx="auto" maw={COLUMN_WIDTH} aria-live="polite">
                     {thread.isLoading && <Skeleton height={48} />}

@@ -10,6 +10,7 @@ import { DevicesClient } from './devices.client.js';
 import { EngineTokensClient } from './engine.tokens.client.js';
 import { EvalsClient } from './evals.client.js';
 import { FactorsClient } from './factors.client.js';
+import { GoalsClient } from './goals.client.js';
 import { HealthClient } from './health.client.js';
 import { HostsClient } from './hosts.client.js';
 import { LearningsClient } from './learnings.client.js';
@@ -31,6 +32,7 @@ export class WilsonSdk {
     readonly engineTokens: EngineTokensClient;
     readonly evals: EvalsClient;
     readonly factors: FactorsClient;
+    readonly goals: GoalsClient;
     readonly health: HealthClient;
     readonly hosts: HostsClient;
     readonly learnings: LearningsClient;
@@ -53,6 +55,7 @@ export class WilsonSdk {
         this.engineTokens = new EngineTokensClient(sdkFetch);
         this.evals = new EvalsClient(sdkFetch);
         this.factors = new FactorsClient(sdkFetch);
+        this.goals = new GoalsClient(sdkFetch);
         this.health = new HealthClient(sdkFetch);
         this.hosts = new HostsClient(sdkFetch);
         this.learnings = new LearningsClient(sdkFetch);

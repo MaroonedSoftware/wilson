@@ -232,6 +232,17 @@ export interface WilsonChatThreads {
   updatedAt: Generated<DateTime>;
 }
 
+export interface WilsonChatTurnUsage {
+  cachedInputTokens: number | null;
+  createdAt: Generated<DateTime>;
+  engine: "api" | "cli";
+  id: Generated<bigint>;
+  inputTokens: number | null;
+  model: string;
+  outputTokens: number;
+  threadId: bigint;
+}
+
 export interface WilsonCodeReads {
   commitSha: string | null;
   createdAt: Generated<DateTime>;
@@ -262,6 +273,26 @@ export interface WilsonEngineTokens {
   priority: Generated<number>;
   provider: Generated<"anthropic" | "openai" | "xai">;
   updatedAt: Generated<DateTime>;
+}
+
+export interface WilsonGoalCards {
+  cardId: string;
+  createdAt: Generated<DateTime>;
+  goalId: bigint;
+  project: string;
+}
+
+export interface WilsonGoals {
+  createdAt: Generated<DateTime>;
+  id: Generated<bigint>;
+  lastEventId: Generated<bigint>;
+  outcome: string;
+  project: string;
+  status: Generated<"active" | "paused" | "done" | "abandoned">;
+  threadId: bigint;
+  title: string;
+  updatedAt: Generated<DateTime>;
+  wakeHeldUntil: DateTime | null;
 }
 
 export interface WilsonHostProjects {
@@ -594,9 +625,12 @@ export interface DB {
   "wilson.chatPendingActions": WilsonChatPendingActions;
   "wilson.chatQuestions": WilsonChatQuestions;
   "wilson.chatThreads": WilsonChatThreads;
+  "wilson.chatTurnUsage": WilsonChatTurnUsage;
   "wilson.codeReads": WilsonCodeReads;
   "wilson.engineLimits": WilsonEngineLimits;
   "wilson.engineTokens": WilsonEngineTokens;
+  "wilson.goalCards": WilsonGoalCards;
+  "wilson.goals": WilsonGoals;
   "wilson.hostProjects": WilsonHostProjects;
   "wilson.hosts": WilsonHosts;
   "wilson.evalBatches": WilsonEvalBatches;

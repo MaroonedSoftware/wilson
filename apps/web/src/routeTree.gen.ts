@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as HostsRouteImport } from './routes/hosts'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as GoalsIndexRouteImport } from './routes/goals.index'
+import { Route as GoalsGoalIdRouteImport } from './routes/goals.$goalId'
 import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
 import { Route as ProjectsProjectIndexRouteImport } from './routes/projects.$project.index'
 import { Route as ProjectsProjectActivityRouteImport } from './routes/projects.$project.activity'
@@ -33,6 +35,16 @@ const HostsRoute = HostsRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GoalsIndexRoute = GoalsIndexRouteImport.update({
+  id: '/goals/',
+  path: '/goals/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GoalsGoalIdRoute = GoalsGoalIdRouteImport.update({
+  id: '/goals/$goalId',
+  path: '/goals/$goalId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
@@ -76,6 +88,8 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/hosts': typeof HostsRoute
   '/settings': typeof SettingsRoute
+  '/goals/$goalId': typeof GoalsGoalIdRoute
+  '/goals/': typeof GoalsIndexRoute
   '/projects/': typeof ProjectsIndexRoute
   '/projects/$project/activity': typeof ProjectsProjectActivityRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
@@ -88,6 +102,8 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/hosts': typeof HostsRoute
   '/settings': typeof SettingsRoute
+  '/goals/$goalId': typeof GoalsGoalIdRoute
+  '/goals': typeof GoalsIndexRoute
   '/projects': typeof ProjectsIndexRoute
   '/projects/$project/activity': typeof ProjectsProjectActivityRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
@@ -101,6 +117,8 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/hosts': typeof HostsRoute
   '/settings': typeof SettingsRoute
+  '/goals/$goalId': typeof GoalsGoalIdRoute
+  '/goals/': typeof GoalsIndexRoute
   '/projects/': typeof ProjectsIndexRoute
   '/projects/$project/activity': typeof ProjectsProjectActivityRoute
   '/projects/$project/flagged': typeof ProjectsProjectFlaggedRoute
@@ -115,6 +133,8 @@ export interface FileRouteTypes {
     | '/'
     | '/hosts'
     | '/settings'
+    | '/goals/$goalId'
+    | '/goals/'
     | '/projects/'
     | '/projects/$project/activity'
     | '/projects/$project/flagged'
@@ -127,6 +147,8 @@ export interface FileRouteTypes {
     | '/'
     | '/hosts'
     | '/settings'
+    | '/goals/$goalId'
+    | '/goals'
     | '/projects'
     | '/projects/$project/activity'
     | '/projects/$project/flagged'
@@ -139,6 +161,8 @@ export interface FileRouteTypes {
     | '/'
     | '/hosts'
     | '/settings'
+    | '/goals/$goalId'
+    | '/goals/'
     | '/projects/'
     | '/projects/$project/activity'
     | '/projects/$project/flagged'
@@ -152,6 +176,8 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   HostsRoute: typeof HostsRoute
   SettingsRoute: typeof SettingsRoute
+  GoalsGoalIdRoute: typeof GoalsGoalIdRoute
+  GoalsIndexRoute: typeof GoalsIndexRoute
   ProjectsIndexRoute: typeof ProjectsIndexRoute
   ProjectsProjectActivityRoute: typeof ProjectsProjectActivityRoute
   ProjectsProjectFlaggedRoute: typeof ProjectsProjectFlaggedRoute
@@ -182,6 +208,20 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/goals/': {
+      id: '/goals/'
+      path: '/goals'
+      fullPath: '/goals/'
+      preLoaderRoute: typeof GoalsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/goals/$goalId': {
+      id: '/goals/$goalId'
+      path: '/goals/$goalId'
+      fullPath: '/goals/$goalId'
+      preLoaderRoute: typeof GoalsGoalIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/projects/': {
@@ -240,6 +280,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   HostsRoute: HostsRoute,
   SettingsRoute: SettingsRoute,
+  GoalsGoalIdRoute: GoalsGoalIdRoute,
+  GoalsIndexRoute: GoalsIndexRoute,
   ProjectsIndexRoute: ProjectsIndexRoute,
   ProjectsProjectActivityRoute: ProjectsProjectActivityRoute,
   ProjectsProjectFlaggedRoute: ProjectsProjectFlaggedRoute,

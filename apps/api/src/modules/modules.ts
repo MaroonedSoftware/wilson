@@ -11,6 +11,7 @@ import { WorkerModule } from './worker/worker.module.js';
 import { DataModule } from './data/data.module.js';
 import { EventsModule } from './events/events.module.js';
 import { GitHubModule } from './github/github.module.js';
+import { GoalModule } from './goal/goal.module.js';
 import { JobsModule } from './jobs/jobs.module.js';
 import { LeaseModule } from './lease/lease.module.js';
 import { NotifyModule } from './notify/notify.module.js';
@@ -83,6 +84,7 @@ export const modules: ServerKitModule[] = [
     ReviewModule,
     NotifyModule,
     SettingsModule,
+    GoalModule,
     McpModule,
     ChatModule,
     JobsModule,

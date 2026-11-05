@@ -1,4 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { AuthenticationSession } from '@maroonedsoftware/authentication';
 import type { Kysely } from 'kysely';
 import { Duration } from 'luxon';
 import { ConsoleLogger } from '@maroonedsoftware/logger';
@@ -20,7 +22,9 @@ import {
     titleFrom,
 } from '#modules/chat/chat.service.js';
 import { ChatThreadRepository } from '#modules/chat/chat.thread.repository.js';
+import { ChatUsageRepository } from '#modules/chat/chat.usage.repository.js';
 import type { DB } from '#modules/data/db.js';
+import { GoalRepository } from '#modules/goal/goal.repository.js';
 import { testDb } from '#tests/support/test.db.js';
 import { fakeCatalog, fakeContainer, fakeHandler, fakeSession, refusal, type FakeCall } from './chat.fakes.js';
 import { calls, says, scriptedModel } from './chat.model.fake.js';
@@ -43,7 +47,7 @@ const statusOf = (err: unknown): unknown => (err as { statusCode?: unknown }).st
  * once when they make it, and nothing they said is lost when the model cannot answer.
  */
 describe('ChatService', () => {
-    const setup = (steps: Parameters<typeof scriptedModel>[0]) => {
+    const setup = (steps: Parameters<typeof scriptedModel>[0], session: () => AuthenticationSession = () => fakeSession) => {
         const operationCalls: FakeCall[] = [];
         const catalog = fakeCatalog([
             fakeHandler('list_cards', true, operationCalls, { result: [{ id: '0007', stage: 'review' }] }),
@@ -62,11 +66,13 @@ describe('ChatService', () => {
             new ChatAttachmentRepository(db),
             actions,
             questions,
+            new ChatUsageRepository(db),
+            new GoalRepository(db),
             catalog,
             container.get(ProjectRepository),
             { api: new ApiChatEngine(model.registry), cli: undefined },
             async (): Promise<ChatEngineChoice> => ({ engine: 'api', provider: 'anthropic', model: 'claude-sonnet-5-5' }),
-            () => fakeSession,
+            session,
         );
         return { service, model, operationCalls, questions };
     };
@@ -226,6 +232,155 @@ describe('ChatService', () => {
         stop();
 
         expect(heard).toEqual([{ event: 'failed', data: { reason: expect.stringContaining('the chat could not answer') } }]);
+    });
+
+    describe('usage', () => {
+        const usageOf = (threadId: string) =>
+            db
+                .selectFrom('wilson.chatTurnUsage')
+                .select(['engine', 'model', 'inputTokens', 'cachedInputTokens', 'outputTokens'])
+                .where('threadId', '=', BigInt(threadId))
+                .orderBy('id')
+                .execute();
+        const oneTurn = { engine: 'api', model: 'claude-sonnet-5-5', inputTokens: 10, cachedInputTokens: 0, outputTokens: 5 };
+
+        it('records what a turn cost', async () => {
+            const { service } = setup([says('Two cards.')]);
+            const thread = await service.startThread();
+
+            await service.sendMessage(thread.id, { text: 'What is in review?' });
+
+            expect(await usageOf(thread.id)).toEqual([oneTurn]);
+        });
+
+        it(`records a silent follow-up too, which stores no message (${NOTHING_MORE})`, async () => {
+            const { service } = setup([proposeMove, says('Proposed.'), says(NOTHING_MORE)]);
+            const thread = await service.startThread();
+            const { proposed } = await service.sendMessage(thread.id, { text: 'Move 0007' });
+
+            await service.decide(proposed[0]!.id, { decision: 'confirm' });
+            await service.whenIdle();
+
+            expect((await service.getThread(thread.id)).messages).toHaveLength(2);
+            expect(await usageOf(thread.id)).toEqual([{ ...oneTurn, inputTokens: 20, outputTokens: 10 }, oneTurn]);
+        });
+
+        it('keeps the answer when its usage cannot be recorded', async () => {
+            const record = vi.spyOn(ChatUsageRepository.prototype, 'record').mockRejectedValueOnce(new Error('the disk is full'));
+            const { service } = setup([says('Two cards.')]);
+            const thread = await service.startThread();
+
+            const { reply } = await service.sendMessage(thread.id, { text: 'What is in review?' });
+
+            expect(reply.content).toBe('Two cards.');
+            record.mockRestore();
+        });
+    });
+
+    it('does not propose the same change twice while the first still waits', async () => {
+        const { service } = setup([proposeMove, says('Proposed.'), proposeMove, says('Already proposed.')]);
+        const thread = await service.startThread();
+
+        const first = await service.sendMessage(thread.id, { text: 'Move 0007' });
+        const second = await service.sendMessage(thread.id, { text: 'Move 0007 please' });
+
+        expect(first.proposed).toHaveLength(1);
+        expect(second.proposed).toEqual([]);
+        expect((await service.getThread(thread.id)).actions).toHaveLength(1);
+    });
+
+    describe('runNote', () => {
+        const noRequest = () => {
+            throw new Error('there is no request in progress');
+        };
+        const readCards = calls('dispatch_readonly', { name: 'list_cards', project: 'wilson' });
+
+        it('runs where there is no request, and stores the answer but not the note', async () => {
+            const { service, model, operationCalls } = setup([readCards, says('0007 is stuck.')], noRequest);
+            const thread = await service.startThread();
+
+            const outcome = await service.runNote(thread.id, '(A note from Wilson.) 0007 was flagged.', fakeSession, 'wilson');
+
+            expect(outcome?.reply?.content).toBe('0007 is stuck.');
+            expect(operationCalls.map(call => call.name)).toEqual(['list_cards']);
+            expect(JSON.stringify(model.prompts[0])).toContain('0007 was flagged');
+            const { messages } = await service.getThread(thread.id);
+            expect(messages.map(message => [message.role, message.content])).toEqual([['assistant', '0007 is stuck.']]);
+        });
+
+        it(`stores nothing when there is nothing to say (${NOTHING_MORE})`, async () => {
+            const { service } = setup([says(NOTHING_MORE)], noRequest);
+            const thread = await service.startThread();
+
+            const outcome = await service.runNote(thread.id, '(A note from Wilson.) 0007 passed.', fakeSession);
+
+            expect(outcome).toEqual({ proposed: [], asked: [] });
+            expect((await service.getThread(thread.id)).messages).toEqual([]);
+        });
+
+        it('hands back what it proposed, which still waits on the person', async () => {
+            const { service, operationCalls } = setup([proposeMove, says('Proposed.')], noRequest);
+            const thread = await service.startThread();
+
+            const outcome = await service.runNote(thread.id, '(A note from Wilson.) 0007 was flagged.', fakeSession);
+
+            expect(outcome?.proposed.map(action => action.status)).toEqual(['pending']);
+            expect(operationCalls).toEqual([]);
+        });
+
+        it('rejects when the turn fails, where a follow-up would only log it', async () => {
+            const { service } = setup([], noRequest);
+            const thread = await service.startThread();
+
+            await expect(service.runNote(thread.id, 'a note', fakeSession)).rejects.toMatchObject({ statusCode: 503 });
+            await service.whenIdle();
+        });
+
+        it('answers undefined for a thread that does not exist', async () => {
+            const { service, model } = setup([], noRequest);
+
+            await expect(service.runNote('999999999', 'a note', fakeSession)).resolves.toBeUndefined();
+            expect(model.prompts).toEqual([]);
+        });
+
+        it('takes turns with a message sent to the same thread', async () => {
+            const { service, model } = setup([says('First.'), says('Second.')]);
+            const thread = await service.startThread();
+
+            const [sent, note] = await Promise.all([
+                service.sendMessage(thread.id, { text: 'First?' }),
+                service.runNote(thread.id, 'a note', fakeSession),
+            ]);
+
+            // Whichever takes the lock first, the other's turn reads its answer rather than racing it.
+            expect([sent.reply.content, note?.reply?.content].sort()).toEqual(['First.', 'Second.']);
+            expect(JSON.stringify(model.prompts[1])).toContain('First.');
+        });
+    });
+
+    it('holds every turn to its own tools, so an engine that offers or runs another fails it', async () => {
+        const turn = vi.spyOn(ApiChatEngine.prototype, 'turn');
+        const { service } = setup([says('Two cards.')]);
+        const thread = await service.startThread();
+
+        await service.sendMessage(thread.id, { text: 'What is in review?' });
+
+        expect(turn.mock.calls.map(([input]) => input.onlyOwnTools)).toEqual(['ran']);
+        turn.mockRestore();
+    });
+
+    it("tells the model its thread's goal, and leaves its cards to be read", async () => {
+        const project = `chat-goal-${randomUUID()}`;
+        await db.insertInto('wilson.projects').values({ name: project, codeRoot: '/c', worktreeRoot: '/w', runRoot: '/r' }).execute();
+        const { service, model } = setup([says('Noted.')]);
+        const thread = await service.startThread();
+        const goal = await new GoalRepository(db).create({ threadId: thread.id, project, title: 'Add SSO', outcome: 'People sign in with SSO' });
+
+        await service.sendMessage(thread.id, { text: 'Where are we?' });
+
+        const prompt = JSON.stringify(model.prompts[0]);
+        expect(prompt).toContain(`sees through goal ${goal.id}`);
+        expect(prompt).toContain('People sign in with SSO');
     });
 
     it('tells the model which project the person is looking at', async () => {

@@ -4,6 +4,7 @@ import { JobRunner } from '@maroonedsoftware/jobbroker';
 import { PgBossJobRegistryMap } from '@maroonedsoftware/jobbroker/pgboss';
 import type { AppConfig } from '@maroonedsoftware/appconfig';
 import type { Container, Identifier, Registry } from 'injectkit';
+import { GoalWatcher } from '#modules/jobs/goal.watcher.js';
 import { CARD_STAGE_DEAD_POLICY, CARD_STAGE_POLICY, CARD_STAGE_WORKER, JobsModule } from '#modules/jobs/jobs.module.js';
 import { CARD_STAGE_CONCURRENCY_DEFAULT } from '#modules/jobs/job.runner.config.js';
 
@@ -140,6 +141,7 @@ describe('JobsModule.start', () => {
             get: (token: unknown) => {
                 if (token === Logger) return logger;
                 if (token === JobRunner) return jobRunner;
+                if (token === GoalWatcher) return { start: vi.fn() };
                 throw new Error(`fakeContainer: no registration for ${String(token)}`);
             },
         }) as unknown as Container;

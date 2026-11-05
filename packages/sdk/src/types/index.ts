@@ -9,6 +9,7 @@ export * from './devices.js';
 export * from './engine.tokens.js';
 export * from './evals.js';
 export * from './factors.js';
+export * from './goals.js';
 export * from './health.js';
 export * from './hosts.js';
 export * from './learnings.js';
