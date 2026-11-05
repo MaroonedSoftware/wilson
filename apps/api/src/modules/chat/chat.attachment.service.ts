@@ -1,10 +1,14 @@
 import { httpError } from '@maroonedsoftware/errors';
 import type { MultipartBody } from '@maroonedsoftware/multipart';
 import { Injectable } from 'injectkit';
-import { contentHash, parseAttachmentId, safeFilename, sniffImageType, type AttachmentImageType } from '#modules/context/attachment.bytes.js';
+import { contentHash, parseAttachmentId, safeFilename, sniffImageType } from '#modules/context/attachment.bytes.js';
 import type { ChatAttachment } from '#src/generated/chat.js';
 import { ChatAttachmentRepository, type StoredChatAttachment } from './chat.attachment.repository.js';
+import { decodeCreatedImage, sanitiseSvg, type CreatedImageType } from './chat.image.js';
 import { ChatThreadRepository } from './chat.thread.repository.js';
+
+/** An image the chat made: SVG source to scan, or base64 bytes to decode and sniff. */
+export type CreatedImageInput = { kind: 'svg'; source: string } | { kind: 'bytes'; base64: string };
 
 /**
  * The largest image a chat takes, cautious because the 'api' engine sends bytes straight to a provider.
@@ -75,19 +79,53 @@ export class ChatAttachmentService {
         return toWireAttachment(stored);
     }
 
-    /** One image's bytes, under the type they were sniffed as, with the two fixed security headers. */
+    /**
+     * Check an image the chat created, store it unclaimed, and clear out old uploads no message claimed.
+     * SVG source must pass `sanitiseSvg`; base64 bytes must decode strictly to one of the four sniffed
+     * types. A refusal is a 400 whose `details.reason` is the check's own sentence. Returns the stored
+     * row, so the caller has its id.
+     */
+    async create(threadId: string, input: CreatedImageInput, filename: string): Promise<StoredChatAttachment> {
+        await this.threadOrThrow(threadId);
+
+        let bytes: Buffer;
+        let contentType: CreatedImageType;
+        if (input.kind === 'svg') {
+            const checked = sanitiseSvg(input.source);
+            if (!checked.ok) throw refusal(checked.reason);
+            bytes = checked.bytes;
+            contentType = 'image/svg+xml';
+        } else {
+            const checked = decodeCreatedImage(input.base64);
+            if (!checked.ok) throw refusal(checked.reason);
+            bytes = checked.bytes;
+            contentType = checked.contentType;
+        }
+
+        const stored = await this.attachments.insert(threadId, {
+            filename: safeFilename(filename),
+            contentType,
+            contentHash: contentHash(bytes),
+            bytes,
+        });
+        await this.attachments.sweepUnclaimed();
+        return stored;
+    }
+
+    /** One image's bytes, under the type they were stored as, with the two fixed security headers. */
     async bytes(
         id: string,
         attachmentId: string,
-    ): Promise<{ contentType: AttachmentImageType; body: Buffer; headers: { xContentTypeOptions: string; contentSecurityPolicy: string } }> {
+    ): Promise<{ contentType: CreatedImageType; body: Buffer; headers: { xContentTypeOptions: string; contentSecurityPolicy: string } }> {
         await this.threadOrThrow(id);
         const rowId = parseAttachmentId(attachmentId);
         if (!rowId) throw httpError(404);
         const attachment = await this.attachments.read(id, rowId);
         if (!attachment) throw httpError(404);
         return {
-            // `upload` only ever stores what `sniffImageType` returned.
-            contentType: attachment.contentType as AttachmentImageType,
+            // `upload` stores only what `sniffImageType` returned, and `create` only that or SVG that
+            // passed `sanitiseSvg`; nothing else writes a row.
+            contentType: attachment.contentType as CreatedImageType,
             body: attachment.bytes,
             headers: { xContentTypeOptions: X_CONTENT_TYPE_OPTIONS, contentSecurityPolicy: CONTENT_SECURITY_POLICY },
         };

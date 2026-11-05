@@ -105,7 +105,7 @@ export class ChatClient {
         id: string,
         attachmentId: string,
     ): Promise<{
-        contentType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+        contentType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif' | 'image/svg+xml';
         data: Blob;
         headers: { xContentTypeOptions: string; contentSecurityPolicy: string };
     }> {
@@ -113,7 +113,7 @@ export class ChatClient {
             method: 'GET',
         });
         return {
-            contentType: readContentType(result) as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif',
+            contentType: readContentType(result) as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif' | 'image/svg+xml',
             data: await result.blob(),
             headers: {
                 xContentTypeOptions: result.headers.get('x-content-type-options')!,

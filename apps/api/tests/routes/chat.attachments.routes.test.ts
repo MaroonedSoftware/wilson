@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ChatThreadRepository } from '#modules/chat/chat.thread.repository.js';
-import { MAX_CHAT_IMAGE_BYTES } from '#modules/chat/chat.attachment.service.js';
+import { ChatAttachmentService, MAX_CHAT_IMAGE_BYTES } from '#modules/chat/chat.attachment.service.js';
 import { clearAccounts, holdAccounts } from '#tests/support/test.accounts.js';
 import { onboardAndSignIn, startTestServer, type TestServer } from '#tests/support/test.server.js';
 
@@ -77,6 +77,28 @@ describe('chat images', () => {
         const lying = await upload(form(png(64), 'image/jpeg', 'a.jpg'));
         expect(lying.status).toBe(400);
         expect(await reasonOf(lying)).toMatch(/declared image\/jpeg/);
+    });
+
+    it('serves a created SVG as image/svg+xml with the fixed headers', async () => {
+        const source = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4"><rect width="4" height="4" fill="teal"/></svg>';
+        const created = await server.container.get(ChatAttachmentService).create(threadId, { kind: 'svg', source }, 'chart.svg');
+
+        const fetched = await fetchImage(created.id);
+        expect(fetched.status).toBe(200);
+        expect(fetched.headers.get('content-type')).toBe('image/svg+xml');
+        expect(fetched.headers.get('x-content-type-options')).toBe('nosniff');
+        expect(fetched.headers.get('content-security-policy')).toBe("default-src 'none'");
+        expect(await fetched.text()).toBe(source);
+    });
+
+    it('still refuses a valid SVG uploaded as a file, whatever it is declared as', async () => {
+        const source = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>');
+        for (const type of ['image/svg+xml', 'image/png']) {
+            const refused = await upload(form(source, type, 'a.svg'));
+            expect(refused.status).toBe(400);
+            expect(await reasonOf(refused)).toMatch(/not a PNG, JPEG, WebP or GIF/);
+        }
+        expect(await server.db.selectFrom('wilson.chatAttachments').select('id').where('threadId', '=', BigInt(threadId)).execute()).toEqual([]);
     });
 
     it('refuses an image past the cap with 413', async () => {

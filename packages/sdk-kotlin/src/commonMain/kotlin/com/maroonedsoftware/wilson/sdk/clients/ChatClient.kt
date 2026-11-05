@@ -119,6 +119,7 @@ class ChatClient(private val http: SdkHttp) {
             "image/jpeg" -> FetchAChatImageResponse.ImageJpeg(response.bytes, headers)
             "image/webp" -> FetchAChatImageResponse.ImageWebp(response.bytes, headers)
             "image/gif" -> FetchAChatImageResponse.ImageGif(response.bytes, headers)
+            "image/svg+xml" -> FetchAChatImageResponse.ImageSvgXml(response.bytes, headers)
             else -> FetchAChatImageResponse.ImagePng(response.bytes, headers)
         }
     }
@@ -185,6 +186,10 @@ sealed interface FetchAChatImageResponse {
     val headers: FetchAChatImageHeaders,
     ) : FetchAChatImageResponse
     data class ImageGif(
+        val data: ByteArray,
+    val headers: FetchAChatImageHeaders,
+    ) : FetchAChatImageResponse
+    data class ImageSvgXml(
         val data: ByteArray,
     val headers: FetchAChatImageHeaders,
     ) : FetchAChatImageResponse
