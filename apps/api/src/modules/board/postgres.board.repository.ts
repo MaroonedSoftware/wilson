@@ -1,4 +1,5 @@
 import { Injectable } from 'injectkit';
+import { evalRunRowId } from '#modules/evals/eval.run.id.js';
 import { Kysely, type Transaction } from 'kysely';
 import type { DB } from '#modules/data/db.js';
 import { EventLog, type AppendableCardEvent } from '#modules/events/event.log.js';
@@ -188,6 +189,18 @@ export class PostgresBoardRepository extends BoardRepository {
      * they held one because of the stage they happened to sit in.
      */
     async hasLiveClaim(project: string, cardId: string): Promise<boolean> {
+        // An eval run holds leases under an id with no card and no `card.stage` job.
+        const evalRun = evalRunRowId(cardId);
+        if (evalRun !== undefined) {
+            const running = await this.db
+                .selectFrom('wilson.evalRuns')
+                .select('id')
+                .where('project', '=', project)
+                .where('id', '=', evalRun)
+                .where('status', '=', 'running')
+                .executeTakeFirst();
+            return running !== undefined;
+        }
         const row = await this.db
             .selectFrom('wilson.cardJobs')
             .select('cardId')
@@ -288,6 +301,22 @@ export class PostgresBoardRepository extends BoardRepository {
                 splitFrom: fm.splitFrom ?? null,
             })
             .execute();
+
+        // A piece stays in the goal of the card it was split from, in the transaction that creates it,
+        // whichever path split it: an operator's split and `AutoSplitter`'s both come through here.
+        if (fm.splitFrom) {
+            await trx
+                .insertInto('wilson.goalCards')
+                .columns(['project', 'cardId', 'goalId'])
+                .expression(eb =>
+                    eb
+                        .selectFrom('wilson.goalCards')
+                        .select(['project', eb.val(fm.id).as('cardId'), 'goalId'])
+                        .where('project', '=', this.config.project)
+                        .where('cardId', '=', fm.splitFrom!),
+                )
+                .execute();
+        }
     }
 
     /** Append the version row and return its id. */

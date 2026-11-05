@@ -1,5 +1,11 @@
 # @wilson/desktop
 
+## 0.18.0
+
+### Minor Changes
+
+- 66d1103: Open installed operator apps in a locked-down web view, from Apps in the header of any page with a project.
+
 ## 0.17.2
 
 ### Patch Changes

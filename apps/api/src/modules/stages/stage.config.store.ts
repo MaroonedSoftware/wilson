@@ -66,6 +66,9 @@ export abstract class StageConfigStore {
     /** The current project's lanes, in board order. Empty when it has none. */
     abstract lanes(): Promise<Lane[]>;
 
+    /** The current project's lanes and project-wide settings together, for validating a change to them. */
+    abstract laneConfig(): Promise<LaneConfig>;
+
     /**
      * Change one lane. Refused with `StageConfigError` when there is no such lane or the result would
      * not load, and nothing is written. Records a revision when anything changed.
@@ -213,6 +216,16 @@ export class PostgresStageConfigStore extends StageConfigStore {
     async lanes(): Promise<Lane[]> {
         const rows = await this.db.selectFrom('wilson.lanes').selectAll().where('project', '=', this.config.project).orderBy('position').execute();
         return rows.map(toLane);
+    }
+
+    async laneConfig(): Promise<LaneConfig> {
+        const project = this.config.project;
+        const [lanes, settings] = await Promise.all([
+            this.lanes(),
+            this.db.selectFrom('wilson.projectLaneSettings').selectAll().where('project', '=', project).executeTakeFirst(),
+        ]);
+        if (!settings) throw new StageConfigError('stage-not-found', `project "${project}" has no lanes`);
+        return { lanes, project: toProjectSettings(settings) };
     }
 
     async patchLane(name: string, patch: LanePatch, message: string): Promise<Lane> {
@@ -411,6 +424,12 @@ export class StaticStageConfigStore extends StageConfigStore {
 
     async lanes(): Promise<Lane[]> {
         return this.config()?.lanes ?? [];
+    }
+
+    async laneConfig(): Promise<LaneConfig> {
+        const config = this.config();
+        if (!config) throw new StageConfigError('stage-not-found', 'no stage config');
+        return config;
     }
 
     async patchLane(name: string, patch: LanePatch, message: string): Promise<Lane> {

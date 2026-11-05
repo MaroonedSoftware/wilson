@@ -239,6 +239,25 @@ export interface SetGitHubAppSettingRequest {
 }
 
 /**
+ * Whether events wake this project's goals, and how much its goal threads may spend in a day. See
+ * `orchestrator.setting.ts`. The agent can read these and never change them: `mcp: exclude` keeps the
+ * write out of the catalog, so it cannot propose widening its own limits (PROJECT.md decision 8).
+ * generated from [OrchestratorSetting](../../../../apps/api/data/contracts/settings.ck)
+ */
+export interface OrchestratorSetting {
+    enabled: boolean;
+    dailyOutputTokens: number;
+}
+
+/**
+ * generated from [SetOrchestratorSettingRequest](../../../../apps/api/data/contracts/settings.ck)
+ */
+export interface SetOrchestratorSettingRequest {
+    enabled?: boolean;
+    dailyOutputTokens?: number;
+}
+
+/**
  * Whether the server is draining, and what a restart would interrupt. `safeToRestart` is true only
  * while draining with nothing running, since an idle moment without a drain lasts only until the next
  * stage starts. `held` counts every `card.stage` job waiting to run. `planDrafts` counts running plan

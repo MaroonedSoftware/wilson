@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Kysely } from 'kysely';
-import { MAX_HOST_LOSSES, StageDispatcher, NotDispatchableError } from '#modules/stages/stage.dispatcher.js';
+import { MAX_HOST_LOSS_RESUMES, StageDispatcher, NotDispatchableError } from '#modules/stages/stage.dispatcher.js';
 import { StaticStageConfigStore } from '#modules/stages/stage.config.store.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
@@ -320,17 +320,18 @@ describe('StageDispatcher placement', () => {
         it('adds to the losses of the attempt it picked up from', async () => {
             const { dispatcher } = await build(async () => placementOn(new MemoryHost()), undefined, lost);
 
-            const error = await dispatcher.run('0001', 'implementing', attemptOn(MAX_HOST_LOSSES - 2)).catch((err: unknown) => err);
+            const error = await dispatcher.run('0001', 'implementing', attemptOn(MAX_HOST_LOSS_RESUMES - 2)).catch((err: unknown) => err);
 
-            expect((error as StageInterruptedError).attempt.hostLosses).toBe(MAX_HOST_LOSSES - 1);
+            expect((error as StageInterruptedError).attempt.hostLosses).toBe(MAX_HOST_LOSS_RESUMES - 1);
         });
 
-        it('sends the stage to the queue’s retries once the losses reach the cap, and passes the host over', async () => {
+        it('treats it as a lost host once the losses reach the cap, carrying the attempt, and passes the host over', async () => {
             const { dispatcher, worktrees, events, placer } = await build(async () => placementOn(new MemoryHost()), undefined, lost);
 
-            const error = await dispatcher.run('0001', 'implementing', attemptOn(MAX_HOST_LOSSES - 1)).catch((err: unknown) => err);
+            const error = await dispatcher.run('0001', 'implementing', attemptOn(MAX_HOST_LOSS_RESUMES - 1)).catch((err: unknown) => err);
 
             expect(error).toBeInstanceOf(HostLostError);
+            expect((error as HostLostError).attempt).toMatchObject({ host: 'agent-3', sessionId: 'session-2', hostLosses: MAX_HOST_LOSS_RESUMES });
             expect(classifyDispatchFailure(error)).toEqual({ kind: 'retry' });
             expect(placer.markLost).toHaveBeenCalledWith(
                 expect.objectContaining({ hostName: 'agent-3' }),

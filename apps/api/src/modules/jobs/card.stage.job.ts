@@ -1,11 +1,12 @@
 import { Injectable } from 'injectkit';
 import { Job, JobBroker } from '@maroonedsoftware/jobbroker';
-import { DateTime } from 'luxon';
+import { DateTime, Duration } from 'luxon';
 import { StageHeldError, StageInterruptedError, type InterruptedAttempt } from '#modules/agent/stage.interrupt.js';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { runAsProject } from '#modules/board/project.context.js';
 import { EventLog } from '#modules/events/event.log.js';
+import { HostLostError } from '#modules/host/placement.js';
 import { Notifier } from '#modules/notify/notifier.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
@@ -40,7 +41,19 @@ export interface CardStagePayload {
     project?: string;
     /** Set on a stage sent again after a shutdown interrupted it: where it left its worktree. */
     interrupted?: InterruptedAttempt;
+    /** How many times in a row this stage has lost its host. Unset for none. */
+    hostLosses?: number;
 }
+
+/**
+ * How many times in a row a stage may lose its host before a person is asked to look. A host that drops
+ * this often has something wrong with it, and sending the stage again would keep paying for work that
+ * never finishes. The delays below spread these over about 17 minutes.
+ */
+export const MAX_HOST_LOSSES = 6;
+
+/** How long a stage waits after its `losses`th lost host: 30 seconds, doubling, at most 5 minutes. */
+export const hostLossDelay = (losses: number): Duration => Duration.fromObject({ seconds: Math.min(30 * 2 ** (losses - 1), 300) });
 
 /**
  * Runs one stage for one card, then decides whether the chain keeps going.
@@ -71,7 +84,7 @@ export class CardStageJob extends Job<CardStagePayload> {
         super();
     }
 
-    async run({ cardId, stageName, step, project, interrupted }: CardStagePayload): Promise<void> {
+    async run({ cardId, stageName, step, project, interrupted, hostLosses }: CardStagePayload): Promise<void> {
         // Card 0149: see `CardStagePayload.project`'s own doc comment for what a missing `project`
         // means. Read here, before `runAsProject` below opens this job's own scope, so `this.board
         // .project` answers with the daemon's configured project (project.context.ts's fallback for
@@ -80,13 +93,13 @@ export class CardStageJob extends Job<CardStagePayload> {
         const resolvedProject = project ?? this.board.project;
         this.running.add(resolvedProject, cardId);
         try {
-            await runAsProject(resolvedProject, () => this.runStage(cardId, stageName, interrupted, step));
+            await runAsProject(resolvedProject, () => this.runStage(cardId, stageName, interrupted, step, hostLosses));
         } finally {
             this.running.delete(resolvedProject, cardId);
         }
     }
 
-    private async runStage(cardId: string, stageName: string, interrupted?: InterruptedAttempt, step?: string): Promise<void> {
+    private async runStage(cardId: string, stageName: string, interrupted?: InterruptedAttempt, step?: string, hostLosses = 0): Promise<void> {
         for (const check of PRE_DISPATCH_CHECKS) {
             if (await check(this.deps(), cardId, stageName, interrupted)) return;
         }
@@ -99,6 +112,8 @@ export class CardStageJob extends Job<CardStagePayload> {
                 return this.requeueInterrupted(cardId, stageName, error.attempt, DateTime.fromMillis(error.heldUntil), step);
             }
             if (error instanceof StageInterruptedError) return this.requeueInterrupted(cardId, stageName, error.attempt, DRAIN_HOLD, step);
+            if (error instanceof HostLostError)
+                return this.afterHostLost(cardId, stageName, error, hostLosses + 1, error.attempt ?? interrupted, step);
 
             const failure = classifyDispatchFailure(error);
             // The only outcome that does not settle: rethrown so the queue retries under its policy.
@@ -222,6 +237,44 @@ export class CardStageJob extends Job<CardStagePayload> {
     }
 
     /**
+     * Send a stage again after its host stopped answering, and complete this job. Throwing instead
+     * would spend one of the queue's retries, and running out of those poisons the card, for something
+     * that says nothing about the card: three drops in twelve minutes ended two healthy cards that way.
+     * The count travels on the payload so it still ends, with a flag rather than `poisoned`, since the
+     * card is fine and the stage can run again once the host is. A failed `send` is left to throw, as in
+     * `requeueInterrupted`.
+     */
+    private async afterHostLost(
+        cardId: string,
+        stageName: string,
+        error: HostLostError,
+        hostLosses: number,
+        interrupted?: InterruptedAttempt,
+        step?: string,
+    ): Promise<void> {
+        if (hostLosses >= MAX_HOST_LOSSES) {
+            const reason = `lost its host ${hostLosses} times in a row, most recently ${error.hostName}: ${error.detail}`;
+            await this.flagForHuman(cardId, stageName, reason, `Flag ${cardId}: lost its host`);
+            await this.cardJobs.clear(cardId);
+            return;
+        }
+
+        const jobId = await this.broker.send(
+            'card.stage',
+            {
+                cardId,
+                stageName,
+                ...(step ? { step } : {}),
+                project: this.board.project,
+                ...(interrupted ? { interrupted } : {}),
+                hostLosses,
+            },
+            { startAfter: hostLossDelay(hostLosses) },
+        );
+        await this.cardJobs.record(cardId, jobId);
+    }
+
+    /**
      * One `card.plan-draft` per piece an automatic split just created. Here rather than in the
      * dispatcher, which stays queue-agnostic, so `wilson card run` splits without drafting. A failed
      * send costs that piece its draft and nothing else: the split stands and the piece waits in
@@ -296,6 +349,11 @@ export class CardStageJob extends Job<CardStagePayload> {
             payload: { reason },
         });
 
+        await this.flagForHuman(cardId, stageName, reason, `Flag ${cardId}: context overflow`);
+    }
+
+    /** Leave a card where it is, flagged for a person, with its retries untouched, and tell them. */
+    private async flagForHuman(cardId: string, stageName: string, reason: string, message: string): Promise<void> {
         // Captured from the fresh row `writeWithEvent` reads inside its own transaction, the same
         // redelivery guard `flagRebaseConflict`/`poisonCard` use: a job that lands here again after
         // an earlier attempt already flagged this card has nothing new to report.
@@ -303,7 +361,7 @@ export class CardStageJob extends Job<CardStagePayload> {
         let alreadyFlagged = false;
         await this.boardRepo.writeWithEvent(
             cardId,
-            `Flag ${cardId}: context overflow`,
+            message,
             card => {
                 title = card.frontmatter.title;
                 alreadyFlagged = Boolean(card.frontmatter.needsHuman);

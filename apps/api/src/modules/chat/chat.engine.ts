@@ -36,10 +36,13 @@ export interface ChatTurnInput {
     /** How many model steps the turn may take, `MAX_CHAT_STEPS` when left out. */
     maxSteps?: number;
     /**
-     * Fail the turn if the engine offers or attempts any tool but `tools`. For a caller whose safety rests
-     * on what the agent is able to do ('cli': nothing but `tools` is passed, and this checks it held).
+     * Hold the engine to `tools`, for a caller whose safety rests on what the agent is able to do ('cli':
+     * nothing but `tools` is passed, and this checks it held). `true` fails the turn if the engine offers
+     * or attempts anything else. `'ran'` fails it if the engine offers anything else or a call to it ran,
+     * and lets a call the engine refused pass: a model does now and then name a tool that does not exist,
+     * nothing runs, and it carries on.
      */
-    onlyOwnTools?: boolean;
+    onlyOwnTools?: boolean | 'ran';
     /** Called with each piece of the answer as it is written. */
     onText?: (delta: string) => void;
 }
@@ -51,7 +54,9 @@ export interface ChatTurnOutput {
     engineMessages?: unknown;
     /** The session to resume next turn ('cli'). */
     engineSessionId?: string;
-    /** What the turn cost, when the engine reports it ('cli'). */
+    /** Tools the model named that it does not have, which the engine refused, under `onlyOwnTools: 'ran'`. */
+    refusedTools?: string[];
+    /** What the turn cost, when the engine reports it. */
     usage?: { inputTokens?: number; cachedInputTokens?: number; outputTokens: number };
 }
 

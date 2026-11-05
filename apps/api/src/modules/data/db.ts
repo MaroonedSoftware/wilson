@@ -79,6 +79,16 @@ export interface WilsonApiKeys {
   type: string | null;
 }
 
+export interface WilsonApps {
+  createdAt: Generated<DateTime>;
+  description: Generated<string>;
+  grants: Generated<string[]>;
+  html: string;
+  name: string;
+  slug: string;
+  updatedAt: Generated<DateTime>;
+}
+
 export interface WilsonCacheEntries {
   expiresAt: DateTime;
   key: string;
@@ -232,6 +242,17 @@ export interface WilsonChatThreads {
   updatedAt: Generated<DateTime>;
 }
 
+export interface WilsonChatTurnUsage {
+  cachedInputTokens: number | null;
+  createdAt: Generated<DateTime>;
+  engine: "api" | "cli";
+  id: Generated<bigint>;
+  inputTokens: number | null;
+  model: string;
+  outputTokens: number;
+  threadId: bigint;
+}
+
 export interface WilsonCodeReads {
   commitSha: string | null;
   createdAt: Generated<DateTime>;
@@ -262,6 +283,26 @@ export interface WilsonEngineTokens {
   priority: Generated<number>;
   provider: Generated<"anthropic" | "openai" | "xai">;
   updatedAt: Generated<DateTime>;
+}
+
+export interface WilsonGoalCards {
+  cardId: string;
+  createdAt: Generated<DateTime>;
+  goalId: bigint;
+  project: string;
+}
+
+export interface WilsonGoals {
+  createdAt: Generated<DateTime>;
+  id: Generated<bigint>;
+  lastEventId: Generated<bigint>;
+  outcome: string;
+  project: string;
+  status: Generated<"active" | "paused" | "done" | "abandoned">;
+  threadId: bigint;
+  title: string;
+  updatedAt: Generated<DateTime>;
+  wakeHeldUntil: DateTime | null;
 }
 
 export interface WilsonHostProjects {
@@ -295,6 +336,63 @@ export interface WilsonHosts {
   workerTokenIssuedAt: DateTime | null;
 }
 
+export interface WilsonEvalBatches {
+  candidate: Json | null;
+  candidateLanes: Json | null;
+  createdAt: Generated<DateTime>;
+  currentLanes: Json;
+  finishedAt: DateTime | null;
+  host: string;
+  id: Generated<bigint>;
+  learnings: string;
+  maxOutputTokens: number;
+  project: string;
+  runsPerFixture: number;
+  status: Generated<string>;
+  stopReason: string | null;
+  waitingReason: string | null;
+}
+
+export interface WilsonEvalFixtures {
+  baseSha: string;
+  createdAt: Generated<DateTime>;
+  expected: Json | null;
+  headSha: string;
+  id: Generated<bigint>;
+  plan: Json;
+  planVersionId: string;
+  project: string;
+  sourceCardId: string;
+  sourceEventId: bigint;
+  stage: string;
+}
+
+export interface WilsonEvalRuns {
+  arm: string;
+  batchId: bigint;
+  cachedInputTokens: number | null;
+  error: string | null;
+  failures: Generated<Json>;
+  finishedAt: DateTime | null;
+  fixtureId: bigint;
+  id: Generated<bigint>;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  patch: string | null;
+  patchTruncated: Generated<boolean>;
+  position: number;
+  project: string;
+  reportRejected: Generated<boolean>;
+  result: Json | null;
+  scopeDenials: number | null;
+  startedAt: DateTime | null;
+  status: Generated<string>;
+  toolCalls: number | null;
+  truncated: Generated<boolean>;
+  unjudged: Generated<boolean>;
+  wallClockMs: number | null;
+}
+
 export interface WilsonLearnings {
   createdAt: Generated<DateTime>;
   id: Generated<bigint>;
@@ -306,6 +404,7 @@ export interface WilsonLearnings {
 export interface WilsonLeases {
   acquiredAt: Generated<DateTime>;
   cardId: string;
+  heldCardId: Generated<string | null>;
   project: string;
   resourceKey: string;
 }
@@ -522,6 +621,7 @@ export interface DB {
   "wilson.accountPasswords": WilsonAccountPasswords;
   "wilson.accounts": WilsonAccounts;
   "wilson.apiKeys": WilsonApiKeys;
+  "wilson.apps": WilsonApps;
   "wilson.cacheEntries": WilsonCacheEntries;
   "wilson.cacheSetMembers": WilsonCacheSetMembers;
   "wilson.cardAttachments": WilsonCardAttachments;
@@ -536,11 +636,17 @@ export interface DB {
   "wilson.chatPendingActions": WilsonChatPendingActions;
   "wilson.chatQuestions": WilsonChatQuestions;
   "wilson.chatThreads": WilsonChatThreads;
+  "wilson.chatTurnUsage": WilsonChatTurnUsage;
   "wilson.codeReads": WilsonCodeReads;
   "wilson.engineLimits": WilsonEngineLimits;
   "wilson.engineTokens": WilsonEngineTokens;
+  "wilson.goalCards": WilsonGoalCards;
+  "wilson.goals": WilsonGoals;
   "wilson.hostProjects": WilsonHostProjects;
   "wilson.hosts": WilsonHosts;
+  "wilson.evalBatches": WilsonEvalBatches;
+  "wilson.evalFixtures": WilsonEvalFixtures;
+  "wilson.evalRuns": WilsonEvalRuns;
   "wilson.learnings": WilsonLearnings;
   "wilson.leases": WilsonLeases;
   "wilson.planComments": WilsonPlanComments;

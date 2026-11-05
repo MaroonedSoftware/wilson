@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>Board summary</title>
+        <style>
+            body {
+                font:
+                    14px system-ui,
+                    sans-serif;
+                margin: 16px;
+            }
+            table {
+                border-collapse: collapse;
+            }
+            th,
+            td {
+                padding: 4px 16px 4px 0;
+                text-align: left;
+            }
+            td:last-child {
+                font-variant-numeric: tabular-nums;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Cards by stage</h1>
+        <p id="message"></p>
+        <table>
+            <tbody id="rows"></tbody>
+        </table>
+        <script>
+            // Install with the Board grant. Everything here comes from window.wilson, which Wilson
+            // puts on the page. An app cannot load anything else, so this file is all there is.
+            const message = document.getElementById('message');
+            const rows = document.getElementById('rows');
+
+            const draw = async () => {
+                try {
+                    const [cards, columns] = await Promise.all([wilson.listCards(), wilson.listBoardColumns()]);
+                    const counts = new Map();
+                    for (const card of cards) counts.set(card.stage, (counts.get(card.stage) ?? 0) + 1);
+
+                    // textContent, not innerHTML: what comes from the board is text, and should stay text.
+                    rows.replaceChildren(
+                        ...[...columns.nonStages, ...columns.stages].map(stage => {
+                            const row = document.createElement('tr');
+                            for (const text of [stage, counts.get(stage) ?? 0]) {
+                                const cell = document.createElement('td');
+                                cell.textContent = text;
+                                row.append(cell);
+                            }
+                            return row;
+                        }),
+                    );
+                    message.textContent = `${cards.length} cards in ${wilson.project}`;
+                } catch (error) {
+                    // Refused requests reject like any other failure, with the reason as the message.
+                    message.textContent = error.message;
+                }
+            };
+
+            wilson.onChange(draw);
+            draw();
+        </script>
+    </body>
+</html>

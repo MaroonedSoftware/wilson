@@ -61,7 +61,7 @@ function renderLiveActivity({
             null,
             createElement(
                 CardActivityContext.Provider,
-                { value: { activity: {}, toolLog, now } },
+                { value: { activity: {}, toolLog, now, changes: 0 } },
                 createElement(LiveActivity, { cardId, seedEvents }),
             ),
         ),

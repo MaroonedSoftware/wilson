@@ -9,4 +9,9 @@
         <ProjectReference Include="../MaroonedSoftware.Wilson.Desktop.Core/MaroonedSoftware.Wilson.Desktop.Core.csproj" />
     </ItemGroup>
 
+    <!-- The app probe in tools/Walk turns the web view's locks off to prove each one does something. Nothing else may. -->
+    <ItemGroup>
+        <InternalsVisibleTo Include="Walk" />
+    </ItemGroup>
+
 </Project>

@@ -71,6 +71,12 @@ internal static class Steps
         await walk.UntilAsync("the header on Chat, with no feed to report", () => walk.Shell.OnChat && walk.Shell.Feed is null);
         walk.Shot("03-chat-home");
         var signedIn = DateTime.UtcNow;
+        if (only == "apps")
+        {
+            await AppsAsync(walk);
+            return;
+        }
+
         if (only == "images")
         {
             await ChatImagesAsync(walk, home);
@@ -184,6 +190,47 @@ internal static class Steps
 
         await walk.Shell.SignOutCommand.ExecuteAsync(null);
         await walk.UntilAsync("the server now asking for a password", () => walk.Shell.Page is SignInViewModel { ShowsPasswordStep: true });
+    }
+
+    /// <summary>The list and the page around an app, headless, so with no web view in it: `app-live` walks that in a real window.</summary>
+    private static async Task AppsAsync(Walker walk)
+    {
+        var apps = walk.Shell.Connection!.Sdk.Apps;
+        walk.Shell.ShowBoard();
+        var board = walk.Page<BoardViewModel>();
+        await walk.UntilAsync("the board", () => board.Project is not null);
+        walk.Shell.ShowApps();
+        var empty = walk.Page<AppsViewModel>();
+        await walk.UntilAsync("no apps said", () => empty.Empty);
+        walk.Shot("apps-none");
+        walk.Shell.Back();
+
+        await apps.InstallAppAsync("walk-one", new InstallAppRequest { Name = "Burn down", Description = "What is left, by day", Html = "<p>one</p>", Grants = [AppGrant.BoardRead, AppGrant.StatsRead] });
+        await apps.InstallAppAsync("walk-two", new InstallAppRequest { Name = "No grants", Html = "<p>two</p>", Grants = [] });
+        try
+        {
+            walk.Shell.ShowApps();
+            var list = walk.Page<AppsViewModel>();
+            await walk.UntilAsync("both listed", () => list.Apps.Count == 2);
+            walk.Shot("apps-list");
+            list.Open("walk-one");
+            var page = walk.Page<AppViewModel>();
+            await walk.UntilAsync("the app read", () => page.Running);
+            walk.Shot("apps-page");
+            walk.Shell.Back();
+            await walk.UntilAsync("back on the list", () => walk.Shell.Page is AppsViewModel);
+        }
+        finally
+        {
+            await apps.RemoveAppAsync("walk-one");
+            await apps.RemoveAppAsync("walk-two");
+        }
+
+        var missing = new AppViewModel(walk.Shell, board.Project!, "walk-one");
+        walk.Shell.Push(missing);
+        await walk.UntilAsync("an app that has gone said", () => missing.Error is not null);
+        walk.Shot("apps-gone");
+        walk.Shell.Back();
     }
 
     /// <summary>The deployment's own pages, which need no board. `admin` as a sixth argument walks only these.</summary>

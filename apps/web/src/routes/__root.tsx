@@ -4,9 +4,11 @@ import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { Notifications } from '@mantine/notifications';
 import {
     IconActivity,
+    IconApps,
     IconChartBar,
     IconGavel,
     IconLayoutKanban,
+    IconTarget,
     IconLogout,
     IconMoon,
     IconRefresh,
@@ -116,7 +118,7 @@ function Shell() {
 
     return (
         <WilsonSdkProvider client={wilson}>
-            <CardActivityContext.Provider value={{ activity: feed.activity, toolLog: feed.toolLog, now: feed.now }}>
+            <CardActivityContext.Provider value={{ activity: feed.activity, toolLog: feed.toolLog, now: feed.now, changes: feed.changes }}>
                 <AppShell
                     header={{ height: 48 }}
                     aside={{ width: dock.width, breakpoint: 'sm', collapsed: { desktop: !right, mobile: true } }}
@@ -147,6 +149,11 @@ function Shell() {
                                         <IconRefresh size={18} />
                                     </ActionIcon>
                                 </Tooltip>
+                                <Tooltip label="Goals">
+                                    <ActionIcon component={Link} to="/goals" variant="subtle" aria-label="Goals">
+                                        <IconTarget size={18} />
+                                    </ActionIcon>
+                                </Tooltip>
                                 <Tooltip label="Projects">
                                     <ActionIcon component={Link} to="/projects" variant="subtle" aria-label="Projects">
                                         <IconLayoutKanban size={18} />
@@ -175,6 +182,15 @@ function Shell() {
                                         <Link to="/projects/$project/rules" params={{ project }} aria-label="Rules">
                                             <ActionIcon component="span" variant="subtle">
                                                 <IconGavel size={18} />
+                                            </ActionIcon>
+                                        </Link>
+                                    </Tooltip>
+                                )}
+                                {project && (
+                                    <Tooltip label="Apps">
+                                        <Link to="/projects/$project/apps" params={{ project }} aria-label="Apps">
+                                            <ActionIcon component="span" variant="subtle">
+                                                <IconApps size={18} />
                                             </ActionIcon>
                                         </Link>
                                     </Tooltip>

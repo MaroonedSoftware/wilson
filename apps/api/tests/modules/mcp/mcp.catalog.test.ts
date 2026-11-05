@@ -8,6 +8,7 @@ import { HealthService } from '#modules/health/health.service.js';
 import { McpModule } from '#modules/mcp/mcp.module.js';
 import { McpToolCatalog } from '#modules/mcp/generated/mcp.tools.js';
 import { ApiKeysRouter } from '#src/routes/api.keys.router.js';
+import { AppsRouter } from '#src/routes/apps.router.js';
 import { AuthRouter } from '#src/routes/auth.router.js';
 import { BoardRouter } from '#src/routes/board.router.js';
 import { ChatRouter } from '#src/routes/chat.router.js';
@@ -15,9 +16,11 @@ import { CodeRouter } from '#src/routes/code.router.js';
 import { ContextRouter } from '#src/routes/context.router.js';
 import { DevicesRouter } from '#src/routes/devices.router.js';
 import { FactorsRouter } from '#src/routes/factors.router.js';
+import { GoalsRouter } from '#src/routes/goals.router.js';
 import { HealthRouter } from '#src/routes/health.router.js';
 import { EngineTokensRouter } from '#src/routes/engine.tokens.router.js';
 import { HostsRouter } from '#src/routes/hosts.router.js';
+import { EvalsRouter } from '#src/routes/evals.router.js';
 import { LearningsRouter } from '#src/routes/learnings.router.js';
 import { OnboardingRouter } from '#src/routes/onboarding.router.js';
 import { ProjectsRouter } from '#src/routes/projects.router.js';
@@ -41,6 +44,7 @@ const catalog = async (): Promise<McpToolCatalog> => {
 
 const ROUTERS = [
     ApiKeysRouter,
+    AppsRouter,
     AuthRouter,
     BoardRouter,
     ChatRouter,
@@ -48,10 +52,12 @@ const ROUTERS = [
     ContextRouter,
     DevicesRouter,
     EngineTokensRouter,
+    GoalsRouter,
     FactorsRouter,
     HealthRouter,
     HostsRouter,
     LearningsRouter,
+    EvalsRouter,
     OnboardingRouter,
     ProjectsRouter,
     ReviewRouter,
@@ -100,6 +106,8 @@ describe('the MCP operation catalog', () => {
             'record_findings',
             'set_stage_config',
             'set_learnings',
+            'create_eval_batch',
+            'capture_eval_fixture',
             'send_a_plan_turn',
             'open_a_planning_session',
             'add_a_review_comment',

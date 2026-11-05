@@ -25,6 +25,7 @@ import { planFeed } from '#modules/plan/plan.session.feed.js';
 import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
 import { VIEW_POLICY } from '#modules/policy/access.policies.js';
 import { ApiKeysRouter } from './api.keys.router.js';
+import { AppsRouter } from './apps.router.js';
 import { AuthRouter } from './auth.router.js';
 import { BoardRouter } from './board.router.js';
 import { ChatRouter } from './chat.router.js';
@@ -32,9 +33,11 @@ import { CodeRouter } from './code.router.js';
 import { DevicesRouter } from './devices.router.js';
 import { EngineTokensRouter } from './engine.tokens.router.js';
 import { FactorsRouter } from './factors.router.js';
+import { GoalsRouter } from './goals.router.js';
 import { ContextRouter } from './context.router.js';
 import { HealthRouter } from './health.router.js';
 import { HostsRouter } from './hosts.router.js';
+import { EvalsRouter } from './evals.router.js';
 import { LearningsRouter } from './learnings.router.js';
 import { OnboardingRouter } from './onboarding.router.js';
 import { ProjectsRouter } from './projects.router.js';
@@ -357,6 +360,7 @@ export const routers = (signal?: AbortSignal) => [
     LearningsRouter,
     RulesRouter,
     ChatRouter,
+    GoalsRouter,
     OnboardingRouter,
     AuthRouter,
     ApiKeysRouter,
@@ -364,6 +368,8 @@ export const routers = (signal?: AbortSignal) => [
     DevicesRouter,
     CodeRouter,
     ReviewRouter,
+    EvalsRouter,
+    AppsRouter,
     FeedRouter(signal),
     PlanStreamRouter(signal),
     ChatStreamRouter(signal),

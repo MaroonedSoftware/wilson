@@ -1,6 +1,7 @@
 import type { SdkOptions } from './sdk-options.js';
 import { createSdkFetch } from './sdk-options.js';
 import { ApiKeysClient } from './api.keys.client.js';
+import { AppsClient } from './apps.client.js';
 import { AuthClient } from './auth.client.js';
 import { BoardClient } from './board.client.js';
 import { ChatClient } from './chat.client.js';
@@ -8,7 +9,9 @@ import { CodeClient } from './code.client.js';
 import { ContextClient } from './context.client.js';
 import { DevicesClient } from './devices.client.js';
 import { EngineTokensClient } from './engine.tokens.client.js';
+import { EvalsClient } from './evals.client.js';
 import { FactorsClient } from './factors.client.js';
+import { GoalsClient } from './goals.client.js';
 import { HealthClient } from './health.client.js';
 import { HostsClient } from './hosts.client.js';
 import { LearningsClient } from './learnings.client.js';
@@ -21,6 +24,7 @@ import { StagesClient } from './stages.client.js';
 
 export class WilsonSdk {
     readonly apiKeys: ApiKeysClient;
+    readonly apps: AppsClient;
     readonly auth: AuthClient;
     readonly board: BoardClient;
     readonly chat: ChatClient;
@@ -28,7 +32,9 @@ export class WilsonSdk {
     readonly context: ContextClient;
     readonly devices: DevicesClient;
     readonly engineTokens: EngineTokensClient;
+    readonly evals: EvalsClient;
     readonly factors: FactorsClient;
+    readonly goals: GoalsClient;
     readonly health: HealthClient;
     readonly hosts: HostsClient;
     readonly learnings: LearningsClient;
@@ -42,6 +48,7 @@ export class WilsonSdk {
     constructor(options: SdkOptions) {
         const sdkFetch = options.fetch ?? createSdkFetch(options);
         this.apiKeys = new ApiKeysClient(sdkFetch);
+        this.apps = new AppsClient(sdkFetch);
         this.auth = new AuthClient(sdkFetch);
         this.board = new BoardClient(sdkFetch);
         this.chat = new ChatClient(sdkFetch);
@@ -49,7 +56,9 @@ export class WilsonSdk {
         this.context = new ContextClient(sdkFetch);
         this.devices = new DevicesClient(sdkFetch);
         this.engineTokens = new EngineTokensClient(sdkFetch);
+        this.evals = new EvalsClient(sdkFetch);
         this.factors = new FactorsClient(sdkFetch);
+        this.goals = new GoalsClient(sdkFetch);
         this.health = new HealthClient(sdkFetch);
         this.hosts = new HostsClient(sdkFetch);
         this.learnings = new LearningsClient(sdkFetch);

@@ -4,6 +4,7 @@ import {
     ToWorker,
     WORKER_CONNECT_PATH,
     WORKER_KEEPALIVE_MS,
+    WORKER_MAX_MISSED_PONGS,
     WORKER_PROTOCOL_VERSION,
     WorkerCloseCode,
     type FromWorker,
@@ -38,11 +39,12 @@ export interface WorkerClientOptions {
 }
 
 /**
- * How long a connection may stay silent before it counts as gone. Three of Wilson's pings, so one lost
- * in passing or a Wilson busy for a moment costs no stage, and a network cut that closes nothing is
- * still found within a minute rather than whenever traffic happens to return.
+ * How long a connection may stay silent before it counts as gone. One interval past the point Wilson
+ * would have closed it for missing pongs: the check's timer fires before pings waiting in the socket are
+ * read, so after a stall any shorter limit would end stages Wilson was still prepared to wait for. A
+ * network cut that closes nothing is still found rather than whenever traffic happens to return.
  */
-const SILENCE_LIMIT_MS = 3 * WORKER_KEEPALIVE_MS;
+const SILENCE_LIMIT_MS = (WORKER_MAX_MISSED_PONGS + 1) * WORKER_KEEPALIVE_MS;
 
 /** Wilson's API URL as the WebSocket URL of its worker endpoint. */
 export const connectUrl = (api: string): string => {

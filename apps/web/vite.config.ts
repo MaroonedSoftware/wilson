@@ -16,5 +16,7 @@ export default defineConfig({
         // No proxy. The API admits this origin with credentials (`WEB_ORIGINS`,
         // apps/api/src/server/setup.middleware.ts), so the SDK talks to it directly.
         port: 13101,
+        // What deploy/web.nginx.conf sends in production, so an app behaves the same in development.
+        headers: { 'Content-Security-Policy': "frame-src 'none'" },
     },
 });

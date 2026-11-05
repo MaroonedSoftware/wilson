@@ -59,6 +59,15 @@ import stagesSetCommand from './commands/stages/set.command.js';
 import stagesRouteCommand from './commands/stages/route.command.js';
 import stagesInstructionsCommand from './commands/stages/instructions.command.js';
 import stagesHistoryCommand from './commands/stages/history.command.js';
+import evalListCommand from './commands/eval/list.command.js';
+import evalPatchCommand from './commands/eval/patch.command.js';
+import evalRunCommand from './commands/eval/run.command.js';
+import evalShowCommand from './commands/eval/show.command.js';
+import evalStopCommand from './commands/eval/stop.command.js';
+import evalFixtureAddCommand from './commands/eval/fixture-add.command.js';
+import evalFixtureLabelCommand from './commands/eval/fixture-label.command.js';
+import evalFixtureListCommand from './commands/eval/fixture-list.command.js';
+import evalFixtureRemoveCommand from './commands/eval/fixture-remove.command.js';
 import learningsShowCommand from './commands/learnings/show.command.js';
 import learningsEditCommand from './commands/learnings/edit.command.js';
 import learningsSetCommand from './commands/learnings/set.command.js';
@@ -145,6 +154,15 @@ const app = await createCliApp({
         reg(['stages', 'route'], stagesRouteCommand),
         reg(['stages', 'instructions'], stagesInstructionsCommand),
         reg(['stages', 'history'], stagesHistoryCommand),
+        reg(['eval', 'run'], evalRunCommand),
+        reg(['eval', 'list'], evalListCommand),
+        reg(['eval', 'show'], evalShowCommand),
+        reg(['eval', 'stop'], evalStopCommand),
+        reg(['eval', 'patch'], evalPatchCommand),
+        reg(['eval', 'fixture', 'add'], evalFixtureAddCommand),
+        reg(['eval', 'fixture', 'label'], evalFixtureLabelCommand),
+        reg(['eval', 'fixture', 'list'], evalFixtureListCommand),
+        reg(['eval', 'fixture', 'rm'], evalFixtureRemoveCommand),
         reg(['learnings', 'show'], learningsShowCommand),
         reg(['learnings', 'edit'], learningsEditCommand),
         reg(['learnings', 'set'], learningsSetCommand),

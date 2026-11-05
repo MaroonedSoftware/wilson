@@ -1,5 +1,6 @@
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { AgentModule } from './agent/agent.module.js';
+import { AppsModule } from './apps/apps.module.js';
 import { AuthenticationModule } from './authentication/authentication.module.js';
 import { BoardModule } from './board/board.module.js';
 import { ChatModule } from './chat/chat.module.js';
@@ -11,11 +12,13 @@ import { WorkerModule } from './worker/worker.module.js';
 import { DataModule } from './data/data.module.js';
 import { EventsModule } from './events/events.module.js';
 import { GitHubModule } from './github/github.module.js';
+import { GoalModule } from './goal/goal.module.js';
 import { JobsModule } from './jobs/jobs.module.js';
 import { LeaseModule } from './lease/lease.module.js';
 import { NotifyModule } from './notify/notify.module.js';
 import { PolicyModule } from './policy/policy.module.js';
 import { ReviewModule } from './review/review.module.js';
+import { EvalsModule } from './evals/evals.module.js';
 import { RulesModule } from './rules/rules.module.js';
 import { LearningsModule } from './learnings/learnings.module.js';
 import { McpModule } from './mcp/mcp.module.js';
@@ -76,11 +79,14 @@ export const modules: ServerKitModule[] = [
     AgentModule,
     StagesModule,
     LearningsModule,
+    EvalsModule,
     RulesModule,
+    AppsModule,
     CodeModule,
     ReviewModule,
     NotifyModule,
     SettingsModule,
+    GoalModule,
     McpModule,
     ChatModule,
     JobsModule,

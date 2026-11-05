@@ -20,6 +20,10 @@ import { CardStageJob } from './card.stage.job.js';
 import { RunningCards } from './running.cards.js';
 import { CardStageDeadJob } from './card.stage.dead.job.js';
 import { CardJobs, type ActiveCardStageJob } from './card.jobs.js';
+import { EvalRunJob, EVAL_RUN_POLICY, EVAL_RUN_WORKER } from '#modules/evals/eval.run.job.js';
+import { EvalRunSweep } from '#modules/evals/eval.run.sweep.js';
+import { GoalWatcher } from './goal.watcher.js';
+import { GoalWakeJob, GOAL_WAKE_POLICY, GOAL_WAKE_WORKER } from './goal.wake.job.js';
 import { PlanDraftJob, PLAN_DRAFT_POLICY, PLAN_DRAFT_WORKER } from './plan.draft.job.js';
 import { RuleProposalJob, RULE_PROPOSAL_POLICY, RULE_PROPOSAL_WORKER } from './rule.proposal.job.js';
 import { PlanSessionSweep } from '#modules/plan/plan.session.sweep.js';
@@ -317,6 +321,7 @@ export class BoundedCardStageJobRunner extends JobRunner {
         private readonly events: EventLog,
         private readonly interrupts: StageInterrupt = new StageInterrupt(),
         private readonly planSessions?: PlanSessionSweep,
+        private readonly evalRuns?: EvalRunSweep,
     ) {
         super();
     }
@@ -344,6 +349,7 @@ export class BoundedCardStageJobRunner extends JobRunner {
         await this.pgboss.start();
         await this.sweepOrphanedCardStageJobs();
         await this.planSessions?.run();
+        await this.evalRuns?.run();
 
         await this.inner.start();
         this.startConcurrencyWatcher();
@@ -567,13 +573,18 @@ export const JobsModule: ServerKitModule = {
         registerJobContext(registry);
         registry.register(CardStageDeadJob).useClass(CardStageDeadJob).asTransient();
         registry.register(PlanDraftJob).useClass(PlanDraftJob).asTransient();
+        registry.register(GoalWakeJob).useClass(GoalWakeJob).asTransient();
         registry.register(RuleProposalJob).useClass(RuleProposalJob).asTransient();
         registry.register(PlanSessionSweep).useClass(PlanSessionSweep).asTransient();
+        registry.register(EvalRunJob).useClass(EvalRunJob).asTransient();
+        registry.register(EvalRunSweep).useClass(EvalRunSweep).asTransient();
 
         const jobRegistry = new PgBossJobRegistryMap();
         jobRegistry.set('card.stage', { job: CardStageJob, policy: CARD_STAGE_POLICY, worker: CARD_STAGE_WORKER });
         jobRegistry.set('card.stage.dead', { job: CardStageDeadJob, policy: CARD_STAGE_DEAD_POLICY });
         jobRegistry.set('card.plan-draft', { job: PlanDraftJob, policy: PLAN_DRAFT_POLICY, worker: PLAN_DRAFT_WORKER });
+        jobRegistry.set('goal.wake', { job: GoalWakeJob, policy: GOAL_WAKE_POLICY, worker: GOAL_WAKE_WORKER });
+        jobRegistry.set('eval.run', { job: EvalRunJob, policy: EVAL_RUN_POLICY, worker: EVAL_RUN_WORKER });
         jobRegistry.set('card.rule-proposal', { job: RuleProposalJob, policy: RULE_PROPOSAL_POLICY, worker: RULE_PROPOSAL_WORKER });
         registry.register(CardJobs).useClass(CardJobs).asTransient();
         registry.register(PgBossJobRegistryMap).useInstance(jobRegistry);
@@ -585,6 +596,8 @@ export const JobsModule: ServerKitModule = {
         // no I/O — so the on/off decision lives in one place: `PollerSettingService`, asked by
         // `BoundedCardStageJobRunner.start()` below rather than decided once, here, at setup time.
         registry.register(Poller).useClass(Poller).asSingleton();
+        // Singleton for the same reason: one timer. Stays off per project until `ORCHESTRATOR_ENABLED` says otherwise.
+        registry.register(GoalWatcher).useClass(GoalWatcher).asSingleton();
 
         // Default executor (pg-boss's own pool): enqueues here are not part of a surrounding
         // database transaction, so there is nothing to override.
@@ -613,6 +626,7 @@ export const JobsModule: ServerKitModule = {
                     container.get(EventLog),
                     container.get(StageInterrupt),
                     container.get(PlanSessionSweep),
+                    container.get(EvalRunSweep),
                 );
             })
             .asSingleton();
@@ -621,6 +635,7 @@ export const JobsModule: ServerKitModule = {
     // `CardStageJob` dispatches into) — module order in modules.ts controls that.
     start: async (container: Container) => {
         await container.get(JobRunner).start();
+        container.get(GoalWatcher).start();
         // Logged after `start()`, not before: `BoundedCardStageJobRunner.start()` is what resolves
         // the `card-stage-concurrency` setting (card 0115) and writes it onto `CARD_STAGE_WORKER`, so
         // this is the daemon's own startup output saying what it actually chose, not what the
@@ -648,6 +663,8 @@ export const JobsModule: ServerKitModule = {
     // from a job handler rather than from shutdown. Card 0102 covers them; do not read this comment
     // as a claim that the path is clear.
     shutdown: async (container: Container) => {
+        // First, so nothing sends a wake-up to a runner that is stopping.
+        await container.get(GoalWatcher).stop();
         try {
             await container.get(JobRunner).stop();
         } catch (error) {

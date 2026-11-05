@@ -307,4 +307,26 @@ public sealed class SettingsClient(SdkHttp http)
             cancellationToken: cancellationToken).ConfigureAwait(false);
         return http.ReadJson<GitHubAppSetting>(response);
     }
+
+    /// <summary>Get orchestrator setting</summary>
+    public async Task<OrchestratorSetting> GetOrchestratorSettingAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "settings", "orchestrator"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<OrchestratorSetting>(response);
+    }
+
+    /// <summary>Set orchestrator setting</summary>
+    /// <exception cref="SdkException">On 400.</exception>
+    public async Task<OrchestratorSetting> SetOrchestratorSettingAsync(SetOrchestratorSettingRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Put,
+            http.Path("api", "settings", "orchestrator"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<OrchestratorSetting>(response);
+    }
 }

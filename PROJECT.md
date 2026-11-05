@@ -81,6 +81,18 @@ These are settled. Challenge them only if you find a concrete blocker.
     its own card. Single operator still holds (see Non-goals). What changes is that the operator
     is a principal the API checks, not an assumption about who is on the network. See
     Authentication.
+11. **An orchestrator supervises the pipeline and never replaces it.** A chat thread can own a goal,
+    break it into cards, watch them and act on a short list of delegated operations. Lanes still do
+    the work, verifiers still decide what passes, the poller still dispatches, and the board keeps
+    running if the orchestrator stops. Approving a plan and merging stay a person's act. See
+    Orchestration.
+
+12. **An operator app holds no credential.** An app is one HTML file the operator installs (`wilson.apps`),
+    run by the web or desktop app in a sandboxed iframe. It reaches Wilson only by asking its host over a
+    private port, and the host answers from a fixed table of read-only calls, each tied to a grant. So the
+    grant is enforced in the client, not by the API, and nothing can widen it without replacing the app.
+    Installing takes a recent sign-in (`wilson.step.up`), never a key, and agents have no route to it
+    (decision 8). A grant is what an app could leak, not only what it can read: see Operator apps.
 
 A retired decision, recorded because its absence is load-bearing: _"state is per-card
 and append-only; no shared index file that every agent touches, so parallel commits
@@ -296,6 +308,11 @@ before placement will choose it. A worker probes itself each time it connects. A
 `projectsRoot` also takes on any project with a GitHub repository: the first stage placed there adds
 its paths under that folder, and a worker clones it through the GitHub App.
 
+A worker is closed after four unanswered keepalive pings, about a minute, because a busy machine
+answers late rather than never. A stage whose host stops answering is sent again after a delay of 30
+seconds, doubling to at most 5 minutes, without spending a retry: losing a host says nothing about the
+card. After six losses in a row the card is flagged for a person and stays in its stage, never poisoned.
+
 Only the work moves. Everything above the `ExecutionHost` seam (`execution.host.ts`) stays in the
 daemon: the Agent SDK's loop, the tool guard and its denials, budgets, verification, the commit,
 merges and the board. A host does what the seam asks of it (read and write files in the worktree,
@@ -353,21 +370,24 @@ root can reach past it. The boundary is the machine, which is why a worker belon
 A dropped connection interrupts the stage rather than failing it. The agent hears it from the host's
 `onLost`, the card records `stage.interrupted` with `hostLost`, no retry is spent, and the job comes back
 after 30 seconds to reopen the tree and continue the session, as a clean shutdown's does below. The third
-loss on one tree falls to the queue's retries instead (`MAX_HOST_LOSSES`), since an interruption charges
-nothing. The worker ends everything the connection started before it reconnects: the engine, the commands
+loss on one tree (`MAX_HOST_LOSS_RESUMES`) becomes a lost host instead, since an interruption charges
+nothing, and a lost host has its own limit, below. The worker ends everything the connection started before it reconnects: the engine, the commands
 it ran in sessions of their own, and anything those started, with `SIGKILL` five seconds later for
 whatever is left.
 
-A drop after the stage has reported, or during verification, stays a lost host, which spends a retry and
-starts a new session. The next attempt saves the tree's uncommitted work to the patch path when it cuts a
-new tree, so that work is not lost. A worker still away when the job comes back is passed over: a `remote`
+A drop after the stage has reported, or during verification, stays a lost host and starts a new session.
+A lost host spends no retry: `CardStageJob` sends the stage again after 30 seconds, doubling to at most 5
+minutes, and flags the card for a person after six in a row (`MAX_HOST_LOSSES`), leaving it in its stage. The
+next attempt saves the tree's uncommitted work to the patch path when it cuts a new tree, so that work is
+not lost. A worker still away when the job comes back is passed over: a `remote`
 stage is deferred and an `any` stage runs elsewhere, and either starts a new session.
 
 A 2026-11-05 run against a real engine on a worker container went through all of these. A drop resumed the
 same session with no retry spent and nothing left running, and a replaced container, with its transcript
 gone, started a new session in the same tree. A network cut that closes nothing is found from both ends:
-Wilson by a missing pong, in 16 seconds in that run, and the worker by hearing no ping for 45 seconds,
-which it then treats as a drop.
+Wilson after four unanswered pings, about a minute, and the worker by hearing no ping for 75 seconds, which
+it then treats as a drop. The worker waits longer than Wilson so a stall it recovers from costs no stage
+that Wilson was still prepared to wait for. That run predates the lost-host limit and these two waits.
 
 A daemon restart still interrupts the stages running at the time, since the agent loop lives in the daemon.
 Moving the loop onto the worker would fix that, at the cost of running the guard beside the code it guards.
@@ -842,6 +862,39 @@ plan beside a chat panel and streams the agent's output as it writes.
 - **Approval is explicit and versioned.** Approving writes a card version and pins the
   card to it. That version, not the live document, is what every downstream stage reads.
 
+## Orchestration
+
+Built in steps, and this section is the intended shape until they have all landed. Goals and read-only
+watching exist today, off per project until `ORCHESTRATOR_ENABLED` is set (`wilson.settings`, or Goals
+in web Settings). A wake-up reports and proposes. Delegation does not exist yet, so the deterministic
+poller and `decideChain` are still the only things that move work along.
+
+- **A goal is one thread and one project.** One project is one board (decision 9), so a goal spans
+  a single board. Its cards are linked to it, and a piece split from a linked card stays in the goal.
+- **Events wake a goal through a cursor over `wilson.card_events`.** `NOTIFY` is at-most-once and a
+  restart loses it, whereas a cursor re-reads what it has not finished. A wake-up is a job whose
+  cursor advances only once its turn is stored. It runs as a note, not as a message from the person,
+  and it can stay silent.
+- **A person's own messages stay request-bound.** Only wake-ups are jobs. They share the thread's
+  lock with those messages, which works because the API is the one daemon process.
+- **A wake-up starts with `view` scope.** API policy refuses any change it attempts, whatever its
+  prompt or the text it read says. A change it wants is proposed and waits for the person, exactly
+  as in chat.
+- **Delegation is a short, fixed list.** A person grants a goal operations from a list held in code,
+  behind step-up, and those operations act only on that goal's own cards. Each one is recorded where
+  the person can see it. The list starts at `start_card`, `set_card_dependency`, `add_a_plan_comment`
+  and `acknowledge_a_flagged_card`.
+- **These are never delegated:** `approve_card_plan`, `repin_card_plan`, `merge_card`, `move_card`,
+  editing a card, settings, lanes, and answering a stage's question. Grants and the orchestrator's
+  own settings are `mcp: exclude`, so the agent cannot widen its own authority (decision 8).
+- **Text it reads is untrusted.** Cards, files and imported tickets can ask for anything. What bounds
+  that is the session scope, the fixed list and the membership check, never the prompt.
+- **Its spend is bounded on its own.** Wake-ups draw on the same engine accounts as stages, so every
+  turn's usage is recorded, silent ones included, and a daily ceiling stops wake-ups before it stops
+  any stage.
+- **Direct notifications stay on.** The six moments in Notification keep reaching the person
+  whether or not the orchestrator is running.
+
 ## Board schema
 
 A card is a row. Column membership is a column, so a transition is one `UPDATE` inside
@@ -1254,6 +1307,98 @@ executes. Treat it as data, always:
 
 Worth stating plainly because this is the one feature that opens the pipeline to
 input the operator did not write.
+
+## Evals
+
+Lanes, prompts and routes are data, and a change to one takes effect on the next dispatch. An eval is
+how to find out whether it helped before real cards pay for finding out.
+
+A **fixture** is one past stage attempt, kept: a copy of the plan as that attempt read it, and the
+commits it started from, held alive by `refs/wilson/eval/<id>/{base,head}`. `wilson eval fixture add
+<card> <stage>` captures one, for `implementing`, `testing` or `review`. Steps are left out, since
+`challenge` takes a review's findings as its input. The base is the fork point the head was committed
+on rather than the one the attempt was about to rebase onto, or everything `main` gained in between
+would read as the card's own diff.
+
+A **batch** runs fixtures again, `wilson eval run <fixtures> --host my-mac --runs 3`, and `wilson eval
+show` reports it. It freezes the lanes and learnings when it starts. Each run gets the same
+preparation, agent and verifier a stage gets (`prepareStage`, `executeStage`), so its result means what
+a stage's does, and then its work is kept as a patch on the run's row and its tree is thrown away.
+
+`--candidate <file>` adds a second arm: a YAML file naming a lane and what to change on it
+(`instructions`, `settings`, `adapter`, `provider`, `model`), validated as saving it would be and never
+saved. Each fixture must be an attempt at that lane, and the arms alternate so a slow hour falls on both.
+The report gives counts, medians and ranges and names no winner, because a few runs each cannot carry
+one. A candidate that changes nothing makes an A/A batch, which measures how far runs differ by chance;
+run one first, since a real difference has to clear that noise.
+
+**A review needs more than a verifier.** `ReviewVerifier` checks that a report is coherent, not that it
+is right, so a review that passes everything looks flawless to it. A `review` fixture therefore carries
+what the review should find, read at capture from what the card's own review concluded, with a
+`challenge` step's result taking precedence. A batch reports caught, missed, false alarms and clean. That
+default is the model agreeing with itself, so `wilson eval fixture label <id> --verdict revise --blockers
+<files>` replaces it with a person's word, and `wilson eval fixture list` shows which each one has. An
+eval's review runs no `challenge` step, so its false alarms include blockers a challenge might refute.
+
+**What a replay leaves out.** It gets review evidence and scales to its diff like a stage does, but it
+runs no rule judges and gets no rule guidance, because a judge's spend counts toward the daily ceiling
+and an eval's is held apart from it. A stage that stops to ask a question counts as not finishing, since
+nobody is there to answer. This is separate from `pnpm eval:review` (`apps/api/evals/review`), which
+scores the review stage against a curated corpus with hidden answers on the operator's own machine; a
+batch here replays the board's own history, for any of three stages, on a host, with two arms.
+
+**Nothing here reaches the board.** A run's id is `eval-<row id>`, which no card can have. It writes
+no `stage.passed`, `stage.failed` or `stage.blocked` and commits nothing, so a card's budget, the daily ceiling, the
+poller and the scope check never see it. Its tool events do land in `wilson.card_events`, which has no
+foreign key to a card, and the activity feed leaves them out. It does hold a real host slot:
+`wilson.leases` checks its card key through a column that is empty for an eval id, and a lease is live
+for as long as its run is `running`.
+
+**What it does share is the account.** A batch spends the same engine quota as real cards, held to its
+own `--max-output-tokens` (300,000 unless it says otherwise) and not to the daily ceiling. A batch stops
+when an account hits its limit rather than waiting, and waits while the server drains. A running eval
+is not something Auto-mode or `wilson card` commands can see, so check `wilson eval list` before a
+deploy as well as the running engines. A restart costs the run in progress: it is marked `abandoned`,
+left out of the counts, and the batch carries on.
+
+**Every run lands on one named host,** because a comparison between two machines measures the machines.
+Tower's container is red on tests that pass on `my-mac`, which is why a batch has no local option.
+
+Starting a batch needs step-up, as saving a lane does, and no eval operation is in the operation
+catalog (decision 8): it spends tokens and runs a config nobody saved.
+
+## Operator apps
+
+Small HTML apps inside the web and desktop apps, for views of a project that do not belong in Wilson itself.
+Writing one is in `apps/web/examples/apps/README.md`. They are read-only and installed for the whole server, and
+the project an app is opened from is the one it reads. Android does not run them.
+
+An app's frame has `sandbox="allow-scripts"`, so its origin is opaque, under a policy placed ahead of its
+HTML (`appDocument`, `apps/web/src/lib/apps.ts`). The page hosting it is sent `frame-src 'none'`, by
+`deploy/web.nginx.conf` and the Vite dev server. Serving the web app any other way loses that header.
+
+Measured in Brave and Chromium on 2026-11-05, with an app built to escape and a logging server:
+
+- Ordinary requests were refused, and none reached the server. So were cookies, storage, the parent page,
+  popups, top navigation, form posts, `eval`, workers and nested frames.
+- A frame navigating itself gets out without the host page's header, with data in the URL. With it, the
+  request never arrives. The built-in browser pane of the Claude desktop app stops this navigation whatever
+  the policy, so it cannot test it.
+- WebRTC gets out regardless: STUN packets reached a server the app named, because Chromium ignores the
+  CSP `webrtc` directive. No fix is known that an app could not get around.
+
+So the boundary is what an app can read, not where it can send it. Your session and anything ungranted stay
+out of reach, and what you grant could leave. Safari and Firefox are unmeasured.
+
+The desktop app runs the same document in the same sandboxed frame, inside a WKWebView it locks down itself, as
+a native view has neither that frame nor the header by default. Measured on macOS 26.6 with
+`tools/Walk -- app-probe`, which turns each lock off as its control: with all of them on, no way out reached the
+server, WebRTC included. Two of those locks are private WebKit switches, so this is what was measured and not
+a promise, and the boundary above stays what an app can read. `apps/desktop/CLAUDE.md` has the detail.
+
+Write access, an app's own storage, revision history and apps written by agents are all out of scope for
+now. Agents especially: their output is untrusted, and the limit above matters far more for an author the
+operator did not choose.
 
 ## Runner requirements
 

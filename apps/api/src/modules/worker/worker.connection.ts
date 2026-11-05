@@ -6,6 +6,7 @@ import {
     parseFrame,
     FromWorker,
     WORKER_KEEPALIVE_MS,
+    WORKER_MAX_MISSED_PONGS,
     type CallOp,
     type CallResults,
     type ToWorker,
@@ -64,7 +65,7 @@ export class WorkerConnection {
     private readonly pending = new Map<string, Pending>();
     private readonly streams = new Map<string, (message: WorkerStreamMessage) => void>();
     private closedWith?: string;
-    private alive = true;
+    private missedPongs = 0;
     private readonly keepalive: NodeJS.Timeout;
     private readonly closeListeners = new Set<(reason: string) => void>();
     readonly connectedAt = DateTime.now();
@@ -77,22 +78,23 @@ export class WorkerConnection {
         private readonly socket: WebSocket,
     ) {
         socket.on('message', (data, isBinary) => {
+            // Anything from the worker shows it is there, whatever became of the last pong.
+            this.missedPongs = 0;
             if (isBinary) return;
             this.receive(data.toString());
         });
         socket.on('pong', () => {
-            this.alive = true;
+            this.missedPongs = 0;
         });
         socket.on('close', (code, reason) => this.closed(`closed with ${code}${reason.length > 0 ? ` (${reason.toString()})` : ''}`));
         socket.on('error', err => this.closed(err.message));
-        // A missing pong is tolerated for one interval.
         this.keepalive = setInterval(() => {
-            if (!this.alive) {
+            if (this.missedPongs >= WORKER_MAX_MISSED_PONGS) {
                 socket.terminate();
-                this.closed(`no answer to a keepalive ping in ${WORKER_KEEPALIVE_MS / 1000}s`);
+                this.closed(`no answer to a keepalive ping in ${(WORKER_KEEPALIVE_MS * WORKER_MAX_MISSED_PONGS) / 1000}s`);
                 return;
             }
-            this.alive = false;
+            this.missedPongs += 1;
             socket.ping();
         }, WORKER_KEEPALIVE_MS);
         this.keepalive.unref();

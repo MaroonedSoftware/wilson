@@ -1,5 +1,6 @@
 // Auto-generated barrel file
 export * from './api.keys.js';
+export * from './apps.js';
 export * from './auth.js';
 export * from './board.js';
 export * from './chat.js';
@@ -7,7 +8,9 @@ export * from './code.js';
 export * from './context.js';
 export * from './devices.js';
 export * from './engine.tokens.js';
+export * from './evals.js';
 export * from './factors.js';
+export * from './goals.js';
 export * from './health.js';
 export * from './hosts.js';
 export * from './learnings.js';
