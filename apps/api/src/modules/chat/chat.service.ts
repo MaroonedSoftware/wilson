@@ -70,6 +70,13 @@ export const titleFrom = (text: string): string => {
     return line.length <= TITLE_LENGTH ? line : `${line.slice(0, TITLE_LENGTH - 1).trimEnd()}…`;
 };
 
+/** What a turn left behind: its answer, unless it had nothing to say, and what it proposed and asked. */
+export interface NoteOutcome {
+    reply?: ChatMessage;
+    proposed: PendingAction[];
+    asked: PendingQuestion[];
+}
+
 /** What a follow-up answers when the change it was told about leaves nothing to say or do. */
 export const NOTHING_MORE = 'NOTHING_MORE';
 
@@ -268,6 +275,29 @@ export class ChatService {
         return toWireQuestion(answered);
     }
 
+    /**
+     * Run one turn on `threadId`, told `note` in place of a message from a person, and resolve once it
+     * is finished. Takes the thread's lock, so a message sent meanwhile waits for it rather than racing
+     * it. `note` is never stored as anyone's message, and a turn answering {@link NOTHING_MORE} stores
+     * no answer either.
+     *
+     * Takes `session` rather than reading the request's, so it can run where there is no request. Every
+     * operation in the turn runs as that session. Rejects when the turn fails, which the turn has also
+     * published as `failed`. Resolves with `undefined` for a thread that does not exist.
+     */
+    async runNote(threadId: string, note: string, session: AuthenticationSession, project?: string): Promise<NoteOutcome | undefined> {
+        return threadLock(threadId).run(
+            `note to chat thread ${threadId}`,
+            message => this.logger.info(message),
+            async () => {
+                const thread = await this.threads.get(threadId);
+                if (!thread) return undefined;
+                const history = await this.messages.since(thread.id);
+                return this.answer(thread, history, note, session, project, { followUp: true });
+            },
+        );
+    }
+
     /** Resolves once every follow-up this service started has finished: for tests, and an orderly shutdown. */
     async whenIdle(): Promise<void> {
         while (this.followUps.size > 0) await Promise.all(this.followUps);
@@ -283,20 +313,7 @@ export class ChatService {
      * to anyone.
      */
     private followUp(action: PendingAction, session: AuthenticationSession): void {
-        const run = threadLock(action.threadId)
-            .run(
-                `follow-up to chat action ${action.id}`,
-                message => this.logger.info(message),
-                async () => {
-                    const thread = await this.threads.get(action.threadId);
-                    if (!thread) return;
-                    const history = await this.messages.since(thread.id);
-                    await this.answer(thread, history, followUpNote(action), session, action.project, { followUp: true });
-                },
-            )
-            .catch(err => this.logger.warn(`chat action ${action.id}: the follow-up failed: ${explainError(err)}`))
-            .finally(() => this.followUps.delete(run));
-        this.followUps.add(run);
+        this.inBackground(this.runNote(action.threadId, followUpNote(action), session, action.project), `chat action ${action.id}`);
     }
 
     /**
@@ -308,18 +325,14 @@ export class ChatService {
      * message sent meanwhile waits for it rather than racing it, the same as {@link followUp}.
      */
     private followUpQuestions(question: PendingQuestion, answers: QuestionAnswer[], session: AuthenticationSession): void {
-        const run = threadLock(question.threadId)
-            .run(
-                `follow-up to chat question ${question.id}`,
-                message => this.logger.info(message),
-                async () => {
-                    const thread = await this.threads.get(question.threadId);
-                    if (!thread) return;
-                    const history = await this.messages.since(thread.id);
-                    await this.answer(thread, history, answerNote(question, answers), session, undefined, { followUp: true });
-                },
-            )
-            .catch(err => this.logger.warn(`chat question ${question.id}: the follow-up failed: ${explainError(err)}`))
+        this.inBackground(this.runNote(question.threadId, answerNote(question, answers), session), `chat question ${question.id}`);
+    }
+
+    /** Let `work` finish after its request has, logging a failure rather than throwing it, and tracked so `whenIdle` covers it. */
+    private inBackground(work: Promise<unknown>, about: string): void {
+        const run: Promise<void> = work
+            .then(() => undefined)
+            .catch(err => this.logger.warn(`${about}: the follow-up failed: ${explainError(err)}`))
             .finally(() => this.followUps.delete(run));
         this.followUps.add(run);
     }
@@ -335,7 +348,7 @@ export class ChatService {
         session: AuthenticationSession,
         project?: string,
         { followUp = false, images }: { followUp?: boolean; images?: ChatImage[] } = {},
-    ): Promise<{ reply?: ChatMessage; proposed: PendingAction[]; asked: PendingQuestion[] }> {
+    ): Promise<NoteOutcome> {
         const fail = (reason: string): never => {
             publishChat(thread.id, { event: 'failed', data: { reason } });
             throw httpError(503).withDetails({ reason });

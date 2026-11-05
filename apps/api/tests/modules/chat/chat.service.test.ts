@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { AuthenticationSession } from '@maroonedsoftware/authentication';
 import type { Kysely } from 'kysely';
 import { Duration } from 'luxon';
 import { ConsoleLogger } from '@maroonedsoftware/logger';
@@ -44,7 +45,7 @@ const statusOf = (err: unknown): unknown => (err as { statusCode?: unknown }).st
  * once when they make it, and nothing they said is lost when the model cannot answer.
  */
 describe('ChatService', () => {
-    const setup = (steps: Parameters<typeof scriptedModel>[0]) => {
+    const setup = (steps: Parameters<typeof scriptedModel>[0], session: () => AuthenticationSession = () => fakeSession) => {
         const operationCalls: FakeCall[] = [];
         const catalog = fakeCatalog([
             fakeHandler('list_cards', true, operationCalls, { result: [{ id: '0007', stage: 'review' }] }),
@@ -68,7 +69,7 @@ describe('ChatService', () => {
             container.get(ProjectRepository),
             { api: new ApiChatEngine(model.registry), cli: undefined },
             async (): Promise<ChatEngineChoice> => ({ engine: 'api', provider: 'anthropic', model: 'claude-sonnet-5-5' }),
-            () => fakeSession,
+            session,
         );
         return { service, model, operationCalls, questions };
     };
@@ -270,6 +271,75 @@ describe('ChatService', () => {
 
             expect(reply.content).toBe('Two cards.');
             record.mockRestore();
+        });
+    });
+
+    describe('runNote', () => {
+        const noRequest = () => {
+            throw new Error('there is no request in progress');
+        };
+        const readCards = calls('dispatch_readonly', { name: 'list_cards', project: 'wilson' });
+
+        it('runs where there is no request, and stores the answer but not the note', async () => {
+            const { service, model, operationCalls } = setup([readCards, says('0007 is stuck.')], noRequest);
+            const thread = await service.startThread();
+
+            const outcome = await service.runNote(thread.id, '(A note from Wilson.) 0007 was flagged.', fakeSession, 'wilson');
+
+            expect(outcome?.reply?.content).toBe('0007 is stuck.');
+            expect(operationCalls.map(call => call.name)).toEqual(['list_cards']);
+            expect(JSON.stringify(model.prompts[0])).toContain('0007 was flagged');
+            const { messages } = await service.getThread(thread.id);
+            expect(messages.map(message => [message.role, message.content])).toEqual([['assistant', '0007 is stuck.']]);
+        });
+
+        it(`stores nothing when there is nothing to say (${NOTHING_MORE})`, async () => {
+            const { service } = setup([says(NOTHING_MORE)], noRequest);
+            const thread = await service.startThread();
+
+            const outcome = await service.runNote(thread.id, '(A note from Wilson.) 0007 passed.', fakeSession);
+
+            expect(outcome).toEqual({ proposed: [], asked: [] });
+            expect((await service.getThread(thread.id)).messages).toEqual([]);
+        });
+
+        it('hands back what it proposed, which still waits on the person', async () => {
+            const { service, operationCalls } = setup([proposeMove, says('Proposed.')], noRequest);
+            const thread = await service.startThread();
+
+            const outcome = await service.runNote(thread.id, '(A note from Wilson.) 0007 was flagged.', fakeSession);
+
+            expect(outcome?.proposed.map(action => action.status)).toEqual(['pending']);
+            expect(operationCalls).toEqual([]);
+        });
+
+        it('rejects when the turn fails, where a follow-up would only log it', async () => {
+            const { service } = setup([], noRequest);
+            const thread = await service.startThread();
+
+            await expect(service.runNote(thread.id, 'a note', fakeSession)).rejects.toMatchObject({ statusCode: 503 });
+            await service.whenIdle();
+        });
+
+        it('answers undefined for a thread that does not exist', async () => {
+            const { service, model } = setup([], noRequest);
+
+            await expect(service.runNote('999999999', 'a note', fakeSession)).resolves.toBeUndefined();
+            expect(model.prompts).toEqual([]);
+        });
+
+        it('takes turns with a message sent to the same thread', async () => {
+            const { service, model } = setup([says('First.'), says('Second.')]);
+            const thread = await service.startThread();
+
+            const [sent, note] = await Promise.all([
+                service.sendMessage(thread.id, { text: 'First?' }),
+                service.runNote(thread.id, 'a note', fakeSession),
+            ]);
+
+            // Whichever takes the lock first, the other's turn reads its answer rather than racing it.
+            expect([sent.reply.content, note?.reply?.content].sort()).toEqual(['First.', 'Second.']);
+            expect(JSON.stringify(model.prompts[1])).toContain('First.');
         });
     });
 
