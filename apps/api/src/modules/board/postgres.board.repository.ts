@@ -288,6 +288,22 @@ export class PostgresBoardRepository extends BoardRepository {
                 splitFrom: fm.splitFrom ?? null,
             })
             .execute();
+
+        // A piece stays in the goal of the card it was split from, in the transaction that creates it,
+        // whichever path split it: an operator's split and `AutoSplitter`'s both come through here.
+        if (fm.splitFrom) {
+            await trx
+                .insertInto('wilson.goalCards')
+                .columns(['project', 'cardId', 'goalId'])
+                .expression(eb =>
+                    eb
+                        .selectFrom('wilson.goalCards')
+                        .select(['project', eb.val(fm.id).as('cardId'), 'goalId'])
+                        .where('project', '=', this.config.project)
+                        .where('cardId', '=', fm.splitFrom!),
+                )
+                .execute();
+        }
     }
 
     /** Append the version row and return its id. */
