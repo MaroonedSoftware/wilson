@@ -3,9 +3,13 @@ import type { AuthenticationSession } from '@maroonedsoftware/authentication';
 import { httpError } from '@maroonedsoftware/errors';
 import { ServerKitContext } from '@maroonedsoftware/koa';
 import type { Logger } from '@maroonedsoftware/logger';
+import { requireMcpPolicy } from '@maroonedsoftware/mcp';
+import { PolicyService } from '@maroonedsoftware/policies';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { runAsProject } from '#modules/board/project.context.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
+import { isExternalOperation, McpConnectionsService } from '#modules/connections/mcp.connections.service.js';
+import { ORCHESTRATOR_SUBJECT } from '#modules/goal/orchestrator.session.js';
 import { McpToolCatalog } from '#modules/mcp/generated/mcp.tools.js';
 
 /** One catalog operation as the chat's tools see it. */
@@ -40,6 +44,11 @@ export const explainError = (err: unknown): string => {
  * route it mirrors would. Each call gets its own scoped container, as each request does, which is
  * where the handler resolves its service (`resolve: perCall`). It runs as the person whose message
  * or decision asked for it, so a handler's policy judges that person's session, as the route's would.
+ *
+ * Tools on outside MCP servers (`McpConnectionsService`) are operations here too, named
+ * `<connection>.<tool>`. They live in the database rather than the catalog, so a turn loads them once
+ * ({@link external}) and passes them to {@link get} and {@link search}, and {@link run} checks them
+ * again live. A wake-up gets none: nobody asked for that turn, and what a tool answers is untrusted.
  */
 @Injectable()
 export class ChatCatalog {
@@ -54,8 +63,14 @@ export class ChatCatalog {
         }));
     }
 
-    get(name: string): ChatCatalogEntry | undefined {
-        return this.entries.find(entry => entry.name === name);
+    get(name: string, external: readonly ChatCatalogEntry[] = []): ChatCatalogEntry | undefined {
+        return [...this.entries, ...external].find(entry => entry.name === name);
+    }
+
+    /** The outside tools `session`'s turn may be offered: those a person reviewed, and none for a wake-up. */
+    async external(container: Container, session: AuthenticationSession): Promise<ChatCatalogEntry[]> {
+        if (session.subject === ORCHESTRATOR_SUBJECT) return [];
+        return container.get(McpConnectionsService).usableTools();
     }
 
     /**
@@ -63,12 +78,12 @@ export class ChatCatalog {
      * once for appearing in the description. `readOnly` narrows to reads (true) or changes (false).
      * An empty query matches everything, in catalog order.
      */
-    search(query: string, limit: number, readOnly?: boolean): ChatCatalogEntry[] {
+    search(query: string, limit: number, readOnly?: boolean, external: readonly ChatCatalogEntry[] = []): ChatCatalogEntry[] {
         const words = query
             .toLowerCase()
             .split(/[^a-z0-9]+/)
             .filter(Boolean);
-        return this.entries
+        return [...this.entries, ...external]
             .filter(entry => readOnly === undefined || entry.readOnly === readOnly)
             .map(entry => {
                 const name = entry.name.toLowerCase();
@@ -85,7 +100,9 @@ export class ChatCatalog {
     /**
      * Run `name` with `args` in `project` (the daemon's own when undefined, as for a request that
      * names none) and answer with its result. Throws what the operation throws, and a 400 for a
-     * project that is not registered or an operation that does not exist.
+     * project that is not registered or an operation that does not exist. With `mustBeRead`, an outside
+     * tool is refused unless it is still marked as a read, since it may have changed since the turn
+     * loaded it.
      */
     async run(
         container: Container,
@@ -94,7 +111,10 @@ export class ChatCatalog {
         name: string,
         args: Record<string, unknown>,
         project?: string,
+        { mustBeRead = false }: { mustBeRead?: boolean } = {},
     ): Promise<unknown> {
+        if (isExternalOperation(name)) return this.runExternal(container, session, name, args, project, mustBeRead);
+
         const handler = this.catalog.get(name);
         if (!handler) throw httpError(400).withDetails({ reason: `there is no operation named "${name}"` });
 
@@ -120,5 +140,26 @@ export class ChatCatalog {
         } catch {
             return text;
         }
+    }
+
+    /**
+     * Run an outside tool as `session`. A read takes `wilson.view` and a change `wilson.manage`, as
+     * Wilson's own operations do. A wake-up is refused whatever it asks for.
+     */
+    private async runExternal(
+        container: Container,
+        session: AuthenticationSession,
+        name: string,
+        args: Record<string, unknown>,
+        project: string | undefined,
+        mustBeRead: boolean,
+    ): Promise<unknown> {
+        if (session.subject === ORCHESTRATOR_SUBJECT) throw httpError(403).withDetails({ reason: 'a wake-up cannot use an outside tool' });
+        const scope = container.createScopedContainer();
+        const connections = scope.get(McpConnectionsService);
+        const isRead = await connections.isRead(name);
+        if (isRead === undefined) throw httpError(400).withDetails({ reason: `there is no operation named "${name}"` });
+        await requireMcpPolicy({ authenticationSession: session }, scope.get(PolicyService), { policy: isRead ? 'wilson.view' : 'wilson.manage' });
+        return connections.call(name, args, { project, mustBeRead });
     }
 }

@@ -1617,6 +1617,10 @@ set|list|remove`). Saving or removing one takes a recently proved factor (`wilso
   schema or hints changed, until it is reviewed again. That cannot catch a server that changes what a tool does and keeps
   describing it the same way. Plain `http` is allowed for a server on the local network, with a warning when a secret goes
   over it. Every saved secret's value is taken out of results and failures by exact match.
+  In the chat, a reviewed tool is an operation named `<connection>.<tool>`, found and read through the same meta tools
+  as Wilson's own, and a `change` tool goes through the same confirmation. A read takes `wilson.view` and a change
+  `wilson.manage`. A wake-up (`orchestratorSession`) is offered none and refused all, reads included, since nobody asked
+  for that turn and what a tool answers is untrusted. Stages and operator apps cannot reach these tools.
 
 ### Moving the board to the server
 

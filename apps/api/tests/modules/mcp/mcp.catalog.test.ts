@@ -128,6 +128,12 @@ describe('the MCP operation catalog', () => {
         }
     });
 
+    it('holds no name with a dot, which is how the chat tells an outside tool from these', async () => {
+        const tools = await catalog();
+
+        expect([...tools.keys()].filter(name => name.includes('.'))).toEqual([]);
+    });
+
     it('marks every change as not read-only, whatever its method', async () => {
         const tools = await catalog();
 
