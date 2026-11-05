@@ -52,7 +52,7 @@ cd apps/desktop && dotnet run --project tools/Walk -- /tmp/walk http://localhost
 
 Then Read the PNGs. Add a step for what you built, and pass `light` as a fifth argument for the other
 appearance. `admin` as a sixth walks only hosts, settings and security, which waits out the five minutes a
-session must age for a step-up, so a whole walk's end is that wait too. `plan` walks only planning, on a card of its own. `images` walks only sending an image in chat. `actions` walks only proposed changes, written to the throwaway database and read back through the API, with no agent turn. `lanes` walks only the lanes page, then waits out those five minutes for a save behind a step-up. `dock` walks only the chat dock, and is
+session must age for a step-up, so a whole walk's end is that wait too. `plan` walks only planning, on a card of its own. `question` walks answering a stage's question, on a board that has one. `images` walks only sending an image in chat. `actions` walks only proposed changes, written to the throwaway database and read back through the API, with no agent turn. `lanes` walks only the lanes page, then waits out those five minutes for a save behind a step-up. `merge` walks only the merge status, and needs a card in `ready`. `dock` walks only the chat dock, and is
 the one walk that starts with it open, as a person does: the others close it to keep their pages whole. A planning or chat step sends a real turn to the agent, using the machine's Claude login.
 The older diff step needs a card with a branch: that API's `code_root` is its own scratch repo (see
 `wilson.projects`), so make a branch there and set `wilson.cards.branch`. `Walker.ScratchBranch` does
@@ -113,11 +113,14 @@ nothing either, so no release would run.
 
 ## Updates
 
-The app checks GitHub at launch and every six hours, using its own `HttpClient` so the operator's
-token never reaches GitHub. It downloads a newer `desktop-v*` release in the background, and installs
-it only on "Restart to update", so a planning turn or a merge is never cut off. Check for Updates in
-the application menu runs the same check and also answers when there is nothing to offer, using
-`UpdateCheckResult.Answered` so a GitHub that did not answer never reads as up to date.
+The app checks GitHub at launch and every five minutes, using its own `HttpClient` so the operator's
+token never reaches GitHub. That makes the checks anonymous, so each running app spends 12 of the 60
+requests an hour GitHub allows an IP address. It downloads a newer `desktop-v*` release in the
+background, and installs it only on "Restart to update", so a planning turn or a merge is never cut
+off. A failed download is tried again only every six hours (`UpdateDownloadRetry`), so a bad release
+is not fetched whole on every check. Check for Updates in the application menu runs the same check,
+skips that wait, and also answers when there is nothing to offer, using `UpdateCheckResult.Answered`
+so a GitHub that did not answer never reads as up to date.
 
 - **Nothing vouches for an update but `UpdateSignature`.** The app is not notarised, and a file it
   downloads itself is not quarantined, so Gatekeeper never looks. The workflow signs

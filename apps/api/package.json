@@ -10,6 +10,7 @@
         "build": "tsc",
         "build:datatypes": "pnpm sync:enum-overrides && kysely-codegen",
         "sync:enum-overrides": "node --no-warnings --import @swc-node/register/esm-register scripts/sync.enum.overrides.ts",
+        "eval:review": "node --no-warnings --import @swc-node/register/esm-register scripts/review.eval.ts",
         "codegen": "contractkit",
         "dev": "node --watch --import @swc-node/register/esm-register ./src/index.ts",
         "start": "node --import @swc-node/register/esm-register ./src/index.ts",
@@ -21,7 +22,8 @@
         "lint:check": "eslint",
         "typecheck": "tsc -p tsconfig.tests.json",
         "test": "vitest run",
-        "test:engine": "vitest run --config vitest.engine.config.ts"
+        "test:engine": "vitest run --config vitest.engine.config.ts",
+        "test:engine:compat": "vitest run --config vitest.engine.config.ts engine.compat codex.engine.contract"
     },
     "dependencies": {
         "@ai-sdk/anthropic": "^4.0.41",
@@ -54,6 +56,7 @@
         "picomatch": "^4.0.5",
         "rate-limiter-flexible": "^11.2.0",
         "reflect-metadata": "^0.2.2",
+        "typescript": "^6.0.3",
         "ws": "^8.21.3",
         "yaml": "^2.9.0",
         "zod": "^4.6.7"

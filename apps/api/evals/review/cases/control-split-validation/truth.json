@@ -1,0 +1,4 @@
+{
+    "kind": "control",
+    "about": "Merged, with at least three quarters of its lines surviving when this corpus was cut and no later commit to its files reading as a fix within the next six. That is evidence the diff is clean, not proof."
+}

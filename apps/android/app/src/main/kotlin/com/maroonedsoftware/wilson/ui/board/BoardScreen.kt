@@ -32,12 +32,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.maroonedsoftware.wilson.board.cardState
+import com.maroonedsoftware.wilson.board.mergeStatusLine
+import com.maroonedsoftware.wilson.board.mergeStatusWarns
 import com.maroonedsoftware.wilson.board.planCheckLine
 import com.maroonedsoftware.wilson.sdk.models.CardSummary
 import com.maroonedsoftware.wilson.ui.Centered
@@ -138,6 +141,14 @@ private fun CardRow(card: CardSummary, onClick: () -> Unit) {
             Text("${card.id}  ${card.title}", style = MaterialTheme.typography.bodyLarge)
             card.doneReason?.let { Text(it.name.lowercase(), style = MaterialTheme.typography.bodySmall) }
             planCheckLine(card.planCheck, card.planCheckReason)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            card.mergeStatus?.let {
+                Text(
+                    mergeStatusLine(it),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (mergeStatusWarns(it)) MaterialTheme.colorScheme.error else Color.Unspecified,
+                    maxLines = 2,
+                )
+            }
             card.needsHumanReason?.takeIf { card.needsHuman }?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2)
             }

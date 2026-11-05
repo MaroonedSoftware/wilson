@@ -27,7 +27,21 @@ public class DecodeTests
     public void Cards() => Assert.NotEmpty(Read<List<CardSummary>>("cards.json"));
 
     [Fact]
+    public void AMergeStatus() => Assert.Equal(MergeStatusState.Rereview, Read<List<CardSummary>>("cards.json")[^1].MergeStatus?.State);
+
+    [Fact]
     public void Card() => Assert.NotEmpty(Read<CardDetail>("card.json").Id);
+
+    [Fact]
+    public void BlockedCard()
+    {
+        var blocked = Read<CardDetail>("card-blocked.json").Blocked;
+
+        Assert.NotNull(blocked);
+        Assert.Equal(CardBlockedCategory.Decision, blocked.Category);
+        Assert.NotEmpty(blocked.Question);
+        Assert.Equal(2, blocked.Options?.Count);
+    }
 
     [Fact]
     public void Columns() => Assert.NotEmpty(Read<BoardColumns>("columns.json").Stages);

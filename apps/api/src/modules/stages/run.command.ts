@@ -101,6 +101,48 @@ export const runConfiguredCommand = async (
     }
 };
 
+/** What {@link runConfiguredCommandForOutput} saw. A command that exits non-zero is an answer here, not a failure of this call. */
+export interface CommandOutput {
+    /** The exit code, a string such as `ENOENT` when the process never started, or `undefined` once killed. */
+    exitCode?: number | string;
+    /** Killed before it finished: on `timeoutMs`, or for printing more than the buffer holds. */
+    killed: boolean;
+    /** Stdout then stderr, whole, without Node's experimental-feature warnings. */
+    output: string;
+}
+
+/**
+ * {@link runConfiguredCommand} for a caller that reads what the command printed, whether or not it
+ * passed: the same no-shell rule and the same environment, but never rejects and never trims. A type
+ * checker's error list is in its output and its exit code only says there is one, so the last 4,000
+ * characters of a failure are no use to it.
+ */
+export const runConfiguredCommandForOutput = async (
+    cwd: string,
+    command: string,
+    timeoutMs = 10 * 60 * 1000,
+    port?: number,
+    host: ExecutionHost = localHost,
+): Promise<CommandOutput> => {
+    const [file, ...args] = command.trim().split(/\s+/).filter(Boolean);
+    if (!file) return { exitCode: 'empty', killed: false, output: 'configured command is empty' };
+
+    const joined = (stdout?: string, stderr?: string): string => withoutNodeWarnings([stdout?.trim(), stderr?.trim()].filter(Boolean).join('\n'));
+    try {
+        const { stdout, stderr } = await host.exec(file, args, {
+            cwd,
+            timeoutMs,
+            maxBuffer: 64 * 1024 * 1024,
+            env: scrubbedEnv(port),
+            hostEnv: host.commandEnv,
+        });
+        return { exitCode: 0, killed: false, output: joined(stdout, stderr) };
+    } catch (err) {
+        const e = err as ExecFailure;
+        return { exitCode: e.killed ? undefined : (e.code ?? 'unknown'), killed: !!e.killed, output: joined(e.stdout, e.stderr) || e.message };
+    }
+};
+
 /**
  * Serializes writes to pnpm's shared content-addressable store, in-process.
  *

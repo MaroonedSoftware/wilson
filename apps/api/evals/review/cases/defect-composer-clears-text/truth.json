@@ -1,0 +1,9 @@
+{
+    "kind": "defect",
+    "class": "error-handling",
+    "file": "apps/web/src/components/PlanningSession.tsx",
+    "lines": [111, 123],
+    "mentions": ["text", "fail|refus|error|lost|lose"],
+    "about": "The composer clears its text as soon as the request is sent, so a failed turn loses what the person typed.",
+    "fixedBy": "5dcf885d7a18c32890f5beeb97b2bc8455404e48"
+}

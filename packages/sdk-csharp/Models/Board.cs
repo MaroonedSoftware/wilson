@@ -29,99 +29,80 @@ public sealed record BoardColumns
 }
 
 /// <summary>
+/// What pressing Merge on a `ready` card would do right now, worked out on read and never by trying it.
+/// `BoardWriteService.merge` checks re-review before it computes the merge, so `state` follows the same
+/// order: `rereview` wins over `conflict` when `RE_REVIEW_ON_MERGE` is on and both apply, and `conflicts`
+/// still lists what the rebase on re-entry will hit. `capped` is the same overlap on a card that has
+/// used up its re-reviews, so Merge flags it for a human instead of sending it back. `unknown` is a read
+/// that failed (a branch missing from `codeRoot`, say), not a claim about the merge; `reason` carries
+/// the error.
+/// </summary>
+public sealed record MergeStatus
+{
+    [JsonPropertyName("state")]
+    public required MergeStatusState State { get; init; }
+
+    /// <summary>
+    /// The ref the answer was computed against: `main`, or `dry-run-integration` when a dry run would
+    /// land there. Absent when the read failed before it got that far.
+    /// </summary>
+    [JsonPropertyName("target")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Target { get; init; }
+
+    /// <summary>
+    /// Paths `git merge-tree` could not resolve. Empty can still mean `conflict`: a conflict git reports
+    /// without naming a path.
+    /// </summary>
+    [JsonPropertyName("conflicts")]
+    public required List<string> Conflicts { get; init; }
+
+    /// <summary>Paths both the card and the target changed since they forked: what sends a merge back to review.</summary>
+    [JsonPropertyName("movedUnder")]
+    public required List<string> MovedUnder { get; init; }
+
+    [JsonPropertyName("reason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Reason { get; init; }
+}
+
+/// <summary>
 /// Card 0091. Orders the parking lot; `list`'s `position, id` ordering (PostgresBoardRepository)
 /// sorts a card with one ahead of every card without. Absent for a card nothing has ever dragged —
 /// including every card that predates this, since there is no migration to back-fill it — and such a
 /// card sorts by `id` among the others like it, not at either end of the column. Meaningless outside
 /// `parking-lot`: no other stage's order is an operator's to set (POST .../reposition refuses it).
+/// The question a stage stopped to ask. Set alongside `needsHuman`, with the question as
+/// `needsHumanReason`, and cleared by an answer, an ack or a move.
 /// </summary>
-public sealed record CardSummary
+public sealed record CardBlocked
 {
-    [JsonPropertyName("id")]
-    public required string Id { get; init; }
+    [JsonPropertyName("category")]
+    public required CardBlockedCategory Category { get; init; }
 
-    [JsonPropertyName("title")]
-    public required string Title { get; init; }
+    /// <summary>What the stage already tried or checked before asking.</summary>
+    [JsonPropertyName("tried")]
+    public required string Tried { get; init; }
 
+    [JsonPropertyName("question")]
+    public required string Question { get; init; }
+
+    /// <summary>Answers the stage thinks are likely. An operator may answer something else.</summary>
+    [JsonPropertyName("options")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Options { get; init; }
+
+    /// <summary>The stage that asked, so the answer goes back to the run it was meant for.</summary>
     [JsonPropertyName("stage")]
     public required string Stage { get; init; }
 
-    /// <summary>How the card ended, once it has. Absent for a card still on the board.</summary>
-    [JsonPropertyName("doneReason")]
+    [JsonPropertyName("askedAt")]
+    public required DateTimeOffset AskedAt { get; init; }
+
+    /// <summary>Where the stopped run's uncommitted work is preserved. Absent when it left none.</summary>
+    [JsonPropertyName("patchPath")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public CardSummaryDoneReason? DoneReason { get; init; }
-
-    /// <summary>
-    /// Where an approved plan's scope check has got to. The card stays in planning for both, and moves
-    /// to backlog when the check passes.
-    /// </summary>
-    [JsonPropertyName("planCheck")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public CardSummaryPlanCheck? PlanCheck { get; init; }
-
-    [JsonPropertyName("planCheckReason")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? PlanCheckReason { get; init; }
-
-    [JsonPropertyName("branch")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Branch { get; init; }
-
-    /// <summary>
-    /// Card 0160. `WorktreeManager.resolveBranch`'s own answer — `branch` above when something
-    /// recorded one, otherwise the same derivation from the card's title `branchName` computes.
-    /// `branch` alone cannot answer "which branch is this card's work on" for most cards (card 0095),
-    /// and re-deriving the fallback anywhere but `WorktreeManager` would risk drifting from it, so this
-    /// is that single answer carried onto the wire rather than a second copy of its logic. Optional
-    /// because only the reads `BoardService` itself serves (`list`, `getById`) compute it; a write
-    /// response built through `BoardWriteService`/`PlanService`'s shared `toCardDetail` leaves it
-    /// absent rather than guess.
-    /// </summary>
-    [JsonPropertyName("resolvedBranch")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? ResolvedBranch { get; init; }
-
-    [JsonPropertyName("dependsOn")]
-    public required List<string> DependsOn { get; init; }
-
-    /// <summary>
-    /// Required, unlike the frontmatter's optional `needsHuman?`, so the web never has to write
-    /// `?? false` — every card has an answer to "does this need a human", even if that answer is no.
-    /// </summary>
-    [JsonPropertyName("needsHuman")]
-    public required bool NeedsHuman { get; init; }
-
-    [JsonPropertyName("needsHumanReason")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? NeedsHumanReason { get; init; }
-
-    [JsonPropertyName("position")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public long? Position { get; init; }
-
-    /// <summary>
-    /// The card this one was split out of. Absent on every other card, including pieces split before
-    /// the field existed, so absence does not prove a card has no origin.
-    /// </summary>
-    [JsonPropertyName("splitFrom")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? SplitFrom { get; init; }
-
-    /// <summary>
-    /// Card 0178. The moment this card entered its current stage — the most recent
-    /// `transition.written` event's timestamp, or its earliest recorded event if the card has never
-    /// transitioned, mirroring `wilson card show`'s own `timeInCurrentStage` derivation
-    /// (apps/api/src/modules/events/time.in.stage.ts, factored out as `stageEnteredAt` there).
-    /// Populated only by the reads `BoardService` itself serves (`list`, `getById`), the same way
-    /// `resolvedBranch` above is: a write response built through `BoardWriteService`/`PlanService`'s
-    /// shared `toCardDetail` leaves it absent rather than guess. Also absent for a card whose fetched
-    /// event history holds no events at all, or whose fetched window is full of events with no
-    /// transition among them — a history that cannot answer the question either way, not the same
-    /// fact as "just entered".
-    /// </summary>
-    [JsonPropertyName("stageEnteredAt")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public DateTimeOffset? StageEnteredAt { get; init; }
+    public string? PatchPath { get; init; }
 }
 
 /// <summary>
@@ -359,13 +340,14 @@ public sealed record CardVersion
 }
 
 /// <summary>
-/// Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed`/`stage.interrupted`
-/// event for it, summed. `attempts` counts the passed and failed events themselves, including one whose
-/// payload carried no `usage` at all (it still ran), and not an interrupted run, which spends no retry;
+/// Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed`/`stage.interrupted`/
+/// `stage.blocked` event for it, summed. `attempts` counts the passed and failed events themselves,
+/// including one whose payload carried no `usage` at all (it still ran), and not an interrupted or
+/// blocked run, neither of which spends a retry;
 /// `inputTokens`/`outputTokens` sum whatever `usage` all of those events did carry, so the two can never
 /// disagree with the event log. A stage interrupted every time so far has tokens and no attempts.
-/// `inputTokens` includes cached tokens, as a card's input budget counts them; `cachedInputTokens` is
-/// how many of them were cached, not an addition to it.
+/// `inputTokens` includes cached tokens; `cachedInputTokens` is how many of them were cached, not an
+/// addition to it. These are raw tokens: a card's input budget weights them by cost, so the two differ.
 /// </summary>
 public sealed record CardStageUsage
 {
@@ -450,6 +432,85 @@ public sealed record ProjectConversationStats
 
     [JsonPropertyName("outputTokens")]
     public required long OutputTokens { get; init; }
+}
+
+/// <summary>
+/// A judgment that sent a card back, by where it came from: a review's or a challenge's `revise`, or a
+/// verifier's own failed check. `step` names the step of `stage` that judged, absent for the lane's own
+/// run. `matched` is how many of `count` are older events placed by matching their text.
+/// </summary>
+public sealed record ProjectGateKickback
+{
+    [JsonPropertyName("stage")]
+    public required string Stage { get; init; }
+
+    [JsonPropertyName("step")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Step { get; init; }
+
+    [JsonPropertyName("reason")]
+    public required ProjectGateKickbackReason Reason { get; init; }
+
+    [JsonPropertyName("count")]
+    public required long Count { get; init; }
+
+    [JsonPropertyName("matched")]
+    public required long Matched { get; init; }
+}
+
+/// <summary>
+/// Every failed attempt by why, including those that retried in place and judged nothing. `matched` is as
+/// on `ProjectGateKickback`, and older failures that match no known message count as `verifier`.
+/// </summary>
+public sealed record ProjectGateFailure
+{
+    [JsonPropertyName("failureClass")]
+    public required ProjectGateFailureFailureClass FailureClass { get; init; }
+
+    [JsonPropertyName("count")]
+    public required long Count { get; init; }
+
+    [JsonPropertyName("matched")]
+    public required long Matched { get; init; }
+}
+
+/// <summary>How many of a stage's passed attempts were a `revise`, which `ProjectStats` counts as passed.</summary>
+public sealed record ProjectGateRevised
+{
+    [JsonPropertyName("stage")]
+    public required string Stage { get; init; }
+
+    [JsonPropertyName("count")]
+    public required long Count { get; init; }
+}
+
+/// <summary>
+/// What the judges fresh in this window said about one rule. A verdict reused from an earlier run is not
+/// counted again.
+/// </summary>
+public sealed record ProjectGateRule
+{
+    [JsonPropertyName("rule")]
+    public required string Rule { get; init; }
+
+    [JsonPropertyName("statement")]
+    public required string Statement { get; init; }
+
+    [JsonPropertyName("failed")]
+    public required long Failed { get; init; }
+
+    [JsonPropertyName("unavailable")]
+    public required long Unavailable { get; init; }
+}
+
+/// <summary>A card flagged for a person by what flagged it. A flag on a card still flagged counts once.</summary>
+public sealed record ProjectGateTouchpoint
+{
+    [JsonPropertyName("cause")]
+    public required ProjectGateTouchpointCause Cause { get; init; }
+
+    [JsonPropertyName("count")]
+    public required long Count { get; init; }
 }
 
 /// <summary>
@@ -736,7 +797,19 @@ public sealed record HumanFinding
     public required string Suggestion { get; init; }
 }
 
-public sealed record CardDetail
+/// <summary>
+/// A person's answer to the question a stage stopped to ask. Writes it into the plan, moving the pin
+/// past it so the next run reads it, and clears the flag. Unlike an ack it keeps the card's retries: the
+/// stage asking a question was not a failure, and an answer is not a person saying the failures so far
+/// no longer count.
+/// </summary>
+public sealed record AnswerCardRequest
+{
+    [JsonPropertyName("answer")]
+    public required string Answer { get; init; }
+}
+
+public sealed record CardSummary
 {
     [JsonPropertyName("id")]
     public required string Id { get; init; }
@@ -796,6 +869,11 @@ public sealed record CardDetail
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? NeedsHumanReason { get; init; }
 
+    /// <summary>A question waiting for an answer: absent on a card flagged for any other reason.</summary>
+    [JsonPropertyName("blocked")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardBlocked? Blocked { get; init; }
+
     [JsonPropertyName("position")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? Position { get; init; }
@@ -824,20 +902,13 @@ public sealed record CardDetail
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTimeOffset? StageEnteredAt { get; init; }
 
-    [JsonPropertyName("body")]
-    public required string Body { get; init; }
-
-    [JsonPropertyName("sections")]
-    public required Dictionary<string, string> Sections { get; init; }
-
     /// <summary>
-    /// The cards split out of this one, lowest id first. Populated only by `BoardService.getById`, the
-    /// same way `resolvedBranch` is: a write response built through the shared `toCardDetail` leaves it
-    /// absent rather than guess. Empty, from `getById`, on a card that was never split.
+    /// Populated only for a card in `ready`, and only by the reads `BoardService` itself serves (`list`,
+    /// `getById`), the same way `resolvedBranch` is. A write response leaves it absent rather than guess.
     /// </summary>
-    [JsonPropertyName("pieces")]
+    [JsonPropertyName("mergeStatus")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<SplitPieceSummary>? Pieces { get; init; }
+    public MergeStatus? MergeStatus { get; init; }
 }
 
 public sealed record CardPlanQuery
@@ -1074,6 +1145,55 @@ public sealed record ProjectStatsTotal
 }
 
 /// <summary>
+/// `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
+/// person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
+/// with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
+/// re-review keep. `matched` is every older event in these figures placed by matching its text, since
+/// those events do not say why they failed.
+/// </summary>
+public sealed record ProjectGateStats
+{
+    [JsonPropertyName("since")]
+    public required DateTimeOffset Since { get; init; }
+
+    [JsonPropertyName("until")]
+    public required DateTimeOffset Until { get; init; }
+
+    [JsonPropertyName("zone")]
+    public required string Zone { get; init; }
+
+    [JsonPropertyName("kickbacks")]
+    public required List<ProjectGateKickback> Kickbacks { get; init; }
+
+    [JsonPropertyName("failures")]
+    public required List<ProjectGateFailure> Failures { get; init; }
+
+    [JsonPropertyName("revised")]
+    public required List<ProjectGateRevised> Revised { get; init; }
+
+    [JsonPropertyName("challenge")]
+    public required ProjectGateStatsChallenge Challenge { get; init; }
+
+    [JsonPropertyName("questions")]
+    public required ProjectGateStatsQuestions Questions { get; init; }
+
+    [JsonPropertyName("rules")]
+    public required List<ProjectGateRule> Rules { get; init; }
+
+    [JsonPropertyName("loopStops")]
+    public required long LoopStops { get; init; }
+
+    [JsonPropertyName("touchpoints")]
+    public required List<ProjectGateTouchpoint> Touchpoints { get; init; }
+
+    [JsonPropertyName("firstPass")]
+    public required ProjectGateStatsFirstPass FirstPass { get; init; }
+
+    [JsonPropertyName("matched")]
+    public required long Matched { get; init; }
+}
+
+/// <summary>
 /// `GET /api/cards/{id}/diff`'s response: every file the card's branch touched since
 /// `merge-base(main, branch)`, one basis for the diff the CLI's own `wilson card diff` already uses
 /// (this card's Constraints). `files` empty and `truncated` false together is a real, distinct
@@ -1153,6 +1273,157 @@ public sealed record RecordFindingsRequest
     public required List<HumanFinding> Findings { get; init; }
 }
 
+public sealed record CardDetail
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("title")]
+    public required string Title { get; init; }
+
+    [JsonPropertyName("stage")]
+    public required string Stage { get; init; }
+
+    /// <summary>How the card ended, once it has. Absent for a card still on the board.</summary>
+    [JsonPropertyName("doneReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardSummaryDoneReason? DoneReason { get; init; }
+
+    /// <summary>
+    /// Where an approved plan's scope check has got to. The card stays in planning for both, and moves
+    /// to backlog when the check passes.
+    /// </summary>
+    [JsonPropertyName("planCheck")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardSummaryPlanCheck? PlanCheck { get; init; }
+
+    [JsonPropertyName("planCheckReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PlanCheckReason { get; init; }
+
+    [JsonPropertyName("branch")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Branch { get; init; }
+
+    /// <summary>
+    /// Card 0160. `WorktreeManager.resolveBranch`'s own answer — `branch` above when something
+    /// recorded one, otherwise the same derivation from the card's title `branchName` computes.
+    /// `branch` alone cannot answer "which branch is this card's work on" for most cards (card 0095),
+    /// and re-deriving the fallback anywhere but `WorktreeManager` would risk drifting from it, so this
+    /// is that single answer carried onto the wire rather than a second copy of its logic. Optional
+    /// because only the reads `BoardService` itself serves (`list`, `getById`) compute it; a write
+    /// response built through `BoardWriteService`/`PlanService`'s shared `toCardDetail` leaves it
+    /// absent rather than guess.
+    /// </summary>
+    [JsonPropertyName("resolvedBranch")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ResolvedBranch { get; init; }
+
+    [JsonPropertyName("dependsOn")]
+    public required List<string> DependsOn { get; init; }
+
+    /// <summary>
+    /// Required, unlike the frontmatter's optional `needsHuman?`, so the web never has to write
+    /// `?? false` — every card has an answer to "does this need a human", even if that answer is no.
+    /// </summary>
+    [JsonPropertyName("needsHuman")]
+    public required bool NeedsHuman { get; init; }
+
+    [JsonPropertyName("needsHumanReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? NeedsHumanReason { get; init; }
+
+    /// <summary>A question waiting for an answer: absent on a card flagged for any other reason.</summary>
+    [JsonPropertyName("blocked")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardBlocked? Blocked { get; init; }
+
+    [JsonPropertyName("position")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? Position { get; init; }
+
+    /// <summary>
+    /// The card this one was split out of. Absent on every other card, including pieces split before
+    /// the field existed, so absence does not prove a card has no origin.
+    /// </summary>
+    [JsonPropertyName("splitFrom")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SplitFrom { get; init; }
+
+    /// <summary>
+    /// Card 0178. The moment this card entered its current stage — the most recent
+    /// `transition.written` event's timestamp, or its earliest recorded event if the card has never
+    /// transitioned, mirroring `wilson card show`'s own `timeInCurrentStage` derivation
+    /// (apps/api/src/modules/events/time.in.stage.ts, factored out as `stageEnteredAt` there).
+    /// Populated only by the reads `BoardService` itself serves (`list`, `getById`), the same way
+    /// `resolvedBranch` above is: a write response built through `BoardWriteService`/`PlanService`'s
+    /// shared `toCardDetail` leaves it absent rather than guess. Also absent for a card whose fetched
+    /// event history holds no events at all, or whose fetched window is full of events with no
+    /// transition among them — a history that cannot answer the question either way, not the same
+    /// fact as "just entered".
+    /// </summary>
+    [JsonPropertyName("stageEnteredAt")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? StageEnteredAt { get; init; }
+
+    /// <summary>
+    /// Populated only for a card in `ready`, and only by the reads `BoardService` itself serves (`list`,
+    /// `getById`), the same way `resolvedBranch` is. A write response leaves it absent rather than guess.
+    /// </summary>
+    [JsonPropertyName("mergeStatus")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MergeStatus? MergeStatus { get; init; }
+
+    [JsonPropertyName("body")]
+    public required string Body { get; init; }
+
+    [JsonPropertyName("sections")]
+    public required Dictionary<string, string> Sections { get; init; }
+
+    /// <summary>
+    /// The cards split out of this one, lowest id first. Populated only by `BoardService.getById`, the
+    /// same way `resolvedBranch` is: a write response built through the shared `toCardDetail` leaves it
+    /// absent rather than guess. Empty, from `getById`, on a card that was never split.
+    /// </summary>
+    [JsonPropertyName("pieces")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<SplitPieceSummary>? Pieces { get; init; }
+}
+
+/// <summary>
+/// `GET /api/stats`'s response: what a project spent and how its stages went, read from
+/// `EventLog.projectStats`. Tokens only, for the reason `CardUsage` gives. `topCards` is the ten cards
+/// that wrote the most output tokens, the figure the daily ceiling is held to, since a cached input
+/// total says little about what a run cost. Planning and review turns are not stage events, so only
+/// `conversations` includes them: one row for each kind, always in that order, at zero when there are none.
+/// </summary>
+public sealed record ProjectStats
+{
+    [JsonPropertyName("since")]
+    public required DateTimeOffset Since { get; init; }
+
+    [JsonPropertyName("until")]
+    public required DateTimeOffset Until { get; init; }
+
+    [JsonPropertyName("zone")]
+    public required string Zone { get; init; }
+
+    [JsonPropertyName("total")]
+    public required ProjectStatsTotal Total { get; init; }
+
+    [JsonPropertyName("stages")]
+    public required List<ProjectStageStats> Stages { get; init; }
+
+    [JsonPropertyName("days")]
+    public required List<ProjectDayStats> Days { get; init; }
+
+    [JsonPropertyName("topCards")]
+    public required List<ProjectCardStats> TopCards { get; init; }
+
+    [JsonPropertyName("conversations")]
+    public required List<ProjectConversationStats> Conversations { get; init; }
+}
+
 /// <summary>
 /// `BoardWriteService.release`'s response (card 0087): the card, plus which of the two safe-to-cancel
 /// cases it took. `queued` is a job in `created` or `retry` — by definition nothing has picked it up,
@@ -1221,6 +1492,11 @@ public sealed record ReleaseResult
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? NeedsHumanReason { get; init; }
 
+    /// <summary>A question waiting for an answer: absent on a card flagged for any other reason.</summary>
+    [JsonPropertyName("blocked")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardBlocked? Blocked { get; init; }
+
     [JsonPropertyName("position")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? Position { get; init; }
@@ -1248,6 +1524,14 @@ public sealed record ReleaseResult
     [JsonPropertyName("stageEnteredAt")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTimeOffset? StageEnteredAt { get; init; }
+
+    /// <summary>
+    /// Populated only for a card in `ready`, and only by the reads `BoardService` itself serves (`list`,
+    /// `getById`), the same way `resolvedBranch` is. A write response leaves it absent rather than guess.
+    /// </summary>
+    [JsonPropertyName("mergeStatus")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MergeStatus? MergeStatus { get; init; }
 
     [JsonPropertyName("body")]
     public required string Body { get; init; }
@@ -1335,6 +1619,11 @@ public sealed record MergeResult
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? NeedsHumanReason { get; init; }
 
+    /// <summary>A question waiting for an answer: absent on a card flagged for any other reason.</summary>
+    [JsonPropertyName("blocked")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardBlocked? Blocked { get; init; }
+
     [JsonPropertyName("position")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? Position { get; init; }
@@ -1362,6 +1651,14 @@ public sealed record MergeResult
     [JsonPropertyName("stageEnteredAt")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTimeOffset? StageEnteredAt { get; init; }
+
+    /// <summary>
+    /// Populated only for a card in `ready`, and only by the reads `BoardService` itself serves (`list`,
+    /// `getById`), the same way `resolvedBranch` is. A write response leaves it absent rather than guess.
+    /// </summary>
+    [JsonPropertyName("mergeStatus")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MergeStatus? MergeStatus { get; init; }
 
     [JsonPropertyName("body")]
     public required string Body { get; init; }
@@ -1410,38 +1707,146 @@ public sealed record SplitResult
     public required List<CardDetail> Pieces { get; init; }
 }
 
-/// <summary>
-/// `GET /api/stats`'s response: what a project spent and how its stages went, read from
-/// `EventLog.projectStats`. Tokens only, for the reason `CardUsage` gives. `topCards` is the ten cards
-/// that wrote the most output tokens, the figure the daily ceiling is held to, since a cached input
-/// total says little about what a run cost. Planning and review turns are not stage events, so only
-/// `conversations` includes them: one row for each kind, always in that order, at zero when there are none.
-/// </summary>
-public sealed record ProjectStats
+[JsonConverter(typeof(MergeStatusStateConverter))]
+public enum MergeStatusState
 {
-    [JsonPropertyName("since")]
-    public required DateTimeOffset Since { get; init; }
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown2 = 0,
 
-    [JsonPropertyName("until")]
-    public required DateTimeOffset Until { get; init; }
+    [JsonStringEnumMemberName("clean")]
+    Clean,
 
-    [JsonPropertyName("zone")]
-    public required string Zone { get; init; }
+    [JsonStringEnumMemberName("conflict")]
+    Conflict,
 
-    [JsonPropertyName("total")]
-    public required ProjectStatsTotal Total { get; init; }
+    [JsonStringEnumMemberName("rereview")]
+    Rereview,
 
-    [JsonPropertyName("stages")]
-    public required List<ProjectStageStats> Stages { get; init; }
+    [JsonStringEnumMemberName("capped")]
+    Capped,
 
-    [JsonPropertyName("days")]
-    public required List<ProjectDayStats> Days { get; init; }
+    [JsonStringEnumMemberName("unknown")]
+    Unknown,
+}
 
-    [JsonPropertyName("topCards")]
-    public required List<ProjectCardStats> TopCards { get; init; }
+/// <summary>
+/// Reads and writes <see cref="MergeStatusState"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="MergeStatusState.Unknown2"/> rather than failing the payload.
+/// </summary>
+public sealed class MergeStatusStateConverter : JsonConverter<MergeStatusState>
+{
+    public override MergeStatusState Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for MergeStatusState, got {reader.TokenType}.");
+        }
 
-    [JsonPropertyName("conversations")]
-    public required List<ProjectConversationStats> Conversations { get; init; }
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, MergeStatusState value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override MergeStatusState ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, MergeStatusState value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static MergeStatusState FromWire(string? text) => text switch
+    {
+        "clean" => MergeStatusState.Clean,
+        "conflict" => MergeStatusState.Conflict,
+        "rereview" => MergeStatusState.Rereview,
+        "capped" => MergeStatusState.Capped,
+        "unknown" => MergeStatusState.Unknown,
+        _ => MergeStatusState.Unknown2,
+    };
+
+    private static string ToWire(MergeStatusState value) => value switch
+    {
+        MergeStatusState.Clean => "clean",
+        MergeStatusState.Conflict => "conflict",
+        MergeStatusState.Rereview => "rereview",
+        MergeStatusState.Capped => "capped",
+        MergeStatusState.Unknown => "unknown",
+        _ => throw new JsonException($"MergeStatusState.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(CardBlockedCategoryConverter))]
+public enum CardBlockedCategory
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("decision")]
+    Decision,
+
+    [JsonStringEnumMemberName("access")]
+    Access,
+
+    [JsonStringEnumMemberName("requirements")]
+    Requirements,
+
+    [JsonStringEnumMemberName("environment")]
+    Environment,
+
+    [JsonStringEnumMemberName("other")]
+    Other,
+}
+
+/// <summary>
+/// Reads and writes <see cref="CardBlockedCategory"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="CardBlockedCategory.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class CardBlockedCategoryConverter : JsonConverter<CardBlockedCategory>
+{
+    public override CardBlockedCategory Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for CardBlockedCategory, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, CardBlockedCategory value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override CardBlockedCategory ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, CardBlockedCategory value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static CardBlockedCategory FromWire(string? text) => text switch
+    {
+        "decision" => CardBlockedCategory.Decision,
+        "access" => CardBlockedCategory.Access,
+        "requirements" => CardBlockedCategory.Requirements,
+        "environment" => CardBlockedCategory.Environment,
+        "other" => CardBlockedCategory.Other,
+        _ => CardBlockedCategory.Unknown,
+    };
+
+    private static string ToWire(CardBlockedCategory value) => value switch
+    {
+        CardBlockedCategory.Decision => "decision",
+        CardBlockedCategory.Access => "access",
+        CardBlockedCategory.Requirements => "requirements",
+        CardBlockedCategory.Environment => "environment",
+        CardBlockedCategory.Other => "other",
+        _ => throw new JsonException($"CardBlockedCategory.{value} has no wire spelling, so it cannot be sent."),
+    };
 }
 
 /// <summary>How the card ended, once it has. Absent for a card still on the board.</summary>
@@ -1875,6 +2280,266 @@ public sealed class ProjectConversationStatsKindConverter : JsonConverter<Projec
         ProjectConversationStatsKind.Review => "review",
         _ => throw new JsonException($"ProjectConversationStatsKind.{value} has no wire spelling, so it cannot be sent."),
     };
+}
+
+[JsonConverter(typeof(ProjectGateKickbackReasonConverter))]
+public enum ProjectGateKickbackReason
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("revise")]
+    Revise,
+
+    [JsonStringEnumMemberName("verifier")]
+    Verifier,
+}
+
+/// <summary>
+/// Reads and writes <see cref="ProjectGateKickbackReason"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="ProjectGateKickbackReason.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class ProjectGateKickbackReasonConverter : JsonConverter<ProjectGateKickbackReason>
+{
+    public override ProjectGateKickbackReason Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for ProjectGateKickbackReason, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, ProjectGateKickbackReason value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override ProjectGateKickbackReason ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, ProjectGateKickbackReason value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static ProjectGateKickbackReason FromWire(string? text) => text switch
+    {
+        "revise" => ProjectGateKickbackReason.Revise,
+        "verifier" => ProjectGateKickbackReason.Verifier,
+        _ => ProjectGateKickbackReason.Unknown,
+    };
+
+    private static string ToWire(ProjectGateKickbackReason value) => value switch
+    {
+        ProjectGateKickbackReason.Revise => "revise",
+        ProjectGateKickbackReason.Verifier => "verifier",
+        _ => throw new JsonException($"ProjectGateKickbackReason.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(ProjectGateFailureFailureClassConverter))]
+public enum ProjectGateFailureFailureClass
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("verifier")]
+    Verifier,
+
+    [JsonStringEnumMemberName("reportRejected")]
+    ReportRejected,
+
+    [JsonStringEnumMemberName("schemaInvalid")]
+    SchemaInvalid,
+
+    [JsonStringEnumMemberName("noReport")]
+    NoReport,
+
+    [JsonStringEnumMemberName("resultDropped")]
+    ResultDropped,
+
+    [JsonStringEnumMemberName("budget")]
+    Budget,
+
+    [JsonStringEnumMemberName("engine")]
+    Engine,
+
+    [JsonStringEnumMemberName("loop")]
+    Loop,
+
+    [JsonStringEnumMemberName("error")]
+    Error,
+}
+
+/// <summary>
+/// Reads and writes <see cref="ProjectGateFailureFailureClass"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="ProjectGateFailureFailureClass.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class ProjectGateFailureFailureClassConverter : JsonConverter<ProjectGateFailureFailureClass>
+{
+    public override ProjectGateFailureFailureClass Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for ProjectGateFailureFailureClass, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, ProjectGateFailureFailureClass value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override ProjectGateFailureFailureClass ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, ProjectGateFailureFailureClass value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static ProjectGateFailureFailureClass FromWire(string? text) => text switch
+    {
+        "verifier" => ProjectGateFailureFailureClass.Verifier,
+        "reportRejected" => ProjectGateFailureFailureClass.ReportRejected,
+        "schemaInvalid" => ProjectGateFailureFailureClass.SchemaInvalid,
+        "noReport" => ProjectGateFailureFailureClass.NoReport,
+        "resultDropped" => ProjectGateFailureFailureClass.ResultDropped,
+        "budget" => ProjectGateFailureFailureClass.Budget,
+        "engine" => ProjectGateFailureFailureClass.Engine,
+        "loop" => ProjectGateFailureFailureClass.Loop,
+        "error" => ProjectGateFailureFailureClass.Error,
+        _ => ProjectGateFailureFailureClass.Unknown,
+    };
+
+    private static string ToWire(ProjectGateFailureFailureClass value) => value switch
+    {
+        ProjectGateFailureFailureClass.Verifier => "verifier",
+        ProjectGateFailureFailureClass.ReportRejected => "reportRejected",
+        ProjectGateFailureFailureClass.SchemaInvalid => "schemaInvalid",
+        ProjectGateFailureFailureClass.NoReport => "noReport",
+        ProjectGateFailureFailureClass.ResultDropped => "resultDropped",
+        ProjectGateFailureFailureClass.Budget => "budget",
+        ProjectGateFailureFailureClass.Engine => "engine",
+        ProjectGateFailureFailureClass.Loop => "loop",
+        ProjectGateFailureFailureClass.Error => "error",
+        _ => throw new JsonException($"ProjectGateFailureFailureClass.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(ProjectGateTouchpointCauseConverter))]
+public enum ProjectGateTouchpointCause
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("question")]
+    Question,
+
+    [JsonStringEnumMemberName("kickbackLimit")]
+    KickbackLimit,
+
+    [JsonStringEnumMemberName("overBudget")]
+    OverBudget,
+
+    [JsonStringEnumMemberName("contextOverflow")]
+    ContextOverflow,
+
+    [JsonStringEnumMemberName("rebaseConflict")]
+    RebaseConflict,
+
+    [JsonStringEnumMemberName("poisoned")]
+    Poisoned,
+
+    [JsonStringEnumMemberName("dead")]
+    Dead,
+
+    [JsonStringEnumMemberName("sourceClosed")]
+    SourceClosed,
+}
+
+/// <summary>
+/// Reads and writes <see cref="ProjectGateTouchpointCause"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="ProjectGateTouchpointCause.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class ProjectGateTouchpointCauseConverter : JsonConverter<ProjectGateTouchpointCause>
+{
+    public override ProjectGateTouchpointCause Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for ProjectGateTouchpointCause, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, ProjectGateTouchpointCause value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override ProjectGateTouchpointCause ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, ProjectGateTouchpointCause value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static ProjectGateTouchpointCause FromWire(string? text) => text switch
+    {
+        "question" => ProjectGateTouchpointCause.Question,
+        "kickbackLimit" => ProjectGateTouchpointCause.KickbackLimit,
+        "overBudget" => ProjectGateTouchpointCause.OverBudget,
+        "contextOverflow" => ProjectGateTouchpointCause.ContextOverflow,
+        "rebaseConflict" => ProjectGateTouchpointCause.RebaseConflict,
+        "poisoned" => ProjectGateTouchpointCause.Poisoned,
+        "dead" => ProjectGateTouchpointCause.Dead,
+        "sourceClosed" => ProjectGateTouchpointCause.SourceClosed,
+        _ => ProjectGateTouchpointCause.Unknown,
+    };
+
+    private static string ToWire(ProjectGateTouchpointCause value) => value switch
+    {
+        ProjectGateTouchpointCause.Question => "question",
+        ProjectGateTouchpointCause.KickbackLimit => "kickbackLimit",
+        ProjectGateTouchpointCause.OverBudget => "overBudget",
+        ProjectGateTouchpointCause.ContextOverflow => "contextOverflow",
+        ProjectGateTouchpointCause.RebaseConflict => "rebaseConflict",
+        ProjectGateTouchpointCause.Poisoned => "poisoned",
+        ProjectGateTouchpointCause.Dead => "dead",
+        ProjectGateTouchpointCause.SourceClosed => "sourceClosed",
+        _ => throw new JsonException($"ProjectGateTouchpointCause.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+public sealed record ProjectGateStatsChallenge
+{
+    [JsonPropertyName("upheld")]
+    public required long Upheld { get; init; }
+
+    [JsonPropertyName("overturned")]
+    public required long Overturned { get; init; }
+}
+
+public sealed record ProjectGateStatsQuestions
+{
+    [JsonPropertyName("asked")]
+    public required long Asked { get; init; }
+
+    [JsonPropertyName("answered")]
+    public required long Answered { get; init; }
+}
+
+public sealed record ProjectGateStatsFirstPass
+{
+    [JsonPropertyName("reached")]
+    public required long Reached { get; init; }
+
+    [JsonPropertyName("firstPass")]
+    public required long FirstPass { get; init; }
 }
 
 [JsonConverter(typeof(CardDiffFileStatusConverter))]

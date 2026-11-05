@@ -214,6 +214,28 @@ public sealed class SettingsClient(SdkHttp http)
         return http.ReadJson<AutoSplitSetting>(response);
     }
 
+    /// <summary>Get rule judge setting</summary>
+    public async Task<RuleJudgeSetting> GetRuleJudgeSettingAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "settings", "rule-judge"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<RuleJudgeSetting>(response);
+    }
+
+    /// <summary>Set rule judge setting</summary>
+    /// <exception cref="SdkException">On 400.</exception>
+    public async Task<RuleJudgeSetting> SetRuleJudgeSettingAsync(RuleJudgeSetting body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Put,
+            http.Path("api", "settings", "rule-judge"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<RuleJudgeSetting>(response);
+    }
+
     /// <summary>Get chat engine setting</summary>
     public async Task<ChatEngineSetting> GetChatEngineSettingAsync(CancellationToken cancellationToken = default)
     {

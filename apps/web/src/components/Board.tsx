@@ -28,6 +28,8 @@ import {
     DONE_REASONS,
     groupByStage,
     lastEventAge,
+    mergeStatusBadge,
+    mergeStatusLine,
     showsLastEventLine,
     splitProgress,
     stagesById,
@@ -102,6 +104,7 @@ function CardBody({
     pending: boolean;
 }) {
     const state = cardState(card);
+    const mergeBadge = card.mergeStatus && mergeStatusBadge(card.mergeStatus);
     const satisfiedDeps = card.dependsOn.length > 0 && blockedBy.length === 0;
     const activity = useCardActivity(card.id);
     const now = useActivityNow();
@@ -119,7 +122,7 @@ function CardBody({
                 </Text>
                 {pending && <Loader size={12} />}
             </Group>
-            {(card.doneReason || card.planCheck || card.needsHuman || blockedBy.length > 0 || satisfiedDeps || pieces) && (
+            {(card.doneReason || card.planCheck || card.needsHuman || mergeBadge || blockedBy.length > 0 || satisfiedDeps || pieces) && (
                 <Group gap={6} mt={6}>
                     {card.planCheck && (
                         <Badge size="xs" color={card.planCheck === 'refused' ? 'red' : 'blue'} variant="light">
@@ -134,6 +137,11 @@ function CardBody({
                     {card.needsHuman && (
                         <Badge size="xs" color="red" variant="light">
                             {card.needsHumanReason ?? 'needs human'}
+                        </Badge>
+                    )}
+                    {card.mergeStatus && mergeBadge && (
+                        <Badge size="xs" color={mergeBadge.color} variant="light" title={mergeStatusLine(card.mergeStatus)}>
+                            {mergeBadge.label}
                         </Badge>
                     )}
                     {blockedBy.length > 0 && (

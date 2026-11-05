@@ -25,11 +25,47 @@ contract BoardColumns: {
     nonStages: array(string)   # parking-lot and the terminal states
 }
 
+# What pressing Merge on a `ready` card would do right now, worked out on read and never by trying it.
+# `BoardWriteService.merge` checks re-review before it computes the merge, so `state` follows the same
+# order: `rereview` wins over `conflict` when `RE_REVIEW_ON_MERGE` is on and both apply, and `conflicts`
+# still lists what the rebase on re-entry will hit. `capped` is the same overlap on a card that has
+# used up its re-reviews, so Merge flags it for a human instead of sending it back. `unknown` is a read
+# that failed (a branch missing from `codeRoot`, say), not a claim about the merge; `reason` carries
+# the error.
+contract MergeStatus: {
+    state: enum(clean, conflict, rereview, capped, unknown)
+    # The ref the answer was computed against: `main`, or `dry-run-integration` when a dry run would
+    # land there. Absent when the read failed before it got that far.
+    target?: string
+    # Paths `git merge-tree` could not resolve. Empty can still mean `conflict`: a conflict git reports
+    # without naming a path.
+    conflicts: array(string)
+    # Paths both the card and the target changed since they forked: what sends a merge back to review.
+    movedUnder: array(string)
+    reason?: string
+}
+
 # Card 0091. Orders the parking lot; `list`'s `position, id` ordering (PostgresBoardRepository)
 # sorts a card with one ahead of every card without. Absent for a card nothing has ever dragged —
 # including every card that predates this, since there is no migration to back-fill it — and such a
 # card sorts by `id` among the others like it, not at either end of the column. Meaningless outside
 # `parking-lot`: no other stage's order is an operator's to set (POST .../reposition refuses it).
+# The question a stage stopped to ask. Set alongside `needsHuman`, with the question as
+# `needsHumanReason`, and cleared by an answer, an ack or a move.
+contract CardBlocked: {
+    category: enum(decision, access, requirements, environment, other)
+    # What the stage already tried or checked before asking.
+    tried: string
+    question: string
+    # Answers the stage thinks are likely. An operator may answer something else.
+    options?: array(string)
+    # The stage that asked, so the answer goes back to the run it was meant for.
+    stage: string
+    askedAt: datetime
+    # Where the stopped run's uncommitted work is preserved. Absent when it left none.
+    patchPath?: string
+}
+
 contract CardSummary: {
     id: string
     title: string
@@ -55,6 +91,8 @@ contract CardSummary: {
     # `?? false` — every card has an answer to "does this need a human", even if that answer is no.
     needsHuman: boolean
     needsHumanReason?: string
+    # A question waiting for an answer: absent on a card flagged for any other reason.
+    blocked?: CardBlocked
     position?: int
     # The card this one was split out of. Absent on every other card, including pieces split before
     # the field existed, so absence does not prove a card has no origin.
@@ -70,6 +108,9 @@ contract CardSummary: {
     # transition among them — a history that cannot answer the question either way, not the same
     # fact as "just entered".
     stageEnteredAt?: datetime
+    # Populated only for a card in `ready`, and only by the reads `BoardService` itself serves (`list`,
+    # `getById`), the same way `resolvedBranch` is. A write response leaves it absent rather than guess.
+    mergeStatus?: MergeStatus
 }
 
 # One card cut from a split origin, as `CardDetail.pieces` lists it: enough to show how far the split
@@ -231,13 +272,14 @@ contract CardVersion: {
     createdAt: datetime
 }
 
-# Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed`/`stage.interrupted`
-# event for it, summed. `attempts` counts the passed and failed events themselves, including one whose
-# payload carried no `usage` at all (it still ran), and not an interrupted run, which spends no retry;
+# Card 0263. What a card cost in one stage — every `stage.passed`/`stage.failed`/`stage.interrupted`/
+# `stage.blocked` event for it, summed. `attempts` counts the passed and failed events themselves,
+# including one whose payload carried no `usage` at all (it still ran), and not an interrupted or
+# blocked run, neither of which spends a retry;
 # `inputTokens`/`outputTokens` sum whatever `usage` all of those events did carry, so the two can never
 # disagree with the event log. A stage interrupted every time so far has tokens and no attempts.
-# `inputTokens` includes cached tokens, as a card's input budget counts them; `cachedInputTokens` is
-# how many of them were cached, not an addition to it.
+# `inputTokens` includes cached tokens; `cachedInputTokens` is how many of them were cached, not an
+# addition to it. These are raw tokens: a card's input budget weights them by cost, so the two differ.
 contract CardStageUsage: {
     stage: string
     attempts: int
@@ -333,6 +375,76 @@ contract ProjectStats: {
     days: array(ProjectDayStats)
     topCards: array(ProjectCardStats)
     conversations: array(ProjectConversationStats)
+}
+
+# A judgment that sent a card back, by where it came from: a review's or a challenge's `revise`, or a
+# verifier's own failed check. `step` names the step of `stage` that judged, absent for the lane's own
+# run. `matched` is how many of `count` are older events placed by matching their text.
+contract ProjectGateKickback: {
+    stage: string
+    step?: string
+    reason: enum(revise, verifier)
+    count: int
+    matched: int
+}
+
+# Every failed attempt by why, including those that retried in place and judged nothing. `matched` is as
+# on `ProjectGateKickback`, and older failures that match no known message count as `verifier`.
+contract ProjectGateFailure: {
+    failureClass: enum(verifier, reportRejected, schemaInvalid, noReport, resultDropped, budget, engine, loop, error)
+    count: int
+    matched: int
+}
+
+# How many of a stage's passed attempts were a `revise`, which `ProjectStats` counts as passed.
+contract ProjectGateRevised: {
+    stage: string
+    count: int
+}
+
+# What the judges fresh in this window said about one rule. A verdict reused from an earlier run is not
+# counted again.
+contract ProjectGateRule: {
+    rule: string
+    statement: string
+    failed: int
+    unavailable: int
+}
+
+# A card flagged for a person by what flagged it. A flag on a card still flagged counts once.
+contract ProjectGateTouchpoint: {
+    cause: enum(question, kickbackLimit, overBudget, contextOverflow, rebaseConflict, poisoned, dead, sourceClosed)
+    count: int
+}
+
+# `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
+# person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
+# with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
+# re-review keep. `matched` is every older event in these figures placed by matching its text, since
+# those events do not say why they failed.
+contract ProjectGateStats: {
+    since: datetime
+    until: datetime
+    zone: string
+    kickbacks: array(ProjectGateKickback)
+    failures: array(ProjectGateFailure)
+    revised: array(ProjectGateRevised)
+    challenge: {
+        upheld: int
+        overturned: int
+    }
+    questions: {
+        asked: int
+        answered: int
+    }
+    rules: array(ProjectGateRule)
+    loopStops: int
+    touchpoints: array(ProjectGateTouchpoint)
+    firstPass: {
+        reached: int
+        firstPass: int
+    }
+    matched: int
 }
 
 # Card 0265. One file changed in a card's branch since it forked from `main` —
@@ -751,6 +863,36 @@ operation /api/cards/{id}/ack: {
             }
             # `wilson card ack` exits 1 for a card that is not flagged; the same refusal is this 400
             # here rather than a silent no-op.
+            400:
+            404:
+        }
+    }
+}
+
+# A person's answer to the question a stage stopped to ask. Writes it into the plan, moving the pin
+# past it so the next run reads it, and clears the flag. Unlike an ack it keeps the card's retries: the
+# stage asking a question was not a failure, and an answer is not a person saying the failures so far
+# no longer count.
+contract AnswerCardRequest: {
+    answer: string
+}
+
+operation /api/cards/{id}/answer: {
+    params: {
+        id: string
+    }
+    post: {
+        name: Answer a blocked card
+        service: BoardWriteService.answer
+        mcp: exclude # The answer is a person's decision (PROJECT.md decision 8), not one an agent gives itself.
+        request: {
+            application/json: AnswerCardRequest
+        }
+        response: {
+            200: {
+                application/json: CardDetail
+            }
+            # A card with no question waiting, or an empty answer. The reason is in `details`.
             400:
             404:
         }
@@ -1239,6 +1381,24 @@ operation /api/stats: {
         response: {
             200: {
                 application/json: ProjectStats
+            }
+        }
+    }
+}
+
+# What the gates caught and how often a person was pulled in. Separate from `/api/stats` because it reads
+# different events, from the same window in the same time zone.
+operation /api/stats/gates: {
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: Get project gate stats
+        service: BoardService.gateStats
+        query: ProjectStatsQuery
+        response: {
+            200: {
+                application/json: ProjectGateStats
             }
         }
     }

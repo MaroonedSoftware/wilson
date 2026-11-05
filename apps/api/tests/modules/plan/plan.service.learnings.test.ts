@@ -17,6 +17,7 @@ import type { EventLog } from '#modules/events/event.log.js';
 import type { DB } from '#modules/data/db.js';
 import { planSessions } from '#modules/plan/plan.session.registry.js';
 import { StaticLearningsStore } from '#modules/learnings/learnings.store.js';
+import { StaticRuleStore } from '#modules/rules/rule.store.js';
 
 const exec = promisify(execFile);
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, trace: () => {} };
@@ -105,7 +106,7 @@ afterAll(async () => {
     await db.destroy();
 });
 
-const freshEnv = async (learnings?: StaticLearningsStore) => {
+const freshEnv = async (learnings?: StaticLearningsStore, rules?: StaticRuleStore) => {
     const base = await mkdtemp(join(tmpdir(), 'plan-service-0244-'));
     const codeRoot = join(base, 'code');
     await mkdir(join(codeRoot, 'src'), { recursive: true });
@@ -121,7 +122,7 @@ const freshEnv = async (learnings?: StaticLearningsStore) => {
     const config = new StaticBoardConfig(uniqueProject(), codeRoot, worktreeRoot, runRoot);
     const board = new PostgresBoardRepository(config, db, fakeEvents);
     const worktrees = new WorktreeManager(config, silentLogger as never);
-    const service = new PlanService(board, config, worktrees, db, stageConfigs, undefined, learnings);
+    const service = new PlanService(board, config, worktrees, db, stageConfigs, undefined, learnings, undefined, rules);
 
     return { board, service };
 };
@@ -198,6 +199,22 @@ describe('PlanService first-turn learnings preamble (card 0244)', () => {
             const result = await service.turn(id, { text: 'hello there' });
 
             expect(result.content).toBe(`${session.instructions}\n\nhello there`);
+        } finally {
+            planSessions.dispose(id);
+        }
+    });
+
+    it("the first turn carries the project's checked rules, even with no learnings", async () => {
+        const rules = new StaticRuleStore();
+        await rules.create('no-raw-sql', { statement: 'Queries go through Kysely', paths: ['src/**'], severity: 'blocker' }, 'x');
+        const { board, service } = await freshEnv(new StaticLearningsStore(''), rules);
+        const id = randomUUID();
+        try {
+            await board.create(card(id, FULL_BODY), 'seed');
+
+            const result = await service.turn(id, { text: 'hello there' });
+
+            expect(result.content).toContain('**no-raw-sql** (blocker, in `src/**`): Queries go through Kysely');
         } finally {
             planSessions.dispose(id);
         }

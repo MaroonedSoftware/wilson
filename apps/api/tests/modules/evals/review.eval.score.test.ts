@@ -1,0 +1,247 @@
+import { describe, expect, it } from 'vitest';
+import {
+    buildReport,
+    FINDINGS_CAP,
+    formatReport,
+    outputTokensSpent,
+    rawView,
+    rescoreReport,
+    scoreCase,
+    verifiedView,
+    type ReviewEvalLabel,
+    type ReviewEvalRun,
+    type ReviewEvalTruth,
+} from '#modules/evals/review.eval.score.js';
+import { ReviewResultSchema, type ReviewFinding } from '#modules/stages/stage.result.js';
+
+const defect: ReviewEvalTruth = {
+    kind: 'defect',
+    class: 'concurrency',
+    file: 'src/a.ts',
+    alsoIn: ['src/caller.ts'],
+    lines: [10, 12],
+    mentions: ['race', 'lock|seq'],
+    about: 'a race',
+    fixedBy: 'f'.repeat(40),
+};
+const control: ReviewEvalTruth = { kind: 'control', about: 'no later fix' };
+
+const finding = (over: Partial<ReviewFinding> = {}): ReviewFinding => ({
+    severity: 'blocker',
+    kind: 'defect',
+    file: 'src/a.ts',
+    line: 11,
+    problem: 'Two writers race for the same seq',
+    suggestion: 's',
+    ...over,
+});
+const result = (findings: ReviewFinding[], verdict: 'pass' | 'revise' = findings.some(f => f.severity === 'blocker') ? 'revise' : 'pass') => ({
+    summary: 's',
+    verdict,
+    findings,
+    criteria: [],
+});
+const passed = { passed: true, failures: [], changedPaths: ['src/a.ts'] };
+
+const label: ReviewEvalLabel = { model: 'm', engine: 'cli 1', promptRevision: 'r7', promptSha256: 'a'.repeat(64), corpusCommit: 'b'.repeat(40) };
+
+describe('rawView and verifiedView', () => {
+    it('reads a result that does not parse as rejected', () => {
+        expect(rawView({ nonsense: true })).toEqual({ rejected: true, findings: [] });
+    });
+
+    it('takes every finding at face value in the raw view, whatever the verifier said', () => {
+        const reported = result([finding()]);
+        expect(rawView(reported).findings).toHaveLength(1);
+        expect(verifiedView(reported, { ...passed, passed: false, failures: ['no'] })).toEqual({ rejected: true, findings: [] });
+    });
+
+    it('rejects a result the verifier never saw', () => {
+        expect(verifiedView(result([finding()]), undefined).rejected).toBe(true);
+    });
+});
+
+describe('scoreCase on a defect', () => {
+    const score = (findings: ReviewFinding[]) => scoreCase('c', defect, rawView(result(findings)));
+
+    it('counts a blocker in the file with every word, wherever it points', () => {
+        for (const line of [1, 11, 500]) {
+            expect(score([finding({ line })])).toMatchObject({ caught: true, blocked: true, otherBlockers: 0 });
+        }
+    });
+
+    it('misses a finding on the seeded lines that is about something else', () => {
+        expect(score([finding({ problem: 'The tests have no stub for this' })])).toMatchObject({ caught: false, blocked: false, otherBlockers: 1 });
+    });
+
+    it('needs every word, in any case', () => {
+        expect(score([finding({ problem: 'a race' })])).toMatchObject({ caught: false });
+        expect(score([finding({ problem: 'A RACE on the LOCK' })])).toMatchObject({ caught: true });
+    });
+
+    it('looks only at the problem, since a suggestion can mention anything', () => {
+        expect(score([finding({ problem: 'elsewhere', suggestion: 'a race for the seq' })])).toMatchObject({ caught: false });
+    });
+
+    it('accepts the other files the truth names, and no others', () => {
+        expect(score([finding({ file: 'src/caller.ts' })])).toMatchObject({ caught: true });
+        expect(score([finding({ file: 'src/b.ts' })])).toMatchObject({ caught: false, otherBlockers: 1 });
+    });
+
+    it('counts a concern at the defect as caught but not blocked', () => {
+        expect(score([finding({ severity: 'concern' })])).toMatchObject({ caught: true, blocked: false });
+    });
+
+    it('prefers the blocker as the match when a concern is also there', () => {
+        const concern = finding({ severity: 'concern', problem: 'concern: a race for the seq' });
+        const blocker = finding({ problem: 'blocker: a race for the seq' });
+        expect(score([concern, blocker])).toMatchObject({ blocked: true, match: { problem: 'blocker: a race for the seq' } });
+    });
+
+    it('matches an omission the same way, since it cites no line', () => {
+        expect(score([finding({ kind: 'omission', line: undefined })])).toMatchObject({ caught: true });
+    });
+
+    it('accepts a leading ./ on the cited path', () => {
+        expect(score([finding({ file: './src/a.ts' })])).toMatchObject({ caught: true });
+    });
+
+    it('scores a rejected result as a miss', () => {
+        expect(scoreCase('c', defect, verifiedView(result([finding()]), { ...passed, passed: false }))).toMatchObject({
+            rejected: true,
+            caught: false,
+        });
+    });
+});
+
+describe('scoreCase on a control', () => {
+    it('is clean when it passes with no blocker, concerns allowed', () => {
+        expect(scoreCase('c', control, rawView(result([finding({ severity: 'concern' })])))).toMatchObject({ clean: true, concerns: 1 });
+    });
+
+    it('is not clean with a blocker or a revise', () => {
+        expect(scoreCase('c', control, rawView(result([finding()])))).toMatchObject({ clean: false, blockers: 1 });
+        expect(scoreCase('c', control, rawView(result([], 'revise')))).toMatchObject({ clean: false });
+    });
+
+    it('is not clean when the verifier refused it', () => {
+        expect(scoreCase('c', control, verifiedView(result([]), { ...passed, passed: false }))).toMatchObject({ clean: false, rejected: true });
+    });
+});
+
+describe('the findings cap', () => {
+    it('is the schema limit, and a review at it is flagged', () => {
+        const atCap = Array.from({ length: FINDINGS_CAP }, () => finding({ severity: 'concern', line: 99 }));
+        expect(ReviewResultSchema.safeParse(result(atCap)).success).toBe(true);
+        expect(ReviewResultSchema.safeParse(result([...atCap, finding({ severity: 'concern' })])).success).toBe(false);
+        expect(scoreCase('c', control, rawView(result(atCap)))).toMatchObject({ atFindingsCap: true });
+    });
+});
+
+describe('buildReport', () => {
+    const runs: ReviewEvalRun[] = [
+        { caseId: 'hit', truth: defect, reported: result([finding()]), verification: passed },
+        { caseId: 'near', truth: { ...defect, class: 'logic' }, reported: result([finding({ severity: 'concern' })]), verification: passed },
+        { caseId: 'refused', truth: { ...defect, class: 'logic' }, reported: result([finding()]), verification: { ...passed, passed: false } },
+        { caseId: 'clean', truth: control, reported: result([]), verification: passed },
+        { caseId: 'noisy', truth: control, reported: result([finding()]), verification: passed },
+        { caseId: 'dead', truth: defect, unscored: 'the engine failed' },
+    ];
+    const report = buildReport(label, '2026-11-04T00:00:00.000Z', runs);
+
+    it('reports recall and specificity with n, leaving the unscored out of it', () => {
+        expect(report.raw.summary.recall).toEqual({ caught: 3, blocked: 2, n: 3 });
+        expect(report.verified.summary.recall).toEqual({ caught: 2, blocked: 1, n: 3 });
+        expect(report.raw.summary.specificity).toEqual({ clean: 1, n: 2 });
+        expect(report.unscored).toEqual([{ caseId: 'dead', reason: 'the engine failed' }]);
+    });
+
+    it('breaks recall down by class and counts rejections', () => {
+        expect(report.verified.summary.recallByClass).toEqual({
+            concurrency: { caught: 1, blocked: 1, n: 1 },
+            logic: { caught: 1, blocked: 0, n: 2 },
+        });
+        expect(report.verified.summary.rejected).toBe(1);
+        expect(report.raw.summary.rejected).toBe(0);
+    });
+
+    it('says what it measured, n, and that review-only scores overstate what survives challenge', () => {
+        const text = formatReport(report);
+        expect(text).toContain('Model m on cli 1, prompt r7');
+        expect(text).toContain('overstate what would reach a kickback');
+        expect(text).toContain('Recall, a blocker at the defect: 2/3 (67%)');
+        expect(text).toContain('Specificity, a clean diff passed with no blocker: 1/2 (50%)');
+        expect(text).toContain('- dead: the engine failed');
+    });
+
+    it('adds up output tokens across runs, counting those with no usage as none', () => {
+        const spent = outputTokensSpent([
+            { caseId: 'a', truth: control, usage: { outputTokens: 5 } },
+            { caseId: 'b', truth: control },
+            { caseId: 'c', truth: control, usage: { outputTokens: 7 } },
+        ]);
+        expect(spent).toBe(12);
+    });
+
+    it('names the planned cases with no result, and says why the run stopped', () => {
+        const runs = [{ caseId: 'a', truth: control, unscored: 'the engine failed' }];
+        const partial = buildReport(label, 't', runs, { plannedCaseIds: ['a', 'b', 'c'], stoppedEarly: 'hit the ceiling' });
+
+        expect(partial.notRun).toEqual(['b', 'c']);
+        expect(partial.stoppedEarly).toBe('hit the ceiling');
+        expect(formatReport(partial)).toContain('**Partial: planned cases that did not run: 2.** hit the ceiling');
+        expect(formatReport(partial)).toContain('## Not run\n\n- b\n- c');
+    });
+
+    it('still reads as partial with no reason, as a killed run saves it', () => {
+        const partial = buildReport(label, 't', [], { plannedCaseIds: ['a'] });
+
+        expect(partial.stoppedEarly).toBeUndefined();
+        expect(formatReport(partial)).toContain('**Partial: planned cases that did not run: 1.** The run ended before them.');
+    });
+
+    it('does not call a run partial when every planned case has a result', () => {
+        const whole = buildReport(label, 't', [{ caseId: 'a', truth: control, unscored: 'x' }], { plannedCaseIds: ['a'] });
+
+        expect(whole.notRun).toEqual([]);
+        expect(formatReport(whole)).not.toContain('Partial');
+    });
+
+    it('does not divide by zero on an empty run', () => {
+        expect(formatReport(buildReport(label, 't', []))).toContain('no cases');
+    });
+});
+
+describe('rescoreReport', () => {
+    const label = { model: 'm', engine: 'e', promptRevision: 'r', promptSha256: 'a'.repeat(64), corpusCommit: 'c'.repeat(40) };
+    const saved = {
+        label,
+        startedAt: 'then',
+        runs: [{ caseId: 'a', truth: defect, reported: result([finding({ file: 'src/b.ts' })]), verification: passed }],
+    };
+
+    it('scores saved findings by the truth given now, and says it did', () => {
+        expect(buildReport(label, 'then', saved.runs).raw.summary.recall.caught).toBe(0);
+
+        const report = rescoreReport(saved, () => ({ ...defect, file: 'src/b.ts' }), 'd'.repeat(40));
+
+        expect(report.raw.summary.recall.caught).toBe(1);
+        expect(report.label).toMatchObject({ corpusCommit: label.corpusCommit, rescoredAt: 'd'.repeat(40) });
+        expect(report.startedAt).toBe('then');
+        expect(formatReport(report)).toContain(`Rescored at ${'d'.repeat(12)}`);
+    });
+
+    it('keeps a partial run partial', () => {
+        const report = rescoreReport({ ...saved, notRun: ['b'], stoppedEarly: 'out of usage' }, () => defect, 'd');
+        expect(report).toMatchObject({ notRun: ['b'], stoppedEarly: 'out of usage' });
+        expect(formatReport(report)).toContain('Partial');
+    });
+
+    it('reads a file saved before partial runs were recorded as having nothing left to run', () => {
+        expect(rescoreReport(saved, () => defect, 'd').notRun).toEqual([]);
+    });
+
+    it('refuses a run whose case has left the corpus', () => {
+        expect(() => rescoreReport(saved, () => undefined, 'd')).toThrow('no case a');
+    });
+});

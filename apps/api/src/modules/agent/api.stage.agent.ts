@@ -1,12 +1,14 @@
 import { Injectable } from 'injectkit';
 import { ToolLoopAgent, hasToolCall, stepCountIs } from 'ai';
 import type { z } from 'zod';
-import { overBudget, tokenBudgetExceeded, wallClockExceeded } from './budget.js';
+import { budgetedInputTokens, overBudget, stageUsageOf, tokenBudgetExceeded, wallClockExceeded } from './budget.js';
 import { buildRunTrace } from './run.trace.js';
 import { compactMessages } from './compact.messages.js';
 import { ModelRegistry } from './model.registry.js';
 import { StageAgent, type AgentRunInput, type AgentRunOutput } from './stage.agent.js';
-import { buildTools, REPORT_TOOL } from './tools/index.js';
+import { BLOCKED_TOOL, blockedGuidance, buildTools, REPORT_TOOL } from './tools/index.js';
+import { BlockedReportSchema } from './blocked.report.js';
+import { RepeatedCallWatch, describeRepeatedCall, type RepeatedCall } from './repeated.call.js';
 import { modelOf } from '#modules/stages/stage.config.js';
 
 /**
@@ -36,6 +38,7 @@ export class ApiStageAgent extends StageAgent {
         // `cli.stage.agent.ts`. Gates the "don't leave an it.skip behind" warning below, which only
         // means something where a stage actually compares test counts against a baseline.
         const checksTestCounts = stage.testReportPath !== undefined;
+        const canAsk = !stage.step;
         const agent = new ToolLoopAgent({
             model: this.models.resolve(stage.provider, modelOf(stage)),
             instructions: [
@@ -49,11 +52,18 @@ export class ApiStageAgent extends StageAgent {
                       ]
                     : []),
             ].join('\n'),
-            tools: buildTools(context, resultSchema as z.ZodTypeAny, stage.worktree),
-            ...(stage.tools ? { activeTools: stage.tools as never } : {}),
-            // The loop ends when the agent says it is finished, when it runs out of steps, or when it
-            // exceeds its input token budget.
-            stopWhen: [hasToolCall(REPORT_TOOL), stepCountIs(stage.maxSteps), tokenBudgetExceeded(stage.maxInputTokens)],
+            tools: buildTools(context, resultSchema as z.ZodTypeAny, stage.worktree, canAsk),
+            // A lane's `tools` narrows how it works. Being able to stop and ask is not part of that.
+            ...(stage.tools ? { activeTools: [...stage.tools, ...(canAsk ? [BLOCKED_TOOL] : [])] as never } : {}),
+            // The loop ends when the agent says it is finished or has a question, when it runs out of
+            // steps, when it exceeds its input token budget, or when it keeps making the same call.
+            stopWhen: [
+                hasToolCall(REPORT_TOOL),
+                hasToolCall(BLOCKED_TOOL),
+                stepCountIs(stage.maxSteps),
+                tokenBudgetExceeded(stage.maxInputTokens),
+                ({ steps }) => repeatedCallIn(steps) !== undefined,
+            ],
             maxOutputTokens: stage.maxOutputTokens,
             // Without this the conversation grows until the provider refuses it outright.
             prepareStep: ({ messages }) => ({ messages: compactMessages(messages) }),
@@ -84,16 +94,25 @@ export class ApiStageAgent extends StageAgent {
                     `verifier measures and what a finding must cite.`,
                     '',
                     'Implement the plan, then return the structured result.',
+                    ...(canAsk ? ['', ...blockedGuidance(BLOCKED_TOOL)] : []),
                 ].join('\n'),
                 abortSignal: AbortSignal.timeout(stage.maxWallClockMs),
             });
 
-            const inputTokens = run.usage?.inputTokens;
+            const usage = stageUsageOf(run.usage);
+            const result = reportedResult(run.steps);
+            // A stage that both reported and asked in one step said it was finished, and the verifier
+            // judges that. A question that did not parse has nobody to reach.
+            const blocked = result === undefined ? BlockedReportSchema.safeParse(calledWith(run.steps, BLOCKED_TOOL)).data : undefined;
+            // A stage that reported or asked in that same step stopped for that reason, not this one.
+            const repeated = result === undefined && !blocked ? repeatedCallIn(run.steps) : undefined;
             const output: AgentRunOutput = {
-                result: reportedResult(run.steps),
-                usage: { inputTokens, outputTokens: run.usage?.outputTokens },
-                truncated: run.steps.length >= stage.maxSteps,
-                budgetFailure: overBudget(inputTokens, stage.maxInputTokens),
+                result,
+                ...(blocked ? { blocked } : {}),
+                ...(repeated ? { loopFailure: describeRepeatedCall(repeated) } : {}),
+                usage,
+                truncated: run.steps.length >= stage.maxSteps || repeated !== undefined,
+                budgetFailure: overBudget(budgetedInputTokens(usage), stage.maxInputTokens),
                 trace: buildRunTrace(readCalls(run.steps), run.text),
             };
             return output;
@@ -109,6 +128,33 @@ export class ApiStageAgent extends StageAgent {
 /** This adapter's read tools, as `file.tools.ts` and `search.tools.ts` name them. */
 const READ_TOOLS = ['read', 'grep', 'glob'];
 
+/** This adapter's tools that change the tree. Each answers with a string starting `error:` when it did not. */
+const WRITE_TOOLS = ['write', 'edit', 'delete'];
+
+interface RepeatableStep {
+    toolCalls?: readonly { toolName: string; input?: unknown }[];
+    toolResults?: readonly { toolName: string; input?: unknown; output?: unknown }[];
+}
+
+/**
+ * The call a run has repeated too often, if it has, replayed from its steps. Those are all a `stopWhen`
+ * is given, and a step's results come after its calls, as they did when it ran. A result is left out
+ * of `toolResults` altogether when its tool threw, so one that is here only has its text to fail by.
+ */
+const repeatedCallIn = (steps: readonly RepeatableStep[]): RepeatedCall | undefined => {
+    const watch = new RepeatedCallWatch();
+    for (const step of steps) {
+        for (const call of step.toolCalls ?? []) {
+            // Reporting and asking end the stage, so neither can be what it is stuck on.
+            if (call.toolName !== REPORT_TOOL && call.toolName !== BLOCKED_TOOL) watch.observe(call.toolName, call.input);
+        }
+        for (const { toolName, input, output } of step.toolResults ?? []) {
+            if (WRITE_TOOLS.includes(toolName) && !(typeof output === 'string' && output.startsWith('error:'))) watch.wrote(toolName, input);
+        }
+    }
+    return watch.loop;
+};
+
 /** One entry per read tool call across a run's steps, for its trace. */
 const readCalls = (steps: readonly { toolCalls?: readonly { toolName: string; input?: unknown }[] }[]): (string | undefined)[] =>
     steps
@@ -122,9 +168,13 @@ const readCalls = (steps: readonly { toolCalls?: readonly { toolName: string; in
  * Absent when the agent never reported — which is itself a signal, since a stage that did not say
  * it had finished did not finish.
  */
-const reportedResult = (steps: readonly { toolCalls?: readonly { toolName: string; input?: unknown }[] }[]): unknown => {
+const reportedResult = (steps: readonly { toolCalls?: readonly { toolName: string; input?: unknown }[] }[]): unknown =>
+    calledWith(steps, REPORT_TOOL);
+
+/** The input of the last call to `tool` across a run's steps, if it was called at all. */
+const calledWith = (steps: readonly { toolCalls?: readonly { toolName: string; input?: unknown }[] }[], tool: string): unknown => {
     for (const step of [...steps].reverse()) {
-        const call = step.toolCalls?.find(c => c.toolName === REPORT_TOOL);
+        const call = step.toolCalls?.find(c => c.toolName === tool);
         if (call) return call.input;
     }
     return undefined;

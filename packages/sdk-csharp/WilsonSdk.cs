@@ -28,6 +28,7 @@ public sealed class WilsonSdk : IDisposable
         Context = new ContextClient(Http);
         Devices = new DevicesClient(Http);
         EngineTokens = new EngineTokensClient(Http);
+        Evals = new EvalsClient(Http);
         Factors = new FactorsClient(Http);
         Health = new HealthClient(Http);
         Hosts = new HostsClient(Http);
@@ -35,6 +36,7 @@ public sealed class WilsonSdk : IDisposable
         Onboarding = new OnboardingClient(Http);
         Projects = new ProjectsClient(Http);
         Review = new ReviewClient(Http);
+        Rules = new RulesClient(Http);
         Settings = new SettingsClient(Http);
         Stages = new StagesClient(Http);
     }
@@ -59,6 +61,8 @@ public sealed class WilsonSdk : IDisposable
 
     public EngineTokensClient EngineTokens { get; }
 
+    public EvalsClient Evals { get; }
+
     public FactorsClient Factors { get; }
 
     public HealthClient Health { get; }
@@ -72,6 +76,8 @@ public sealed class WilsonSdk : IDisposable
     public ProjectsClient Projects { get; }
 
     public ReviewClient Review { get; }
+
+    public RulesClient Rules { get; }
 
     public SettingsClient Settings { get; }
 

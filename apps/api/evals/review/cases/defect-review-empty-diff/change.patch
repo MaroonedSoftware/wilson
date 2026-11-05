@@ -1,0 +1,282 @@
+diff --git a/apps/api/src/modules/agent/tools/index.ts b/apps/api/src/modules/agent/tools/index.ts
+index 075c3edf..e9c2a85c 100644
+--- a/apps/api/src/modules/agent/tools/index.ts
++++ b/apps/api/src/modules/agent/tools/index.ts
+@@ -6,15 +6,49 @@ import { scopeTool } from './scope.tool.js';
+ import { searchTools } from './search.tools.js';
+ import type { ToolContext } from './tool.context.js';
+ 
+-/** The whole tool set an agent stage gets. Stage config narrows it via `activeTools`. */
+-export const buildTools = (ctx: ToolContext, resultSchema: z.ZodTypeAny) => ({
+-    ...fileTools(ctx),
+-    ...searchTools(ctx),
+-    bash: bashTool(ctx),
+-    request_scope: scopeTool(ctx),
+-    [REPORT_TOOL]: reportTool(resultSchema),
+-});
++/**
++ * The full read-write tool set. `write`, `edit` and `request_scope` are typed as always present —
++ * a `readonly`/`none` worktree mode still physically deletes them from the object `buildTools`
++ * returns, but declaring them optional here would make `ToolLoopAgent`'s tool generic carry an
++ * optional modifier, and its `TypedToolCall` mapped type is homomorphic: an optional key there
++ * comes back out with `| undefined` on the whole tool-call union, breaking every step's
++ * `toolCalls` typing downstream in the dispatcher. Keeping the keys required avoids that; the
++ * stage config's `activeTools` (and `worktreeMode` below) is what actually keeps a reviewer from
++ * calling them.
++ */
++type StageTools = ReturnType<typeof fileTools> &
++    ReturnType<typeof searchTools> & {
++        bash: ReturnType<typeof bashTool>;
++        request_scope: ReturnType<typeof scopeTool>;
++        [REPORT_TOOL]: ReturnType<typeof reportTool>;
++    };
+ 
+-export type AgentTools = ReturnType<typeof buildTools>;
++/**
++ * The whole tool set an agent stage gets. Stage config narrows it via `activeTools`.
++ *
++ * A `readonly` or `none` worktree mode drops `write`, `edit` and `request_scope` from the set
++ * entirely rather than leaving them for the ScopeGuard to deny — a reviewer should not have the
++ * tool to edit the code it is reviewing in the first place.
++ */
++export const buildTools = (ctx: ToolContext, resultSchema: z.ZodTypeAny, worktreeMode: 'none' | 'readonly' | 'rw' = 'rw'): StageTools => {
++    const { write, edit, ...readOnlyFileTools } = fileTools(ctx);
++    const canWrite = worktreeMode === 'rw';
++
++    // The object below only has `write`/`edit`/`request_scope` when `canWrite` is true — StageTools
++    // declares them required so ToolLoopAgent's TypedToolCall stays sound (see the comment above).
++    // The cast is the deliberate seam: the ScopeGuard/dispatcher never call these tools directly, so
++    // the mismatch cannot surface as a runtime error, only as a declaration the model never sees the
++    // tool advertised for when it is genuinely absent.
++    return {
++        ...readOnlyFileTools,
++        ...(canWrite ? { write, edit } : {}),
++        ...searchTools(ctx),
++        bash: bashTool(ctx),
++        ...(canWrite ? { request_scope: scopeTool(ctx) } : {}),
++        [REPORT_TOOL]: reportTool(resultSchema),
++    } as StageTools;
++};
++
++export type AgentTools = StageTools;
+ export * from './tool.context.js';
+ export { REPORT_TOOL } from './report.tool.js';
+diff --git a/apps/api/src/modules/stages/review.verifier.ts b/apps/api/src/modules/stages/review.verifier.ts
+new file mode 100644
+index 00000000..8ab01f87
+--- /dev/null
++++ b/apps/api/src/modules/stages/review.verifier.ts
+@@ -0,0 +1,74 @@
++import { readFile } from 'node:fs/promises';
++import { join } from 'node:path';
++import { Injectable } from 'injectkit';
++import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
++import { ReviewResultSchema } from './stage.result.js';
++import type { StageVerifier, VerificationInput, VerificationOutcome } from './stage.verifier.js';
++
++/**
++ * The review stage's exit condition: the runner never judges whether a finding is *correct*, only
++ * whether the result parses and every finding points at something real in this card's diff. A
++ * reviewer that hallucinates a file, a line beyond the file's end, or a verdict that contradicts its
++ * own severities has produced a result the runner can catch without knowing anything about the code
++ * under review. Merit is the model's business; provenance is the runner's.
++ */
++@Injectable()
++export class ReviewVerifier implements StageVerifier {
++    constructor(private readonly worktrees: WorktreeManager) {}
++
++    async verify({ worktree, result }: VerificationInput): Promise<VerificationOutcome> {
++        const failures: string[] = [];
++        const changedPaths = await this.worktrees.changedPaths(worktree);
++
++        // A reviewer does not edit. Checked before the parse below, so a reviewer that both wrote
++        // files and returned garbage gets both failures rather than only the first one found.
++        if (changedPaths.length > 0) {
++            failures.push(`the review stage changed files, which a reviewer must not do: ${changedPaths.join(', ')}`);
++        }
++
++        const parsed = ReviewResultSchema.safeParse(result);
++        if (!parsed.success) {
++            failures.push(`the reported result does not match the review schema: ${parsed.error.message}`);
++            return { passed: false, failures, changedPaths };
++        }
++
++        const { verdict, findings } = parsed.data;
++        const lineCounts = new Map<string, number | undefined>();
++
++        for (const finding of findings) {
++            if (!changedPaths.includes(finding.file)) {
++                failures.push(
++                    `finding cites ${finding.file}, which is not in this card's diff (diff touches: ${changedPaths.join(', ') || 'nothing'})`,
++                );
++                continue;
++            }
++
++            if (!lineCounts.has(finding.file)) {
++                lineCounts.set(finding.file, await this.countLines(worktree.path, finding.file));
++            }
++            const lineCount = lineCounts.get(finding.file);
++
++            if (lineCount === undefined) {
++                failures.push(`finding cites ${finding.file}, which could not be read from the worktree`);
++            } else if (finding.line > lineCount) {
++                failures.push(`finding cites ${finding.file}:${finding.line}, but the file has only ${lineCount} lines`);
++            }
++        }
++
++        const hasBlocker = findings.some(finding => finding.severity === 'blocker');
++        if (verdict === 'revise' && !hasBlocker) {
++            failures.push('verdict is "revise" but no finding has severity "blocker"');
++        }
++        if (verdict === 'pass' && hasBlocker) {
++            failures.push('verdict is "pass" but at least one finding has severity "blocker"');
++        }
++
++        return { passed: failures.length === 0, failures, changedPaths };
++    }
++
++    private async countLines(worktreePath: string, path: string): Promise<number | undefined> {
++        const raw = await readFile(join(worktreePath, path), 'utf8').catch(() => undefined);
++        if (raw === undefined) return undefined;
++        return raw.split('\n').length;
++    }
++}
+diff --git a/apps/api/src/modules/stages/stage.dispatcher.ts b/apps/api/src/modules/stages/stage.dispatcher.ts
+index 666f6a2f..51e5ce2b 100644
+--- a/apps/api/src/modules/stages/stage.dispatcher.ts
++++ b/apps/api/src/modules/stages/stage.dispatcher.ts
+@@ -16,7 +16,7 @@ import { EventLog } from '#modules/events/event.log.js';
+ import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+ import { runConfiguredCommand } from './run.command.js';
+ import { findStage, loadStages, type StageConfig } from './stage.config.js';
+-import { ImplementingResultSchema, type StageOutcome } from './stage.result.js';
++import { StageResultSchemaMap, type StageOutcome } from './stage.result.js';
+ import { StageVerifierMap } from './stage.verifier.js';
+ 
+ /** The stage's own summary, for the commit message body. */
+@@ -57,6 +57,7 @@ export class StageDispatcher {
+         private readonly worktrees: WorktreeManager,
+         private readonly models: ModelRegistry,
+         private readonly verifiers: StageVerifierMap,
++        private readonly resultSchemas: StageResultSchemaMap,
+         private readonly events: EventLog,
+         private readonly logger: Logger,
+     ) {}
+@@ -220,10 +221,17 @@ export class StageDispatcher {
+             logger: this.logger,
+         };
+ 
++        const resultSchema = this.resultSchemas.get(stage.verifier ?? stage.name);
++        if (!resultSchema) {
++            throw new Error(
++                `stage "${stage.name}" names verifier "${stage.verifier ?? stage.name}", which has no registered result schema (have: ${[...this.resultSchemas.keys()].join(', ')})`,
++            );
++        }
++
+         const agent = new ToolLoopAgent({
+             model: this.models.resolve(stage.provider, stage.model),
+             instructions: stage.instructions,
+-            tools: buildTools(context, ImplementingResultSchema),
++            tools: buildTools(context, resultSchema, stage.worktree),
+             ...(stage.tools ? { activeTools: stage.tools as never } : {}),
+             // The loop ends when the agent says it is finished, or when it runs out of steps.
+             // Two bounds on spend, because retry limits bound the loop count and not the cost.
+@@ -253,9 +261,9 @@ export class StageDispatcher {
+                 `stage "${stage.name}" names verifier "${stage.verifier ?? stage.name}", which is not registered (have: ${[...this.verifiers.keys()].join(', ')})`,
+             );
+         }
+-        const verification = await verifier.verify({ worktree, scope, stage, cardId: card.frontmatter.id });
+-        const failures = [...verification.failures];
+         const reported = reportedResult(run.steps);
++        const verification = await verifier.verify({ worktree, scope, stage, cardId: card.frontmatter.id, result: reported });
++        const failures = [...verification.failures];
+ 
+         // A stage that never called the report tool never said it was finished. Whatever is in the
+         // tree is where it happened to stop, not what it set out to produce.
+diff --git a/apps/api/src/modules/stages/stage.result.ts b/apps/api/src/modules/stages/stage.result.ts
+index 2874c0f5..acced1d9 100644
+--- a/apps/api/src/modules/stages/stage.result.ts
++++ b/apps/api/src/modules/stages/stage.result.ts
+@@ -19,6 +19,30 @@ export type ImplementingResult = z.infer<typeof ImplementingResultSchema>;
+ /** The verdict shape the plan-review stage will emit at step 5. Defined now so the enum is shared. */
+ export const FindingSeverity = z.enum(['blocker', 'concern']);
+ 
++export const ReviewFindingSchema = z.object({
++    severity: z.enum(['blocker', 'concern']),
++    file: z.string().describe('A path from this card’s diff, exactly as the diff lists it.'),
++    line: z.number().int().min(1).describe('A line number in that file.'),
++    problem: z.string().describe('What is wrong, in one sentence.'),
++    suggestion: z.string().describe('What would fix it, in one sentence.'),
++});
++
++export const ReviewResultSchema = z.object({
++    summary: z.string(),
++    verdict: z.enum(['pass', 'revise']),
++    findings: z.array(ReviewFindingSchema).max(20),
++});
++
++export type ReviewResult = z.infer<typeof ReviewResultSchema>;
++
++/**
++ * Stage name (or its `verifier` override) -> the schema its report tool enforces.
++ *
++ * Registered in `StagesModule` the same way `StageVerifierMap` is, so `buildTools` never hardcodes
++ * one stage's shape for every stage.
++ */
++export class StageResultSchemaMap extends Map<string, z.ZodTypeAny> {}
++
+ export interface StageOutcome {
+     passed: boolean;
+     /** Why the exit condition failed, in the order the checks ran. */
+diff --git a/apps/api/src/modules/stages/stage.verifier.ts b/apps/api/src/modules/stages/stage.verifier.ts
+index a055363d..30a0459c 100644
+--- a/apps/api/src/modules/stages/stage.verifier.ts
++++ b/apps/api/src/modules/stages/stage.verifier.ts
+@@ -8,6 +8,8 @@ export interface VerificationInput {
+     stage: StageConfig;
+     /** The card being verified. Only the testing verifier's baseline check uses it. */
+     cardId: string;
++    /** The stage's reported result, exactly as read off the report tool call. Unparsed until a verifier validates it against its own schema. */
++    result: unknown;
+ }
+ 
+ export interface VerificationOutcome {
+diff --git a/apps/api/src/modules/stages/stages.module.ts b/apps/api/src/modules/stages/stages.module.ts
+index 729c5b20..751e16a5 100644
+--- a/apps/api/src/modules/stages/stages.module.ts
++++ b/apps/api/src/modules/stages/stages.module.ts
+@@ -2,7 +2,9 @@ import { Registry } from 'injectkit';
+ import { AppConfig } from '@maroonedsoftware/appconfig';
+ import { ServerKitModule } from '@maroonedsoftware/koa';
+ import { ImplementingVerifier } from './implementing.verifier.js';
++import { ReviewVerifier } from './review.verifier.js';
+ import { StageDispatcher } from './stage.dispatcher.js';
++import { ImplementingResultSchema, ReviewResultSchema, StageResultSchemaMap } from './stage.result.js';
+ import { StageVerifierMap } from './stage.verifier.js';
+ import { TestingVerifier } from './testing.verifier.js';
+ 
+@@ -11,12 +13,24 @@ export const StagesModule: ServerKitModule = {
+     setup: async (registry: Registry, _: AppConfig) => {
+         registry.register(ImplementingVerifier).useClass(ImplementingVerifier).asTransient();
+         registry.register(TestingVerifier).useClass(TestingVerifier).asTransient();
++        registry.register(ReviewVerifier).useClass(ReviewVerifier).asTransient();
+         registry
+             .register(StageVerifierMap)
+             .useFactory(container => {
+                 const map = new StageVerifierMap();
+                 map.set('implementing', container.get(ImplementingVerifier));
+                 map.set('testing', container.get(TestingVerifier));
++                map.set('review', container.get(ReviewVerifier));
++                return map;
++            })
++            .asSingleton();
++        registry
++            .register(StageResultSchemaMap)
++            .useFactory(() => {
++                const map = new StageResultSchemaMap();
++                map.set('implementing', ImplementingResultSchema);
++                map.set('testing', ImplementingResultSchema);
++                map.set('review', ReviewResultSchema);
+                 return map;
+             })
+             .asSingleton();

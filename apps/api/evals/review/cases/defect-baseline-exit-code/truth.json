@@ -1,0 +1,9 @@
+{
+    "kind": "defect",
+    "class": "logic",
+    "file": "apps/api/src/modules/stages/testing.verifier.ts",
+    "lines": [35, 47],
+    "mentions": ["exit", "report|pars"],
+    "about": "A report that parsed decides the answer alone, so a new test that cannot import its code reads as passing on the old tree: vitest exits non-zero and reports zero failed tests.",
+    "fixedBy": "099d10c6ad1e2a321e5bcc2ca435d3de3335cbbf"
+}

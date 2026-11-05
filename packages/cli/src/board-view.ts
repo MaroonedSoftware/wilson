@@ -1,5 +1,5 @@
 import { DateTime, Duration } from 'luxon';
-import type { CardEvent, CardSummary } from '@wilson/sdk';
+import type { CardEvent, CardSummary, MergeStatus } from '@wilson/sdk';
 
 /**
  * A handful of pure, read-only functions the CLI used to get from `@wilson/api/cli-bootstrap`.
@@ -69,6 +69,26 @@ export const deadDependencies = (card: CardSummary, cards: CardSummary[]): strin
 export const describeDependency = (id: string, cards: CardSummary[], dead: string[]): string => {
     const dep = cards.find(c => c.id === id);
     return dead.includes(id) ? `${id} (${dep?.doneReason ?? dep?.stage} — will never merge)` : id;
+};
+
+/** What Merge would do, as `wilson card show` and `wilson card merge` print it. */
+export const describeMergeStatus = (status: MergeStatus): string => {
+    const target = status.target ?? 'the target';
+    const conflicts = status.conflicts.join(', ');
+    switch (status.state) {
+        case 'clean':
+            return `merges cleanly into ${target}`;
+        case 'conflict':
+            return conflicts ? `conflicts with ${target}: ${conflicts}` : `conflicts with ${target}`;
+        case 'rereview': {
+            const moved = `would go back to review: ${target} moved under ${status.movedUnder.join(', ')}`;
+            return conflicts ? `${moved}; also conflicts: ${conflicts}` : moved;
+        }
+        case 'capped':
+            return `would stop for a human: ${target} moved under ${status.movedUnder.join(', ')}, and it has used up its re-reviews`;
+        case 'unknown':
+            return `could not check: ${status.reason ?? 'no reason recorded'}`;
+    }
 };
 
 export interface Blocked {

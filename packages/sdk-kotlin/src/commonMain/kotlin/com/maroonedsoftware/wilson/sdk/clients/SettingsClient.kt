@@ -13,6 +13,7 @@ import com.maroonedsoftware.wilson.sdk.models.LocalStageSlots
 import com.maroonedsoftware.wilson.sdk.models.NotifyWebhookSetting
 import com.maroonedsoftware.wilson.sdk.models.PollerInterval
 import com.maroonedsoftware.wilson.sdk.models.PollerSetting
+import com.maroonedsoftware.wilson.sdk.models.RuleJudgeSetting
 import com.maroonedsoftware.wilson.sdk.models.SetAutoSplitSettingRequest
 import com.maroonedsoftware.wilson.sdk.models.SetCardStageConcurrencyRequest
 import com.maroonedsoftware.wilson.sdk.models.SetClaudeConfigDirSettingRequest
@@ -192,6 +193,26 @@ class SettingsClient(private val http: SdkHttp) {
     suspend fun setAutoSplitSetting(body: SetAutoSplitSettingRequest): AutoSplitSetting {
         val response = http.execute(HttpMethod.Put) {
             path("api", "settings", "auto-split")
+            jsonBody(body, "application/json")
+        }
+        return http.decodeJson(response)
+    }
+
+    /** Get rule judge setting */
+    suspend fun getRuleJudgeSetting(): RuleJudgeSetting {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "settings", "rule-judge")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
+     * Set rule judge setting
+     * @throws SdkError on 400
+     */
+    suspend fun setRuleJudgeSetting(body: RuleJudgeSetting): RuleJudgeSetting {
+        val response = http.execute(HttpMethod.Put) {
+            path("api", "settings", "rule-judge")
             jsonBody(body, "application/json")
         }
         return http.decodeJson(response)

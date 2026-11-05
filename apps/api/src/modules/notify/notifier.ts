@@ -13,7 +13,7 @@ export interface NotificationChannel {
 
 /**
  * The extra channels, registered once at boot. Module-level for the reason `cardFeed` is, and because
- * six call sites construct `Notifier` by hand: this way none of them has to learn about any channel.
+ * every call site constructs `Notifier` by hand: this way none of them has to learn about any channel.
  */
 const channels: NotificationChannel[] = [];
 
@@ -29,14 +29,16 @@ export const registerNotificationChannel = (channel: NotificationChannel): (() =
 const NOTIFY_TIMEOUT_MS = 5_000;
 
 /**
- * Posts one notification as JSON to the configured webhook — the one channel this project has for
- * telling a person, off the board, that the machine stopped (card 0050; PROJECT.md, Notification).
- * No second channel, no delivery guarantee beyond at-most-once (Out of scope).
+ * Tells a person, off the board, that the machine stopped (card 0050; PROJECT.md, Notification): posts
+ * one notification as JSON to the configured webhook, and hands it to every registered
+ * `NotificationChannel`. No delivery guarantee beyond at-most-once (Out of scope).
  *
- * Not DI-managed: `webhookUrl`/`baseUrl` come from `BoardConfig`, already injected into every
- * caller (`CardStageJob`, `StageDispatcher`), so constructing one by hand where it is used costs
- * nothing and needs no wiring of its own. `logger` defaults to a plain `ConsoleLogger` for the one
- * caller (`CardStageJob`) that has no injected `Logger`; `StageDispatcher` passes its real one.
+ * So a caller should not check `webhookUrl` before calling `notify`: an unset webhook silences the
+ * webhook alone, and a caller that returns early silences every channel with it.
+ *
+ * Not DI-managed: `webhookUrl`/`baseUrl` come from `BoardConfig`, already available to every caller,
+ * so constructing one by hand where it is used costs nothing and needs no wiring of its own. `logger`
+ * defaults to a plain `ConsoleLogger` for the callers with no injected `Logger`.
  *
  * `webhookUrl` is `BoardConfig.notifyWebhookUrl`, which card 0107 made settable at runtime — a
  * `wilson.settings` row can override it without a restart, pushed onto the same `BoardConfig`
@@ -53,8 +55,8 @@ export class Notifier {
     ) {}
 
     /**
-     * Off by default: absent config makes this a no-op that costs nothing — no HTTP call and no log
-     * line, on every transition the runner ever makes (Constraints: "Off by default").
+     * Off by default: with no webhook and no channel this is a no-op that costs nothing (no HTTP call
+     * and no log line), on every transition the runner ever makes (Constraints: "Off by default").
      *
      * Never throws. A webhook that times out, 500s, or points at nothing is logged and swallowed —
      * the transition this reports on has already committed, and a notification able to unwind it is

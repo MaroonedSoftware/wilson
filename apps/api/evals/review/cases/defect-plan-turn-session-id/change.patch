@@ -1,0 +1,856 @@
+diff --git a/apps/api/data/contracts/board.ck b/apps/api/data/contracts/board.ck
+index 89ecdae4..5c6f995a 100644
+--- a/apps/api/data/contracts/board.ck
++++ b/apps/api/data/contracts/board.ck
+@@ -186,6 +186,24 @@ contract SaveDraftRequest: {
+     body: string
+ }
+ 
++# Card 0133: the daemon can hold a planning conversation for a card itself. `POST .../plan/turn`'s
++# request — one message in that conversation.
++contract PlanTurnRequest: {
++    text: string
++}
++
++# One row of `runner.plan_turns` — a turn in a card's planning conversation, whether this is
++# `POST .../plan/turn`'s response (the just-appended assistant turn) or one of the entries
++# `GET .../plan/stream` replays after a client's `Last-Event-ID`.
++contract PlanTurn: {
++    # `Last-Event-ID`'s resume key: monotonic per card, so a reconnecting client asks for every turn
++    # with `seq` greater than the last one it saw.
++    seq: int
++    role: enum(user, assistant)
++    content: string
++    createdAt: datetime
++}
++
+ # Card 0113. One piece of a scope-check refusal's division (see `ScopeDivisionPieceSchema`,
+ # apps/api/src/modules/stages/stage.result.ts) — carried over the wire twice: as reported, from
+ # `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
+@@ -599,6 +617,32 @@ operation /api/cards/{id}/plan/close: {
+     }
+ }
+ 
++# Card 0133: one turn of the conversation the daemon can now hold for a card in `planning`, instead
++# of that conversation existing only inside an operator's terminal (`wilson card plan`). This is the
++# ordinary JSON half of the pair; `GET .../plan/stream` (mounted by hand beside `FeedRouter`, not
++# generated — see routes.setup.ts) is where a client watches that same reply stream in as it is
++# written. Refused by exactly the two guards `open` applies: a card outside `planning`, or one whose
++# real branch already has work.
++operation /api/cards/{id}/plan/turn: {
++    params: {
++        id: string
++    }
++    post: {
++        name: Send a plan turn
++        service: PlanService.turn
++        request: {
++            application/json: PlanTurnRequest
++        }
++        response: {
++            200: {
++                application/json: PlanTurn
++            }
++            400:
++            404:
++        }
++    }
++}
++
+ operation /api/cards/{id}/events: {
+     params: {
+         id: string
+diff --git a/apps/api/src/generated/board.ts b/apps/api/src/generated/board.ts
+index 2def9ae2..d7da9883 100644
+--- a/apps/api/src/generated/board.ts
++++ b/apps/api/src/generated/board.ts
+@@ -231,13 +231,42 @@ export const SaveDraftRequest = z.strictObject({
+ });
+ export type SaveDraftRequest = z.infer<typeof SaveDraftRequest>;
+ 
++/**
++ * Card 0133: the daemon can hold a planning conversation for a card itself. `POST .../plan/turn`'s
++ * request — one message in that conversation.
++ * generated from [PlanTurnRequest](file://./../../data/contracts/board.ck#L191)
++ */
++export const PlanTurnRequest = z.strictObject({
++    text: z.string(),
++});
++export type PlanTurnRequest = z.infer<typeof PlanTurnRequest>;
++
++/**
++ * One row of `runner.plan_turns` — a turn in a card's planning conversation, whether this is
++ * `POST .../plan/turn`'s response (the just-appended assistant turn) or one of the entries
++ * `GET .../plan/stream` replays after a client's `Last-Event-ID`.
++ * generated from [PlanTurn](file://./../../data/contracts/board.ck#L198)
++ */
++export const PlanTurn = z.strictObject({
++    seq: z.coerce
++        .number()
++        .int()
++        .describe(
++            "`Last-Event-ID`'s resume key: monotonic per card, so a reconnecting client asks for every turn\nwith `seq` greater than the last one it saw.",
++        ),
++    role: z.enum(['user', 'assistant']),
++    content: z.string(),
++    createdAt: _ZodDatetime,
++});
++export type PlanTurn = z.infer<typeof PlanTurn>;
++
+ /**
+  * Card 0113. One piece of a scope-check refusal's division (see `ScopeDivisionPieceSchema`,
+  * apps/api/src/modules/stages/stage.result.ts) — carried over the wire twice: as reported, from
+  * `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
+  * One shape for both directions so a client can round-trip a piece it only meant to touch one field
+  * of.
+- * generated from [DivisionPiece](file://./../../data/contracts/board.ck#L194)
++ * generated from [DivisionPiece](file://./../../data/contracts/board.ck#L212)
+  */
+ export const DivisionPiece = z.strictObject({
+     title: z.string(),
+@@ -265,7 +294,7 @@ export type CardDetail = z.infer<typeof CardDetail>;
+  * card. Read from the event log, not a fresh run — `scope-check` already happened, and re-running it
+  * could return a different division for the cost of a whole pass, which is `scope-check`'s job to
+  * spend, not this endpoint's.
+- * generated from [CardDivision](file://./../../data/contracts/board.ck#L210)
++ * generated from [CardDivision](file://./../../data/contracts/board.ck#L228)
+  */
+ export const CardDivision = z.strictObject({
+     reason: z
+@@ -283,7 +312,7 @@ export type CardDivision = z.infer<typeof CardDivision>;
+  * after being shown what was reported and given the chance to add to it. The endpoint does not go
+  * back to the event log to re-read the division itself; the confirmed pieces are the only truth it
+  * acts on.
+- * generated from [SplitCardsRequest](file://./../../data/contracts/board.ck#L222)
++ * generated from [SplitCardsRequest](file://./../../data/contracts/board.ck#L240)
+  */
+ export const SplitCardsRequest = z.strictObject({
+     pieces: z.array(DivisionPiece),
+@@ -309,7 +338,7 @@ export type ReleaseResult = z.infer<typeof ReleaseResult>;
+  * ids it produced, and the cards created from each piece, in the order `pieces` was sent. Every
+  * created card lands in `planning`, never `backlog` — a piece is a title, a task list and a
+  * sentence, not a plan with all six headings filled in.
+- * generated from [SplitResult](file://./../../data/contracts/board.ck#L230)
++ * generated from [SplitResult](file://./../../data/contracts/board.ck#L248)
+  */
+ export const SplitResult = z.strictObject({
+     origin: CardDetail,
+diff --git a/apps/api/src/modules/plan/plan.service.ts b/apps/api/src/modules/plan/plan.service.ts
+index b342a00d..5f66c200 100644
+--- a/apps/api/src/modules/plan/plan.service.ts
++++ b/apps/api/src/modules/plan/plan.service.ts
+@@ -2,15 +2,20 @@ import { mkdir, writeFile } from 'node:fs/promises';
+ import { join } from 'node:path';
+ import { Injectable } from 'injectkit';
+ import { httpError } from '@maroonedsoftware/errors';
++import { Kysely } from 'kysely';
+ import { BoardConfig } from '#modules/board/board.config.js';
+ import { BoardRepository } from '#modules/board/board.repository.js';
+ import { CardNotFoundError } from '#modules/board/postgres.board.repository.js';
+ import { toCardDetail } from '#modules/board/board.service.js';
+ import { PLAN_SECTIONS, filesInScope, sectionsOf, type Card } from '#modules/board/card.js';
+ import { git } from '#modules/board/git.js';
+-import { findStage, loadStages } from '#modules/stages/stage.config.js';
++import { findStage, loadStages, type StageConfig } from '#modules/stages/stage.config.js';
+ import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
+-import type { CardDetail, PlanSession, SaveDraftRequest } from '../../generated/board.js';
++import type { DB } from '#modules/data/db.js';
++import { planFeed } from './plan.session.feed.js';
++import { planSessions } from './plan.session.registry.js';
++import { PlanTurnRepository, type PlanTurn } from './plan.turn.repository.js';
++import type { CardDetail, PlanSession, PlanTurnRequest, SaveDraftRequest } from '../../generated/board.js';
+ 
+ /** The same six headings `card create` seeds, built from the shared constant so the two cannot drift. */
+ const SKELETON = PLAN_SECTIONS.map(section => `## ${section}\n`).join('\n');
+@@ -43,11 +48,19 @@ const planBranch = (cardId: string): string => `wilson-plan/${cardId}`;
+  */
+ @Injectable()
+ export class PlanService {
++    /** `PlanTurnRepository` has no polymorphic swap and no DI registration of its own — see its
++     * class doc comment for why `new`, built from two dependencies this class already carries, is
++     * simpler than adding one. */
++    private readonly planTurns: PlanTurnRepository;
++
+     constructor(
+         private readonly boardRepository: BoardRepository,
+         private readonly boardConfig: BoardConfig,
+         private readonly worktrees: WorktreeManager,
+-    ) {}
++        private readonly db: Kysely<DB>,
++    ) {
++        this.planTurns = new PlanTurnRepository(this.boardConfig, this.db);
++    }
+ 
+     /**
+      * Open a planning session for a card in `planning`. Refuses, and cuts nothing, for a card
+@@ -56,55 +69,72 @@ export class PlanService {
+      */
+     async open(id: string): Promise<PlanSession> {
+         const card = await this.readOrThrow(id);
+-        if (card.frontmatter.stage !== 'planning') {
+-            throw httpError(400).withDetails({
+-                reason: `${id} is in stage "${card.frontmatter.stage}", not "planning" — move it there first`,
+-            });
+-        }
++        await this.assertPlannable(id, card);
++        return this.cutSession(id, card);
++    }
+ 
+-        const cardBranch = this.worktrees.resolveBranch(card);
+-        if (await this.worktrees.hasWork(cardBranch)) {
+-            throw httpError(400).withDetails({
+-                reason: `${id} already has work on ${cardBranch} — re-planning a card with code is a different, more dangerous operation`,
+-            });
+-        }
++    /**
++     * One turn of the conversation the daemon can now hold for a card in `planning`, instead of
++     * that conversation existing only inside an operator's terminal. Appends the user's turn, hands
++     * it to the registry's live session (rehydrating it from `runner.plan_turns`'s last
++     * `engine_session_id` when this process holds none), publishes assistant text to `planFeed` as
++     * it arrives, and appends the assistant's turn once it completes.
++     *
++     * Refused by exactly `open`'s own two guards — a card outside `planning`, or one whose real
++     * branch already has work — via the same `assertPlannable` `open` itself calls, rather than a
++     * copy of them.
++     *
++     * The very first turn for a card cuts (or re-cuts, harmlessly — nothing has touched the code
++     * worktree yet, since the finished plan is written to `draftPath`, outside it) the same
++     * throwaway worktree `open` cuts, by calling `cutSession` — this class's own method, not a
++     * duplicate of it — and prepends the `planning` stage's instructions to the very first prompt
++     * the engine ever sees. Every later turn resumes that same conversation instead: the model's
++     * own context, not `runner.plan_turns`, is what carries the instructions forward from there
++     * (this card's Constraints — never rebuild model context by replaying stored turns into a fresh
++     * session).
++     */
++    async turn(id: string, request: PlanTurnRequest): Promise<PlanTurn> {
++        const card = await this.readOrThrow(id);
++        await this.assertPlannable(id, card);
++        const text = request.text;
+ 
+-        // Config, not a string here: the stage's model and its planning instructions live in
+-        // stages.yaml like every other stage's do.
+-        const stages = await loadStages(this.boardConfig.boardRoot);
+-        const stage = findStage(stages, 'planning');
++        const priorTurns = await this.planTurns.since(id, 0);
++        const isFirstTurn = priorTurns.length === 0;
+ 
+-        // Seeded beside where a running stage's plan.md lands, per `materializePlan` — this is that
+-        // same directory, before the plan exists.
+-        const draftDir = join(this.boardConfig.runRoot, 'cards', id);
+-        await mkdir(draftDir, { recursive: true });
+-        const draftPath = join(draftDir, 'draft.md');
++        // Two branches rather than one ternary assigning a shared variable: `cutSession` and
++        // `existingSession` return different shapes (only the first carries `instructions`, which
++        // only the first turn ever needs), and keeping them apart here is what lets the compiler
++        // catch a later turn accidentally reaching for a field `existingSession` never promised.
++        let worktreePath: string;
++        let model: string;
++        let prompt: string;
++        if (isFirstTurn) {
++            const session = await this.cutSession(id, card);
++            worktreePath = session.worktreePath;
++            model = session.model;
++            prompt = `${session.instructions}\n\n${text}`;
++        } else {
++            const session = await this.existingSession(id);
++            worktreePath = session.worktreePath;
++            model = session.model;
++            prompt = text;
++        }
+ 
+-        const hasSections = Object.keys(sectionsOf(card.body)).length > 0;
+-        const seed = hasSections ? card.body : SKELETON;
+-        await writeFile(draftPath, seed, 'utf8');
++        await this.planTurns.append(id, 'user', text);
+ 
+-        const worktree = await this.worktrees.create(planId(id), planBranch(id));
++        // `planSessions.session` resolves `resume` itself, from `runner.plan_turns`'s last
++        // `engine_session_id`, on a miss — never passed here, so a process restart rehydrates the
++        // engine's own conversation regardless of what `isFirstTurn` says about this card's stored
++        // transcript.
++        const agent = await planSessions.session(id, { worktreeRoot: worktreePath, model }, this.planTurns);
+ 
+-        // The stage's own instructions, plus the one fact only this session knows: where the draft
+-        // lives. Travels as one string so a caller appends it as the spawned agent's system prompt,
+-        // which the model sees with the same weight it gives its base instructions.
+-        const instructions = [
+-            stage.instructions,
+-            '',
+-            `Write the finished plan to ${draftPath} — that file, and only that file, is how the plan is`,
+-            `delivered. It currently holds ${
+-                hasSections ? "this card's existing body" : 'an empty six-heading skeleton'
+-            }; read it before anything else.`,
+-        ].join('\n');
++        let assistantText = '';
++        for await (const chunk of agent.turn(prompt)) {
++            assistantText += chunk;
++            planFeed.status(this.boardConfig.project, id, chunk);
++        }
+ 
+-        return {
+-            sessionId: id,
+-            worktreePath: worktree.path,
+-            draftPath,
+-            model: stage.model,
+-            instructions,
+-        };
++        return this.planTurns.append(id, 'assistant', assistantText, agent.sessionId);
+     }
+ 
+     /**
+@@ -147,6 +177,10 @@ export class PlanService {
+      * since neither was ever the card's own to begin with.
+      */
+     async close(id: string): Promise<void> {
++        // Disposes the live session, if this process is holding one — leaving the stored turns in
++        // `runner.plan_turns` untouched, exactly as reclaiming the worktree below leaves the saved
++        // draft version untouched. Idempotent for the same reason `planSessions.dispose` itself is.
++        planSessions.dispose(id);
+         await this.worktrees.reclaim(planId(id));
+         await git(this.boardConfig.codeRoot, ['branch', '-D', planBranch(id)]).catch(() => undefined);
+     }
+@@ -159,4 +193,92 @@ export class PlanService {
+             throw err;
+         }
+     }
++
++    /**
++     * Card 0058's two guards, exactly as `open` always ran them, now shared with `turn` (this
++     * card's acceptance criteria: "a turn for a card outside `planning`, or one whose real branch
++     * already has work, is refused by the same guards `open` applies") — refuses, naming why, a
++     * card that is not in `planning` or whose real branch already has work.
++     */
++    private async assertPlannable(id: string, card: Card): Promise<void> {
++        if (card.frontmatter.stage !== 'planning') {
++            throw httpError(400).withDetails({
++                reason: `${id} is in stage "${card.frontmatter.stage}", not "planning" — move it there first`,
++            });
++        }
++
++        const cardBranch = this.worktrees.resolveBranch(card);
++        if (await this.worktrees.hasWork(cardBranch)) {
++            throw httpError(400).withDetails({
++                reason: `${id} already has work on ${cardBranch} — re-planning a card with code is a different, more dangerous operation`,
++            });
++        }
++    }
++
++    /**
++     * Cuts (or re-cuts) the throwaway worktree and seeds the draft file — `open`'s own body, moved
++     * here so `turn` can call it for a card's very first turn without duplicating it. Safe to call
++     * more than once for the same card as long as nothing has written to the code worktree since:
++     * `WorktreeManager.create` resets it to a fresh checkout, and the one file a planning session
++     * actually writes, `draftPath`, lives outside that worktree entirely.
++     */
++    private async cutSession(id: string, card: Card): Promise<PlanSession> {
++        // Config, not a string here: the stage's model and its planning instructions live in
++        // stages.yaml like every other stage's do.
++        const stage = await this.loadPlanningStage();
++
++        // Seeded beside where a running stage's plan.md lands, per `materializePlan` — this is that
++        // same directory, before the plan exists.
++        const draftDir = join(this.boardConfig.runRoot, 'cards', id);
++        await mkdir(draftDir, { recursive: true });
++        const draftPath = join(draftDir, 'draft.md');
++
++        const hasSections = Object.keys(sectionsOf(card.body)).length > 0;
++        const seed = hasSections ? card.body : SKELETON;
++        await writeFile(draftPath, seed, 'utf8');
++
++        const worktree = await this.worktrees.create(planId(id), planBranch(id));
++
++        // The stage's own instructions, plus the one fact only this session knows: where the draft
++        // lives. Travels as one string so a caller appends it as the spawned agent's system prompt,
++        // which the model sees with the same weight it gives its base instructions.
++        const instructions = [
++            stage.instructions,
++            '',
++            `Write the finished plan to ${draftPath} — that file, and only that file, is how the plan is`,
++            `delivered. It currently holds ${
++                hasSections ? "this card's existing body" : 'an empty six-heading skeleton'
++            }; read it before anything else.`,
++        ].join('\n');
++
++        return {
++            sessionId: id,
++            worktreePath: worktree.path,
++            draftPath,
++            model: stage.model,
++            instructions,
++        };
++    }
++
++    /**
++     * The worktree path and model for a card's already-open session, without touching the worktree
++     * or the draft file — `turn`'s path for every turn after the first, where re-running
++     * `cutSession` would reset the code worktree out from under a conversation already in flight.
++     *
++     * The path is computed the identical deterministic way `WorktreeManager.create` computes it
++     * (`<worktreeRoot>/<planId(id)>`) rather than asked of `WorktreeManager` itself: that class
++     * offers no "the path for this id" query that does not also cut or reclaim, and this call must
++     * do neither.
++     */
++    private async existingSession(id: string): Promise<Pick<PlanSession, 'worktreePath' | 'model'>> {
++        const stage = await this.loadPlanningStage();
++        return { worktreePath: join(this.boardConfig.worktreeRoot, planId(id)), model: stage.model };
++    }
++
++    /** The `planning` stage's own config — shared by `cutSession` and `existingSession` so neither
++     * inlines its own `loadStages`/`findStage` call. */
++    private async loadPlanningStage(): Promise<StageConfig> {
++        const stages = await loadStages(this.boardConfig.boardRoot);
++        return findStage(stages, 'planning');
++    }
+ }
+diff --git a/apps/api/src/routes/board.router.ts b/apps/api/src/routes/board.router.ts
+index 70dcc759..2f577dc2 100644
+--- a/apps/api/src/routes/board.router.ts
++++ b/apps/api/src/routes/board.router.ts
+@@ -20,6 +20,8 @@ import {
+     ListQuery,
+     MoveCardRequest,
+     PlanSession,
++    PlanTurn,
++    PlanTurnRequest,
+     ReleaseResult,
+     RenameCardRequest,
+     RepositionCardRequest,
+@@ -35,7 +37,7 @@ import { parseAndValidate } from '@maroonedsoftware/zod';
+ export const BoardRouter = ServerKitRouter();
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L236)
++ * from [board.ck](file://./../../data/contracts/board.ck#L254)
+  * anonymous access, no security required
+  */
+ BoardRouter.get('/api/cards', async ctx => {
+@@ -48,7 +50,7 @@ BoardRouter.get('/api/cards', async ctx => {
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L245)
++ * from [board.ck](file://./../../data/contracts/board.ck#L263)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards', bodyParserMiddleware(['json']), async ctx => {
+@@ -63,7 +65,7 @@ BoardRouter.post('/api/cards', bodyParserMiddleware(['json']), async ctx => {
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L263)
++ * from [board.ck](file://./../../data/contracts/board.ck#L281)
+  * anonymous access, no security required
+  */
+ BoardRouter.get('/api/cards/:id', async ctx => {
+@@ -86,7 +88,7 @@ BoardRouter.get('/api/cards/:id', async ctx => {
+  * Not `put`. This is a partial update — only the body changes, frontmatter is not editable here
+  * (decision 5: stage, branch, retries are runner state; `move` is the recorded way to override
+  * stage) — which is exactly what `patch` means and `put`, a full replace, does not.
+- * from [board.ck](file://./../../data/contracts/board.ck#L276)
++ * from [board.ck](file://./../../data/contracts/board.ck#L294)
+  * anonymous access, no security required
+  */
+ BoardRouter.patch('/api/cards/:id', bodyParserMiddleware(['json']), async ctx => {
+@@ -120,7 +122,7 @@ BoardRouter.patch('/api/cards/:id', bodyParserMiddleware(['json']), async ctx =>
+  * recomputed or read by the runner itself, and `move`/`ack`/etc. are the recorded ways to override
+  * them. A title is authored prose nothing downstream depends on as input — the same reason `edit`
+  * above is allowed to touch `body` freely.
+- * from [board.ck](file://./../../data/contracts/board.ck#L307)
++ * from [board.ck](file://./../../data/contracts/board.ck#L325)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/rename', bodyParserMiddleware(['json']), async ctx => {
+@@ -147,7 +149,7 @@ BoardRouter.post('/api/cards/:id/rename', bodyParserMiddleware(['json']), async
+  * 0080's other five mutations — depend, ack, approve, start, release — are transitions of exactly
+  * this shape. `POST .../move` establishes that convention once so five more operations can copy it
+  * rather than each inventing its own.
+- * from [board.ck](file://./../../data/contracts/board.ck#L338)
++ * from [board.ck](file://./../../data/contracts/board.ck#L356)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/move', bodyParserMiddleware(['json']), async ctx => {
+@@ -176,7 +178,7 @@ BoardRouter.post('/api/cards/:id/move', bodyParserMiddleware(['json']), async ct
+  * reposition mints no card version and writes no `transition.written` event, on purpose — dragging a
+  * card three rows down did not change what the runner will do with it. Follows the same sub-resource
+  * shape `move` established above.
+- * from [board.ck](file://./../../data/contracts/board.ck#L367)
++ * from [board.ck](file://./../../data/contracts/board.ck#L385)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/reposition', bodyParserMiddleware(['json']), async ctx => {
+@@ -202,7 +204,7 @@ BoardRouter.post('/api/cards/:id/reposition', bodyParserMiddleware(['json']), as
+  * field (`dependsOn`) the way `PATCH .../id` edits `body` — it is still a POST action rather than a
+  * PATCH because the edit is additive/subtractive (`remove`), not a full replace of the field the way
+  * `EditCardRequest` replaces `body`.
+- * from [board.ck](file://./../../data/contracts/board.ck#L394)
++ * from [board.ck](file://./../../data/contracts/board.ck#L412)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/depend', bodyParserMiddleware(['json']), async ctx => {
+@@ -224,7 +226,7 @@ BoardRouter.post('/api/cards/:id/depend', bodyParserMiddleware(['json']), async
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L417)
++ * from [board.ck](file://./../../data/contracts/board.ck#L435)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/ack', async ctx => {
+@@ -244,7 +246,7 @@ BoardRouter.post('/api/cards/:id/ack', async ctx => {
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L436)
++ * from [board.ck](file://./../../data/contracts/board.ck#L454)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/approve', async ctx => {
+@@ -264,7 +266,7 @@ BoardRouter.post('/api/cards/:id/approve', async ctx => {
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L455)
++ * from [board.ck](file://./../../data/contracts/board.ck#L473)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/start', async ctx => {
+@@ -284,7 +286,7 @@ BoardRouter.post('/api/cards/:id/start', async ctx => {
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L474)
++ * from [board.ck](file://./../../data/contracts/board.ck#L492)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/release', async ctx => {
+@@ -307,7 +309,7 @@ BoardRouter.post('/api/cards/:id/release', async ctx => {
+  * Card 0113. Reads without writing: renders the division a client would confirm, before anything is
+  * created from it. Refuses, naming why, when there is nothing to act on rather than handing back an
+  * empty confirmation prompt.
+- * from [board.ck](file://./../../data/contracts/board.ck#L496)
++ * from [board.ck](file://./../../data/contracts/board.ck#L514)
+  * anonymous access, no security required
+  */
+ BoardRouter.get('/api/cards/:id/division', async ctx => {
+@@ -333,7 +335,7 @@ BoardRouter.get('/api/cards/:id/division', async ctx => {
+  * pieces themselves are what would strand — and never re-runs `scope-check` on what it creates:
+  * deciding a split is `scope-check`'s job (card 0105), this only acts on a division an operator
+  * already confirmed.
+- * from [board.ck](file://./../../data/contracts/board.ck#L522)
++ * from [board.ck](file://./../../data/contracts/board.ck#L540)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/split', bodyParserMiddleware(['json']), async ctx => {
+@@ -358,7 +360,7 @@ BoardRouter.post('/api/cards/:id/split', bodyParserMiddleware(['json']), async c
+  * Runs card 0058's two guards before cutting anything: refuses a card that is not in `planning`, and
+  * refuses one whose real branch already has work (re-planning a card with code on it is a different,
+  * more dangerous operation). Cuts nothing on a refusal.
+- * from [board.ck](file://./../../data/contracts/board.ck#L547)
++ * from [board.ck](file://./../../data/contracts/board.ck#L565)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/plan/open', async ctx => {
+@@ -383,7 +385,7 @@ BoardRouter.post('/api/cards/:id/plan/open', async ctx => {
+  * can skip, since skipping it is what let a card die at `assertDispatchable` three stages later
+  * (card 0058). Refuses naming what is missing. Writes exactly one new card version on success; an
+  * unchanged body writes nothing, the same no-op `BoardWriteService.edit` already makes.
+- * from [board.ck](file://./../../data/contracts/board.ck#L569)
++ * from [board.ck](file://./../../data/contracts/board.ck#L587)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/plan/save', bodyParserMiddleware(['json']), async ctx => {
+@@ -408,7 +410,7 @@ BoardRouter.post('/api/cards/:id/plan/save', bodyParserMiddleware(['json']), asy
+  * Reclaims the session's worktree and deletes its throwaway branch. Idempotent — safe to call twice,
+  * and safe to call for a session that opened but was never saved — because that is exactly what a CLI
+  * dying mid-conversation leaves behind, and closing it must never itself be the operation that fails.
+- * from [board.ck](file://./../../data/contracts/board.ck#L593)
++ * from [board.ck](file://./../../data/contracts/board.ck#L611)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/cards/:id/plan/close', async ctx => {
+@@ -426,7 +428,35 @@ BoardRouter.post('/api/cards/:id/plan/close', async ctx => {
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L606)
++ * Card 0133: one turn of the conversation the daemon can now hold for a card in `planning`, instead
++ * of that conversation existing only inside an operator's terminal (`wilson card plan`). This is the
++ * ordinary JSON half of the pair; `GET .../plan/stream` (mounted by hand beside `FeedRouter`, not
++ * generated — see routes.setup.ts) is where a client watches that same reply stream in as it is
++ * written. Refused by exactly the two guards `open` applies: a card outside `planning`, or one whose
++ * real branch already has work.
++ * from [board.ck](file://./../../data/contracts/board.ck#L630)
++ * anonymous access, no security required
++ */
++BoardRouter.post('/api/cards/:id/plan/turn', bodyParserMiddleware(['json']), async ctx => {
++    const { id } = await parseAndValidate(
++        ctx.params,
++        z.strictObject({
++            id: z.string(),
++        }),
++    );
++
++    const body = await parseAndValidate(ctx.parsedBody, PlanTurnRequest);
++
++    const service = ctx.container.get(PlanService);
++    const result: PlanTurn = await service.turn(id, body);
++
++    ctx.status = 200;
++    ctx.type = 'application/json';
++    ctx.body = result;
++});
++
++/**
++ * from [board.ck](file://./../../data/contracts/board.ck#L650)
+  * anonymous access, no security required
+  */
+ BoardRouter.get('/api/cards/:id/events', async ctx => {
+@@ -448,7 +478,7 @@ BoardRouter.get('/api/cards/:id/events', async ctx => {
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L622)
++ * from [board.ck](file://./../../data/contracts/board.ck#L666)
+  * anonymous access, no security required
+  */
+ BoardRouter.get('/api/cards/:id/versions', async ctx => {
+@@ -470,7 +500,7 @@ BoardRouter.get('/api/cards/:id/versions', async ctx => {
+ });
+ 
+ /**
+- * from [board.ck](file://./../../data/contracts/board.ck#L635)
++ * from [board.ck](file://./../../data/contracts/board.ck#L679)
+  * anonymous access, no security required
+  */
+ BoardRouter.get('/api/stages', async ctx => {
+@@ -488,7 +518,7 @@ BoardRouter.get('/api/stages', async ctx => {
+  * PROJECT_BOARD_ROOT already pointing at the intended path, before it can create the board there —
+  * that circularity is real, and the 409 below is what makes it legible instead of a connection
+  * refused with no explanation.
+- * from [board.ck](file://./../../data/contracts/board.ck#L652)
++ * from [board.ck](file://./../../data/contracts/board.ck#L696)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/board/init', async ctx => {
+@@ -504,7 +534,7 @@ BoardRouter.post('/api/board/init', async ctx => {
+  * One-time import of the legacy markdown board (cards/*.md) into Postgres. Refuses a board that
+  * already has cards, the same guard `BoardImporter` always made, over HTTP now rather than only
+  * from the CLI.
+- * from [board.ck](file://./../../data/contracts/board.ck#L672)
++ * from [board.ck](file://./../../data/contracts/board.ck#L716)
+  * anonymous access, no security required
+  */
+ BoardRouter.post('/api/board/import', bodyParserMiddleware(['json']), async ctx => {
+diff --git a/apps/api/src/routes/routes.setup.ts b/apps/api/src/routes/routes.setup.ts
+index 6209e8c7..298e0106 100644
+--- a/apps/api/src/routes/routes.setup.ts
++++ b/apps/api/src/routes/routes.setup.ts
+@@ -1,6 +1,11 @@
+-import { ServerKitRouter, type SseContext } from '@maroonedsoftware/koa';
++import { Kysely } from 'kysely';
++import { openSseStream, resolveLastEventId, ServerKitRouter, type SseContext } from '@maroonedsoftware/koa';
++import { BoardConfig } from '#modules/board/board.config.js';
++import type { DB } from '#modules/data/db.js';
+ import { cardFeed } from '#modules/feed/card.feed.js';
+ import { openCardFeedStream } from '#modules/feed/card.feed.route.js';
++import { planFeed } from '#modules/plan/plan.session.feed.js';
++import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
+ import { BoardRouter } from './board.router.js';
+ import { HealthRouter } from './health.router.js';
+ import { SettingsRouter } from './settings.router.js';
+@@ -30,24 +35,75 @@ export const FeedRouter = (signal?: AbortSignal) => {
+     return router;
+ };
+ 
++/**
++ * Card 0133's other SSE stream: a card's planning conversation, over `/api/cards/:id/plan/stream`.
++ * Built by hand beside `FeedRouter`, for exactly the reason `FeedRouter`'s own doc comment gives —
++ * ContractKit emits JSON handlers, and there is no JSON handler to generate for a response that
++ * never resolves — and `board.ck`'s `POST .../plan/turn` operation says so explicitly rather than
++ * leaving this stream undocumented.
++ *
++ * Replays every stored turn after the client's `Last-Event-ID` (`0` for a fresh connection, so
++ * every turn) before subscribing to `planFeed` for the assistant text still being written for the
++ * turn in flight, if any — `runner.plan_turns` is a card's history, and `planFeed` is only ever the
++ * deltas of the one turn a live session happens to be producing right now, so a client is caught up
++ * on both without a gap between them.
++ *
++ * Not `openCardFeedStream`/`cardFeed`: that stream serves latest-per-card snapshot and deliberately
++ * does not replay (its own doc comment), and a transcript is exactly the history it declines to
++ * serve. Built on `openSseStream` directly instead, the same transport primitive, composed for
++ * replay-then-subscribe rather than snapshot-then-subscribe.
++ *
++ * `PlanTurnRepository` is constructed here rather than resolved through `ctx.container`: it carries
++ * no DI registration of its own (see its class doc comment), the same reason `PlanService` builds
++ * one itself from the same two dependencies, both of which the container already has.
++ *
++ * Takes the server's lifecycle signal, same as `FeedRouter`, so shutdown drains an open plan stream
++ * instead of holding its socket to the force-close grace period.
++ */
++export const PlanStreamRouter = (signal?: AbortSignal) => {
++    const router = ServerKitRouter();
++    router.get('/api/cards/:id/plan/stream', async ctx => {
++        const id = String(ctx.params.id);
++        const headerId = ctx.headers['last-event-id'];
++        const lastEventId = resolveLastEventId(typeof headerId === 'string' ? headerId : '', ctx.query.lastEventId);
++
++        const planTurns = new PlanTurnRepository(ctx.container.get(BoardConfig), ctx.container.get(Kysely<DB>));
++        const stream = openSseStream(ctx as unknown as SseContext, { signal });
++
++        const missed = await planTurns.since(id, lastEventId);
++        for (const turn of missed) {
++            stream.event({ id: turn.seq, event: 'turn', data: turn });
++        }
++
++        stream.onClose(planFeed.onEvent({ correlationId: id }, event => stream.event({ event: 'delta', data: event.message })));
++    });
++    return router;
++};
++
+ /**
+  * Every router the server mounts, in one place — adding a router later is one line here.
+  *
+  * The `*.router.ts` files beside this one are generated from `data/contracts/*.ck` and must not be
+  * edited; regenerate with `pnpm codegen`. This file is the only hand-written thing in the directory.
+  *
+- * Every route is generated, with one deliberate exception: `FeedRouter` above. Card 0019 wrote the
+- * health route by hand and said why that was temporary — the health and board routes are
+- * generated now, so that rule holds. An SSE stream is different in kind, not just unfinished
+- * codegen: ContractKit emits JSON handlers, and there is no JSON handler to generate for a
+- * response that never resolves. `FeedRouter` is built here, in this hand-written file, rather than
+- * as a new file beside it, so the "every file here but this one is generated" invariant the tests
+- * enforce stays true.
++ * Every route is generated, with two deliberate exceptions: `FeedRouter` and `PlanStreamRouter`
++ * above. Card 0019 wrote the health route by hand and said why that was temporary — the health and
++ * board routes are generated now, so that rule holds. An SSE stream is different in kind, not just
++ * unfinished codegen: ContractKit emits JSON handlers, and there is no JSON handler to generate for
++ * a response that never resolves. Both routers are built here, in this hand-written file, rather
++ * than as new files beside it, so the "every file here but this one is generated" invariant the
++ * tests enforce stays true.
+  *
+- * Takes the server's lifecycle signal and threads it to `FeedRouter` alone; the other three
+- * routers have no long-lived connection to drain and stay untouched by it.
++ * Takes the server's lifecycle signal and threads it to both SSE routers; the other three routers
++ * have no long-lived connection to drain and stay untouched by it.
+  *
+  * Left untyped as `ServerKitRouterType[]`: that type is the erased, invariant `Router<unknown,
+  * unknown>`, so callers cast at the point they hand this to `setupRoutes` instead.
+  */
+-export const routers = (signal?: AbortSignal) => [HealthRouter, BoardRouter, SettingsRouter, FeedRouter(signal)];
++export const routers = (signal?: AbortSignal) => [
++    HealthRouter,
++    BoardRouter,
++    SettingsRouter,
++    FeedRouter(signal),
++    PlanStreamRouter(signal),
++];
+diff --git a/packages/sdk/src/board.client.ts b/packages/sdk/src/board.client.ts
+index 7ef10812..d7c89e7f 100644
+--- a/packages/sdk/src/board.client.ts
++++ b/packages/sdk/src/board.client.ts
+@@ -13,6 +13,8 @@ import type {
+     ListQuery,
+     MoveCardRequest,
+     PlanSession,
++    PlanTurn,
++    PlanTurnRequest,
+     ReleaseResult,
+     RenameCardRequest,
+     RepositionCardRequest,
+@@ -233,6 +235,24 @@ export class BoardClient {
+         await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/close`, { method: 'POST' });
+     }
+ 
++    /**
++     * @name Send a plan turn
++     * @description Card 0133: one turn of the conversation the daemon can now hold for a card in `planning`, instead
++     * of that conversation existing only inside an operator's terminal (`wilson card plan`). This is the
++     * ordinary JSON half of the pair; `GET .../plan/stream` (mounted by hand beside `FeedRouter`, not
++     * generated — see routes.setup.ts) is where a client watches that same reply stream in as it is
++     * written. Refused by exactly the two guards `open` applies: a card outside `planning`, or one whose
++     * real branch already has work.
++     */
++    async sendAPlanTurn(id: string, body: PlanTurnRequest): Promise<PlanTurn> {
++        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/plan/turn`, {
++            method: 'POST',
++            headers: { 'Content-Type': 'application/json' },
++            body: JSON.stringify(body, bigIntReplacer),
++        });
++        return await parseJson<PlanTurn>(result);
++    }
++
+     /** @name List card events */
+     async listCardEvents(id: string, query?: ListQuery): Promise<CardEvent[]> {
+         const qs = buildQueryString(query);
+diff --git a/packages/sdk/src/types/board.ts b/packages/sdk/src/types/board.ts
+index 6e6196fd..fe542909 100644
+--- a/packages/sdk/src/types/board.ts
++++ b/packages/sdk/src/types/board.ts
+@@ -222,13 +222,39 @@ export interface SaveDraftRequest {
+     body: string;
+ }
+ 
++/**
++ * Card 0133: the daemon can hold a planning conversation for a card itself. `POST .../plan/turn`'s
++ * request — one message in that conversation.
++ * generated from [PlanTurnRequest](file://./../../../../apps/api/data/contracts/board.ck#L191)
++ */
++export interface PlanTurnRequest {
++    text: string;
++}
++
++/**
++ * One row of `runner.plan_turns` — a turn in a card's planning conversation, whether this is
++ * `POST .../plan/turn`'s response (the just-appended assistant turn) or one of the entries
++ * `GET .../plan/stream` replays after a client's `Last-Event-ID`.
++ * generated from [PlanTurn](file://./../../../../apps/api/data/contracts/board.ck#L198)
++ */
++export interface PlanTurn {
++    /**
++     * `Last-Event-ID`'s resume key: monotonic per card, so a reconnecting client asks for every turn
++     * with `seq` greater than the last one it saw.
++     */
++    seq: number;
++    role: 'user' | 'assistant';
++    content: string;
++    createdAt: string;
++}
++
+ /**
+  * Card 0113. One piece of a scope-check refusal's division (see `ScopeDivisionPieceSchema`,
+  * apps/api/src/modules/stages/stage.result.ts) — carried over the wire twice: as reported, from
+  * `GET .../division`, and again, possibly with `dependsOn` edited, in the body of `POST .../split`.
+  * One shape for both directions so a client can round-trip a piece it only meant to touch one field
+  * of.
+- * generated from [DivisionPiece](file://./../../../../apps/api/data/contracts/board.ck#L194)
++ * generated from [DivisionPiece](file://./../../../../apps/api/data/contracts/board.ck#L212)
+  */
+ export interface DivisionPiece {
+     title: string;
+@@ -257,7 +283,7 @@ export interface CardDetail extends CardSummary {
+  * card. Read from the event log, not a fresh run — `scope-check` already happened, and re-running it
+  * could return a different division for the cost of a whole pass, which is `scope-check`'s job to
+  * spend, not this endpoint's.
+- * generated from [CardDivision](file://./../../../../apps/api/data/contracts/board.ck#L210)
++ * generated from [CardDivision](file://./../../../../apps/api/data/contracts/board.ck#L228)
+  */
+ export interface CardDivision {
+     /**
+@@ -274,7 +300,7 @@ export interface CardDivision {
+  * after being shown what was reported and given the chance to add to it. The endpoint does not go
+  * back to the event log to re-read the division itself; the confirmed pieces are the only truth it
+  * acts on.
+- * generated from [SplitCardsRequest](file://./../../../../apps/api/data/contracts/board.ck#L222)
++ * generated from [SplitCardsRequest](file://./../../../../apps/api/data/contracts/board.ck#L240)
+  */
+ export interface SplitCardsRequest {
+     pieces: DivisionPiece[];
+@@ -298,7 +324,7 @@ export interface ReleaseResult extends CardDetail {
+  * ids it produced, and the cards created from each piece, in the order `pieces` was sent. Every
+  * created card lands in `planning`, never `backlog` — a piece is a title, a task list and a
+  * sentence, not a plan with all six headings filled in.
+- * generated from [SplitResult](file://./../../../../apps/api/data/contracts/board.ck#L230)
++ * generated from [SplitResult](file://./../../../../apps/api/data/contracts/board.ck#L248)
+  */
+ export interface SplitResult {
+     origin: CardDetail;

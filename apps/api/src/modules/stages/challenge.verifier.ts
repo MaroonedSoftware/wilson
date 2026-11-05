@@ -87,7 +87,7 @@ export class ChallengeVerifier implements StageVerifier {
         // report to fault, the routing itself is wrong, so that branch returns before this applies.
         const codeFailure = reviewOutcome.failures.length > 0 && !reviewOutcome.reportRejected;
 
-        const incoming = await this.incomingReview(cardId);
+        const incoming = await incomingReview(this.events, this.config.project, cardId);
         if (incoming === undefined) {
             failures.push('nothing to challenge: the most recent review event for this card is not a stage.passed result with verdict "revise"');
             return { passed: false, failures, changedPaths: reviewOutcome.changedPaths };
@@ -189,33 +189,38 @@ export class ChallengeVerifier implements StageVerifier {
             reportRejected: failures.length > 0 && !codeFailure,
         };
     }
-
-    /**
-     * The blocker findings and full criteria list from the most recent `review`-stage *outcome* event
-     * — `transition.written` rows sharing `stage: 'review'` are skipped, see the class doc comment —
-     * if, and only if, that event is `stage.passed` with a `verdict: 'revise'` result. `undefined`
-     * covers every other case (no review event, `stage.failed`, unparseable `payload.result`, or
-     * `verdict: 'pass'`) uniformly: the caller turns any of them into the same "nothing to challenge"
-     * failure. `criteria` is returned exactly as review reported it, including empty for a plan with no
-     * acceptance criteria bullets, so the caller can tell "nothing to carry forward" from "review
-     * reported some".
-     */
-    private async incomingReview(cardId: string): Promise<{ blockers: ReviewFinding[]; criteria: ReviewCriterion[] } | undefined> {
-        const rows = await this.events.tail(this.config.project, cardId);
-        for (let i = rows.length - 1; i >= 0; i--) {
-            const row = rows[i]!;
-            // This step runs in the review lane, so its own tool calls and earlier reports carry that
-            // stage too. Only the lane's own outcome is what is being challenged.
-            if (row.stage !== 'review' || (row.payload as { step?: unknown }).step !== undefined) continue;
-            if (row.type !== 'stage.passed' && row.type !== 'stage.failed') continue;
-            if (row.type !== 'stage.passed') return undefined;
-            const parsed = ReviewResultSchema.safeParse((row.payload as { result?: unknown }).result);
-            if (!parsed.success || parsed.data.verdict !== 'revise') return undefined;
-            return {
-                blockers: parsed.data.findings.filter(finding => finding.severity === 'blocker'),
-                criteria: parsed.data.criteria,
-            };
-        }
-        return undefined;
-    }
 }
+
+/**
+ * The blocker findings and full criteria list from the most recent `review`-stage *outcome* event
+ * — `transition.written` rows sharing `stage: 'review'` are skipped, see `ChallengeVerifier`'s doc
+ * comment — if, and only if, that event is `stage.passed` with a `verdict: 'revise'` result. `undefined`
+ * covers every other case (no review event, `stage.failed`, unparseable `payload.result`, or
+ * `verdict: 'pass'`) uniformly: the caller turns any of them into the same "nothing to challenge"
+ * failure. `criteria` is returned exactly as review reported it, including empty for a plan with no
+ * acceptance criteria bullets, so the caller can tell "nothing to carry forward" from "review
+ * reported some".
+ */
+export const incomingReview = async (
+    events: Pick<EventLog, 'tail'>,
+    project: string,
+    cardId: string,
+): Promise<{ findings: ReviewFinding[]; blockers: ReviewFinding[]; criteria: ReviewCriterion[] } | undefined> => {
+    const rows = await events.tail(project, cardId);
+    for (let i = rows.length - 1; i >= 0; i--) {
+        const row = rows[i]!;
+        // This step runs in the review lane, so its own tool calls and earlier reports carry that
+        // stage too. Only the lane's own outcome is what is being challenged.
+        if (row.stage !== 'review' || (row.payload as { step?: unknown }).step !== undefined) continue;
+        if (row.type !== 'stage.passed' && row.type !== 'stage.failed') continue;
+        if (row.type !== 'stage.passed') return undefined;
+        const parsed = ReviewResultSchema.safeParse((row.payload as { result?: unknown }).result);
+        if (!parsed.success || parsed.data.verdict !== 'revise') return undefined;
+        return {
+            findings: parsed.data.findings,
+            blockers: parsed.data.findings.filter(finding => finding.severity === 'blocker'),
+            criteria: parsed.data.criteria,
+        };
+    }
+    return undefined;
+};

@@ -1,13 +1,15 @@
 import { dirname, join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
-import { expectedSkippedTests } from '#modules/board/card.js';
+import { expectedAssertionDrop, expectedSkippedTests } from '#modules/board/card.js';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
-import { pnpmStoreLock, runConfiguredCommand, type CommandFailure } from './run.command.js';
+import { assertionDelta, isAssertionTestFile, type AssertionDelta, type LocatedAssertion } from './assertion.delta.js';
+import { withBaselineWorktree } from './baseline.worktree.js';
+import { runConfiguredCommand, type CommandFailure } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
-import { checkFormat, type StageVerifier, type VerificationInput, type VerificationOutcome } from './stage.verifier.js';
+import { checkFormat, checkSecrets, type StageVerifier, type VerificationInput, type VerificationOutcome } from './stage.verifier.js';
 import { archiveTestReport } from './test.report.archive.js';
 import { parseTestReport, type FailingTest, type TestCounts, type TestReport } from './test.report.js';
 
@@ -60,6 +62,47 @@ export const checkCounts = (counts: TestCounts, baseline: { total: number; skipp
             allowedSkipRise > 0
                 ? `the skipped-test count rose from ${baseline.skipped} to ${counts.skipped}, more than the ${allowedSkipRise} this plan declares`
                 : `the skipped-test count rose from ${baseline.skipped} to ${counts.skipped}: tests were skipped rather than fixed`,
+        );
+    }
+    return failures;
+};
+
+/** An assertion can be a whole object literal, and the attempt record keeps 200 characters of a line. */
+const MAX_ASSERTION_CHARS = 80;
+
+const describeAssertion = ({ text }: LocatedAssertion): string =>
+    text.length > MAX_ASSERTION_CHARS ? `${text.slice(0, MAX_ASSERTION_CHARS)}…` : text;
+
+/**
+ * Judge what a card did to its assertions: a net drop, or a new tautology. `allowedDrop` is a plan's
+ * declared ceiling (`expectedAssertionDrop`), and both spend it, since a tautology is an assertion
+ * that stopped asserting. So one assertion replaced by `expect(true).toBe(true)` uses one.
+ *
+ * Each failure opens with the file and the assertion. A retried stage keeps only the first line of a
+ * failure, cut at 200 characters (`append.attempts.ts`), so that is all it learns from this. How to
+ * declare a drop is left to the second line, because it is for whoever reads the board: the fix a
+ * retry should reach for is restoring the assertion.
+ */
+export const checkAssertionDelta = (delta: AssertionDelta, allowedDrop = 0): string[] => {
+    const drop = Math.max(0, delta.baseCount - delta.currentCount);
+    if (drop + delta.newTautologies.length <= allowedDrop) return [];
+
+    const overDeclared = allowedDrop > 0 ? `, more than the ${allowedDrop} this plan declares` : '';
+    const declare = "A plan Constraint `Expected assertion drop: N (reason)` allows a deliberate change; a stage's caveats do not.";
+    const failures: string[] = [];
+
+    const lost = delta.lost[0];
+    if (drop > 0 && lost) {
+        failures.push(
+            `${lost.path}:${lost.line} lost ${describeAssertion(lost)}: assertions fell from ${delta.baseCount} to ${delta.currentCount} across this card${overDeclared}\n${declare}`,
+        );
+    }
+
+    const [tautology, ...others] = delta.newTautologies;
+    if (tautology) {
+        const more = others.length > 0 ? ` and ${others.length} more` : '';
+        failures.push(
+            `${tautology.path}:${tautology.line} adds ${describeAssertion(tautology)}, which cannot fail${more}${overDeclared}\n${declare}`,
         );
     }
     return failures;
@@ -159,8 +202,8 @@ export const baselineRefusal = (testPaths: string[]): string =>
 
 /**
  * The testing stage's exit condition: the suite is green, the test count has not dropped, no new
- * tests were skipped, and — the baseline check — at least one new test fails against the pre-change
- * tree.
+ * tests were skipped, existing tests were not weakened, and — the baseline check — at least one new
+ * test fails against the pre-change tree.
  *
  * The first three are compared against counts from a second worktree cut from the card worktree's
  * own base, rather than from config, so "pre-change" always means what the card actually branched
@@ -178,7 +221,9 @@ export class TestingVerifier implements StageVerifier {
     ) {}
 
     async verify({ worktree, stage, cardId, card }: VerificationInput): Promise<VerificationOutcome> {
-        const failures: string[] = [];
+        // First, so that it is the failure an operator reads: it is the one no retry can settle.
+        const secrets = await checkSecrets(this.worktrees, worktree, card);
+        const failures: string[] = [...secrets.failures];
         const changedPaths = await this.worktrees.changedPaths(worktree);
 
         const startedAt = Date.now();
@@ -201,6 +246,14 @@ export class TestingVerifier implements StageVerifier {
         // by-hand repo-wide check ever ran prettier against a testing-stage diff.
         failures.push(...(await checkFormat(worktree, stage)));
 
+        // Apart from the baseline gate below: this reads two sides of some files and runs nothing, so
+        // whatever stops a baseline run from completing does not stop this.
+        if (stage.assertionCheck) {
+            failures.push(...(await this.checkAssertions(worktree, expectedAssertionDrop(card) ?? 0)));
+        } else {
+            this.logger.warn('assertionCheck disabled: weakened tests were not looked for');
+        }
+
         if (!changedPaths.some(path => TEST_FILE_PATTERN.test(path))) {
             failures.push('the diff contains no file matching *.test.ts: the testing stage added no tests');
         }
@@ -216,7 +269,12 @@ export class TestingVerifier implements StageVerifier {
             this.logger.warn('baselineCheck disabled: the baseline and test-count checks were skipped, not passed');
         }
 
-        return { passed: failures.length === 0, failures, changedPaths };
+        return {
+            passed: failures.length === 0,
+            failures,
+            changedPaths,
+            ...(secrets.needsHumanReason ? { needsHumanReason: secrets.needsHumanReason } : {}),
+        };
     }
 
     /**
@@ -369,6 +427,30 @@ export class TestingVerifier implements StageVerifier {
     }
 
     /**
+     * Compare the card's test files with their base, so that `expect(true).toBe(true)` in place of a
+     * real assertion is caught even though the test count and a green suite both say nothing changed.
+     *
+     * Reads through `WorktreeManager`, whose diff does not pair renames, so a renamed and gutted test
+     * file is one loss and not a new file with nothing to compare. A check that could not read its
+     * inputs fails rather than passing, as `readReport` does.
+     */
+    private async checkAssertions(worktree: Worktree, allowedDrop: number): Promise<string[]> {
+        try {
+            const changes = (await this.worktrees.pathChanges(worktree)).filter(change => isAssertionTestFile(change.path));
+            const files = await Promise.all(
+                changes.map(async ({ path, status }) => ({
+                    path,
+                    base: status === 'added' ? undefined : await this.worktrees.readAtBase(worktree, path),
+                    current: status === 'deleted' ? undefined : await this.worktrees.readCurrent(worktree, path),
+                })),
+            );
+            return checkAssertionDelta(assertionDelta(files), allowedDrop);
+        } catch (err) {
+            return [`the assertion check could not read this card's test files: ${(err as Error).message}`];
+        }
+    }
+
+    /**
      * The fourth check: cut a worktree from the card worktree's own base, run the suite there for
      * real baseline counts, then copy this card's new test files in and run again. If none of them
      * fail against the pre-change tree, they proved nothing about this card's change.
@@ -405,78 +487,58 @@ export class TestingVerifier implements StageVerifier {
         if (testPaths.length === 0) return [];
 
         const failures: string[] = [];
-        const baselineId = `${cardId}-baseline`;
-        // On the card's own host when it has one: the test files are copied across from the card's
-        // worktree, and both trees have to be on the same disk for that.
-        const baseline = await this.worktrees.create(baselineId, `card/${cardId}-baseline`, worktree.baseSha, worktree.placement);
-
-        try {
-            if (stage.setupCommand) {
-                // The third install path, and the one card 0081 missed while fixing itself: this is
-                // a second `pnpm install`, into the same shared store, running while another card's
-                // setup may be installing too. 0081 wrapped the dispatcher's setup and the agent's
-                // bash `pnpm install` but not this, and was then poisoned when a redelivered attempt's
-                // setup raced the baseline install of the attempt still running. Same lock, so all
-                // three paths serialize against each other rather than two of three.
-                const setupCommand = stage.setupCommand;
-                const setup = await pnpmStoreLock.run(
-                    `${cardId} testing baseline setup`,
-                    message => this.logger.info(message),
-                    () => runConfiguredCommand(baseline.path, setupCommand, undefined, undefined, worktreeHost(baseline)),
-                );
-                if (setup) {
-                    failures.push(`the baseline worktree could not be set up: ${setup.reason}`);
+        return withBaselineWorktree<string[]>(
+            this.worktrees,
+            this.logger,
+            { id: `${cardId}-baseline`, source: worktree, setupCommand: stage.setupCommand, setupLabel: `${cardId} testing baseline setup` },
+            reason => [`the baseline worktree could not be set up: ${reason}`],
+            async baseline => {
+                if (!stage.testCommand) {
+                    failures.push('no testCommand configured: the baseline check could not run');
                     return failures;
                 }
-            }
 
-            if (!stage.testCommand) {
-                failures.push('no testCommand configured: the baseline check could not run');
+                // A failing baseline suite is not this check's business — the pre-change tree's own
+                // health is unrelated to whether this card's tests exercise its change. parseTestReport
+                // does not care whether tests failed, only whether the report is readable, so a failing
+                // suite reaches here as ordinary counts rather than a pushed failure.
+                const baselineStartedAt = Date.now();
+                await runConfiguredCommand(baseline.path, stage.testCommand, undefined, undefined, worktreeHost(baseline));
+                const baselineCounts = await this.readReport(baseline, stage.testReportPath, failures, baselineStartedAt);
+                if (counts && baselineCounts) {
+                    failures.push(...checkCounts(counts, baselineCounts, allowedSkipRise));
+                }
+
+                for (const path of testPaths) {
+                    const dest = join(baseline.path, path);
+                    await worktreeHost(baseline).mkdir(dirname(dest));
+                    await worktreeHost(baseline).copyFile(join(worktree.path, path), dest);
+                }
+
+                // Delete the first run's report before the second. Otherwise a run that dies before
+                // writing one leaves the full-suite report in place, and the check reads its counts as
+                // though they described the copied tests. It would err towards failing rather than
+                // passing, but on evidence about a different set of tests entirely.
+                if (stage.testReportPath) await worktreeHost(baseline).removeTree(join(baseline.path, stage.testReportPath));
+
+                const run = await runConfiguredCommand(
+                    baseline.path,
+                    `${stage.testCommand} ${testPaths.join(' ')}`,
+                    undefined,
+                    undefined,
+                    worktreeHost(baseline),
+                );
+                // Unlike the first run, an unreadable report here is expected in the common case — a new
+                // test that cannot even import produces no report at all — so it is not pushed as a
+                // failure; the exit status carries the proof instead.
+                const newCounts = await this.readReport(baseline, stage.testReportPath, []);
+
+                if (!baselineProvesChange(newCounts, !!run)) {
+                    failures.push(baselineRefusal(testPaths));
+                }
+
                 return failures;
-            }
-
-            // A failing baseline suite is not this check's business — the pre-change tree's own
-            // health is unrelated to whether this card's tests exercise its change. parseTestReport
-            // does not care whether tests failed, only whether the report is readable, so a failing
-            // suite reaches here as ordinary counts rather than a pushed failure.
-            const baselineStartedAt = Date.now();
-            await runConfiguredCommand(baseline.path, stage.testCommand, undefined, undefined, worktreeHost(baseline));
-            const baselineCounts = await this.readReport(baseline, stage.testReportPath, failures, baselineStartedAt);
-            if (counts && baselineCounts) {
-                failures.push(...checkCounts(counts, baselineCounts, allowedSkipRise));
-            }
-
-            for (const path of testPaths) {
-                const dest = join(baseline.path, path);
-                await worktreeHost(baseline).mkdir(dirname(dest));
-                await worktreeHost(baseline).copyFile(join(worktree.path, path), dest);
-            }
-
-            // Delete the first run's report before the second. Otherwise a run that dies before
-            // writing one leaves the full-suite report in place, and the check reads its counts as
-            // though they described the copied tests. It would err towards failing rather than
-            // passing, but on evidence about a different set of tests entirely.
-            if (stage.testReportPath) await worktreeHost(baseline).removeTree(join(baseline.path, stage.testReportPath));
-
-            const run = await runConfiguredCommand(
-                baseline.path,
-                `${stage.testCommand} ${testPaths.join(' ')}`,
-                undefined,
-                undefined,
-                worktreeHost(baseline),
-            );
-            // Unlike the first run, an unreadable report here is expected in the common case — a new
-            // test that cannot even import produces no report at all — so it is not pushed as a
-            // failure; the exit status carries the proof instead.
-            const newCounts = await this.readReport(baseline, stage.testReportPath, []);
-
-            if (!baselineProvesChange(newCounts, !!run)) {
-                failures.push(baselineRefusal(testPaths));
-            }
-
-            return failures;
-        } finally {
-            await this.worktrees.reclaim(baselineId, worktree.placement);
-        }
+            },
+        );
     }
 }

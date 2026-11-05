@@ -49,6 +49,32 @@ public static class BoardRules
             _ => null,
         };
 
+    /// <summary>What Merge would do on a `ready` card, in the web app's words, or none for any other card.</summary>
+    public static string? MergeStatusLine(MergeStatus? status)
+    {
+        if (status is null)
+        {
+            return null;
+        }
+
+        var target = status.Target ?? "the target";
+        var conflicts = string.Join(", ", status.Conflicts);
+        var moved = string.Join(", ", status.MovedUnder);
+        return status.State switch
+        {
+            MergeStatusState.Clean => $"Merges cleanly into {target}.",
+            MergeStatusState.Conflict => conflicts.Length == 0 ? $"Conflicts with {target}." : $"Conflicts with {target}: {conflicts}",
+            MergeStatusState.Rereview when conflicts.Length > 0 => $"Merge would send this back to review: {target} moved under {moved}. It also conflicts: {conflicts}",
+            MergeStatusState.Rereview => $"Merge would send this back to review: {target} moved under {moved}.",
+            MergeStatusState.Capped => $"Merge would stop and flag this for a human: {target} moved under {moved}, and it has used up its re-reviews.",
+            _ => $"Could not check the merge: {status.Reason ?? "no reason recorded"}",
+        };
+    }
+
+    /// <summary>Whether Merge would fail to land this, so the line reads as a warning.</summary>
+    public static bool MergeStatusWarns(MergeStatus? status) =>
+        status?.State is MergeStatusState.Conflict or MergeStatusState.Rereview or MergeStatusState.Capped;
+
     /// <summary>How a card ended, in words, or none for a card still on the board.</summary>
     public static string? Ended(CardSummary card)
     {

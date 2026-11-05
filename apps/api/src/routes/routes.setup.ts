@@ -36,10 +36,12 @@ import { FactorsRouter } from './factors.router.js';
 import { ContextRouter } from './context.router.js';
 import { HealthRouter } from './health.router.js';
 import { HostsRouter } from './hosts.router.js';
+import { EvalsRouter } from './evals.router.js';
 import { LearningsRouter } from './learnings.router.js';
 import { OnboardingRouter } from './onboarding.router.js';
 import { ProjectsRouter } from './projects.router.js';
 import { ReviewRouter } from './review.router.js';
+import { RulesRouter } from './rules.router.js';
 import { SettingsRouter } from './settings.router.js';
 import { StagesRouter } from './stages.router.js';
 
@@ -355,6 +357,7 @@ export const routers = (signal?: AbortSignal) => [
     EngineTokensRouter,
     StagesRouter,
     LearningsRouter,
+    RulesRouter,
     ChatRouter,
     OnboardingRouter,
     AuthRouter,
@@ -363,6 +366,7 @@ export const routers = (signal?: AbortSignal) => [
     DevicesRouter,
     CodeRouter,
     ReviewRouter,
+    EvalsRouter,
     AppsRouter,
     FeedRouter(signal),
     PlanStreamRouter(signal),

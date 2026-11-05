@@ -21,6 +21,29 @@ export type PlanSectionKey = (typeof PLAN_SECTION_KEYS)[number];
 
 export const sectionKey = (section: PlanSection): PlanSectionKey => section.toLowerCase().replace(/\s+/g, '-') as PlanSectionKey;
 
+/**
+ * The question a stage stopped to ask (`report_blocked`), kept on the card while it waits. The card
+ * also carries `needsHuman` with the question as its reason, so everything that holds a flagged card
+ * back holds this one back too.
+ */
+export interface CardBlocked {
+    category: 'decision' | 'access' | 'requirements' | 'environment' | 'other';
+    /** What the stage already tried or checked before asking. */
+    tried: string;
+    question: string;
+    /** Answers the stage thinks are likely. A person may answer something else. */
+    options?: string[];
+    /** The stage that asked. */
+    stage: string;
+    /** When it asked, as an ISO timestamp. */
+    askedAt: string;
+    /** Where the stopped run's uncommitted work is preserved, when it left any. */
+    patchPath?: string;
+}
+
+/** The `retries` key counting a stage's questions: apart from `maxKickbacks`, like `:resultDropped`. */
+export const blockedRetryKey = (stage: string): string => `${stage}:blocked`;
+
 export interface CardFrontmatter {
     id: string;
     title: string;
@@ -50,6 +73,8 @@ export interface CardFrontmatter {
     needsHuman?: boolean;
     /** What the runner or the operator said when they set `needsHuman`. */
     needsHumanReason?: string;
+    /** The question behind `needsHuman`, when a stage stopped to ask one. */
+    blocked?: CardBlocked;
     /**
      * The card this one was split out of, set once by `BoardWriteService.split`. Like `position`,
      * not part of what `write`/`writeWithEvent` persist: a piece's origin never changes.
@@ -79,7 +104,10 @@ export interface Card {
  * Split a card body on the plan-contract headings.
  *
  * Only the known headings start a section; any other `##` is left inside whichever section it falls
- * in, so a plan is free to use sub-structure without confusing the parser. Body-only and pure, so
+ * in, so a plan is free to use sub-structure without confusing the parser. A heading the runner
+ * appended ends the section and belongs to none: the runner appends at the end of the body, straight
+ * after whichever plan section came last, and a stage's write scope and its acceptance criteria are
+ * read from these sections. Body-only and pure, so
  * it belongs beside `filesInScope` rather than in the frontmatter parser — a card reconstructed
  * from a stored body needs it just as much as one read from a file.
  */
@@ -88,13 +116,18 @@ const planHeading = (line: string): PlanSection | undefined => {
     return heading?.[1] ? PLAN_SECTIONS.find(s => s.toLowerCase() === heading[1]!.toLowerCase()) : undefined;
 };
 
-/**
- * The headings the runner appends to a body (`append.findings.ts`, `append.attempts.ts`). `sectionsOf`
- * reads them as part of the plan section they follow; anything that rewrites a section must not.
- */
-const RUNNER_HEADINGS = ['## Review findings', '## Previous attempts'];
+/** The headings the runner appends to a body (`append.findings.ts`, `append.attempts.ts`, `append.answer.ts`). */
+const RUNNER_HEADINGS = ['## Review findings', '## Previous attempts', '## Operator answer'];
 
-const endsSection = (line: string): boolean => planHeading(line) !== undefined || RUNNER_HEADINGS.includes(line.trim());
+const runnerHeading = (line: string): boolean => RUNNER_HEADINGS.includes(line.trim());
+
+const endsSection = (line: string): boolean => planHeading(line) !== undefined || runnerHeading(line);
+
+/**
+ * Text the runner folds into a bullet, on one line. A stage or a person wrote it and it may run to
+ * several, and a line of its own could otherwise be read back as a heading of the plan.
+ */
+export const oneLine = (text: string): string => text.trim().replace(/\s*\n\s*/g, ' ');
 
 export const sectionsOf = (body: string): Partial<Record<PlanSection, string>> => {
     const sections: Partial<Record<PlanSection, string>> = {};
@@ -114,6 +147,11 @@ export const sectionsOf = (body: string): Partial<Record<PlanSection, string>> =
             current = matched;
             continue;
         }
+        if (runnerHeading(line)) {
+            flush();
+            current = undefined;
+            continue;
+        }
         if (current) buffer.push(line);
     }
     flush();
@@ -130,16 +168,6 @@ export const planGap = (body: string): string | undefined => {
     const missing = PLAN_SECTIONS.filter(section => !sections[section] || sections[section]!.trim().length === 0);
     if (missing.length > 0) return `draft is incomplete — empty section(s): ${missing.join(', ')}`;
     return filesInScope({ frontmatter: {} as CardFrontmatter, sections, body }).length === 0 ? 'draft has an empty "Files in scope"' : undefined;
-};
-
-/**
- * A section as `sectionsOf` read it, up to the first heading the runner appended: the text a person
- * wrote, and so the text `withSection` replaces and accepts back.
- */
-export const authoredText = (section: string): string => {
-    const lines = section.split('\n');
-    const end = lines.findIndex(line => RUNNER_HEADINGS.includes(line.trim()));
-    return end === -1 ? section : lines.slice(0, end).join('\n').trim();
 };
 
 /**
@@ -282,6 +310,53 @@ export const expectedSkippedTests = (card: Card): number | undefined => {
         return n > 0 ? n : undefined;
     }
     return undefined;
+};
+
+/** An `Expected assertion drop: N (reason)` bullet, matched case-insensitively. The reason is required. */
+const EXPECTED_ASSERTION_DROP = /^Expected assertion drop:\s*(\d+)\s*\(\s*[^\s)]/i;
+
+/**
+ * The plan's declared ceiling on how many assertions a card may lose, from a `Constraints` bullet:
+ * `Expected assertion drop: N (reason)`. No declaration, `0`, anything that is not a number or a
+ * missing reason is `undefined`, which callers treat as no allowance. More than one declaration uses
+ * the first.
+ *
+ * Unlike `expectedSkippedTests` the reason is not optional, because the reason is what a reviewer
+ * weighs. It comes from the plan and nowhere else: the stage's own `caveats` are the agent excusing
+ * its own work, and this check exists because that agent cannot be taken at its word.
+ */
+export const expectedAssertionDrop = (card: Card): number | undefined => {
+    const raw = card.sections['Constraints'];
+    if (!raw) return undefined;
+
+    for (const bullet of splitBullets(raw)) {
+        const match = EXPECTED_ASSERTION_DROP.exec(bullet);
+        if (!match) continue;
+        const n = Number(match[1]);
+        return n > 0 ? n : undefined;
+    }
+    return undefined;
+};
+
+/** An `Expected secret: path (reason)` bullet, matched case-insensitively. The reason is required. */
+const EXPECTED_SECRET = /^Expected secret:\s*(\S+)\s+\(\s*[^\s)]/i;
+
+/**
+ * The files a plan says may hold something shaped like a credential, from `Constraints` bullets:
+ * `Expected secret: path (reason)`, one bullet per file, an exact path with no spaces. A bullet with no
+ * reason does not count.
+ *
+ * A path rather than `expectedAssertionDrop`'s count, because a count could be spent on a real key in
+ * any file, where a path can only excuse the fixture it names. Like that one it comes from the plan and
+ * nowhere else, since the stage's own `caveats` are the agent excusing its own work.
+ */
+export const expectedSecretPaths = (card: Card): string[] => {
+    const raw = card.sections['Constraints'];
+    if (!raw) return [];
+    return splitBullets(raw).flatMap(bullet => {
+        const path = EXPECTED_SECRET.exec(bullet)?.[1];
+        return path ? [path] : [];
+    });
 };
 
 export const acceptanceCriteria = (card: Card): { id: string; text: string }[] => {

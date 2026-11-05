@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Badge, Box, Button, Group, Paper, SimpleGrid, Stack, Table, Text, Title, Tooltip } from '@mantine/core';
 import { DateTime } from 'luxon';
-import type { ProjectDayStats, ProjectStats as Stats } from '@wilson/sdk';
+import type { ProjectDayStats, ProjectGateStats, ProjectStats as Stats } from '@wilson/sdk';
 import { TONE } from '#src/components/Board.js';
 import { AnchorLink } from '#src/lib/router-link.js';
-import { axisTop, compactTokens, percentOf } from '#src/lib/stats.js';
+import { axisTop, compactTokens, passedOutright, percentOf, revisedCount } from '#src/lib/stats.js';
 
 const CHART_HEIGHT = 160;
 
@@ -144,7 +144,7 @@ function DailyTable({ days }: { days: ProjectDayStats[] }) {
     );
 }
 
-function StagesTable({ stages }: { stages: Stats['stages'] }) {
+function StagesTable({ stages, revised }: { stages: Stats['stages']; revised: ProjectGateStats['revised'] }) {
     return (
         <Table.ScrollContainer minWidth={720}>
             <Table>
@@ -170,7 +170,9 @@ function StagesTable({ stages }: { stages: Stats['stages'] }) {
                             </Table.Td>
                             <Table.Td>{stage.attempts}</Table.Td>
                             <Table.Td>{stage.cards === 0 ? '–' : (stage.attempts / stage.cards).toFixed(1)}</Table.Td>
-                            <Table.Td>{percent(percentOf(stage.passed, stage.attempts))}</Table.Td>
+                            <Table.Td>
+                                {percent(percentOf(passedOutright(stage.passed, revisedCount(revised, stage.stage)), stage.attempts))}
+                            </Table.Td>
                             <Table.Td>{stage.interrupted}</Table.Td>
                             <Table.Td>{stage.inputTokens.toLocaleString()}</Table.Td>
                             <Table.Td>{stage.cachedInputTokens.toLocaleString()}</Table.Td>
@@ -253,12 +255,148 @@ function TopCardsTable({ project, cards }: { project: string; cards: Stats['topC
     );
 }
 
+const FAILURE_LABEL: Record<ProjectGateStats['failures'][number]['failureClass'], string> = {
+    verifier: 'A verifier rejected the work',
+    reportRejected: 'Its report was rejected',
+    schemaInvalid: 'Its result did not parse',
+    noReport: 'It never reported',
+    resultDropped: 'Its result was lost',
+    budget: 'Ran out of budget',
+    engine: 'The engine failed',
+    loop: 'Stopped in a loop',
+    error: 'The stage threw',
+};
+
+const TOUCHPOINT_LABEL: Record<ProjectGateStats['touchpoints'][number]['cause'], string> = {
+    question: 'Asked a question',
+    kickbackLimit: 'Out of retries',
+    overBudget: 'Over its budget',
+    contextOverflow: 'Prompt too large',
+    rebaseConflict: 'Rebase conflict',
+    poisoned: 'Poisoned',
+    dead: 'Job died',
+    sourceClosed: 'Ticket closed',
+};
+
+const capitalized = (text: string): string => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+
+const kickbackLabel = ({ reason, step }: ProjectGateStats['kickbacks'][number]): string => {
+    if (reason === 'verifier') return step ? `${capitalized(step)} rejected it` : 'A verifier rejected it';
+    return step ? `${capitalized(step)} upheld a revise` : 'Asked for changes';
+};
+
+/** A count, saying how much of it is an older event placed by matching its text. */
+const countWithMatched = ({ count, matched }: { count: number; matched: number }): string =>
+    matched > 0 ? `${count} (${matched} matched)` : `${count}`;
+
+function GateTable({ head, rows }: { head: string[]; rows: { key: string; cells: ReactNode[] }[] }) {
+    return (
+        <Table>
+            <Table.Thead>
+                <Table.Tr>
+                    {head.map(label => (
+                        <Table.Th key={label}>{label}</Table.Th>
+                    ))}
+                </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+                {rows.map(row => (
+                    <Table.Tr key={row.key}>
+                        {row.cells.map((cell, index) => (
+                            <Table.Td key={index}>{cell}</Table.Td>
+                        ))}
+                    </Table.Tr>
+                ))}
+            </Table.Tbody>
+        </Table>
+    );
+}
+
+/**
+ * What the gates caught, and how often a person was pulled in before a card reached them. A kickback is
+ * a judgment about the work. Every failed attempt is under "why attempts failed", most of which retry in
+ * place and judge nothing, so the two overlap only at a verifier's rejection.
+ */
+function GatesPanel({ gates }: { gates: ProjectGateStats }) {
+    const kickbacks = gates.kickbacks.reduce((sum, row) => sum + row.count, 0);
+    const pulledIn = gates.touchpoints.reduce((sum, row) => sum + row.count, 0);
+    const { upheld, overturned } = gates.challenge;
+
+    return (
+        <Stack gap="xs">
+            <Title order={5} fw={500}>
+                Gates
+            </Title>
+            <SimpleGrid cols={{ base: 2, md: 4 }}>
+                <Tile
+                    label="First pass"
+                    value={percent(percentOf(gates.firstPass.firstPass, gates.firstPass.reached))}
+                    detail={`${gates.firstPass.firstPass} of ${gates.firstPass.reached} cards reaching ready, no retries spent`}
+                />
+                <Tile
+                    label="Kickbacks"
+                    value={kickbacks.toLocaleString()}
+                    detail={upheld + overturned > 0 ? `challenge upheld ${upheld}, overturned ${overturned}` : undefined}
+                />
+                <Tile
+                    label="People pulled in"
+                    value={pulledIn.toLocaleString()}
+                    detail={`${gates.questions.asked} ${gates.questions.asked === 1 ? 'question' : 'questions'}, ${gates.questions.answered} answered`}
+                />
+                <Tile label="Loop stops" value={gates.loopStops.toLocaleString()} />
+            </SimpleGrid>
+            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg" mt="xs">
+                {gates.kickbacks.length > 0 && (
+                    <GateTable
+                        head={['Kickback', 'Stage', 'Count']}
+                        rows={gates.kickbacks.map(row => ({
+                            key: `${row.stage}:${row.step ?? ''}:${row.reason}`,
+                            cells: [
+                                kickbackLabel(row),
+                                <Badge key="stage" size="sm" color={TONE[row.stage] ?? 'gray'} variant="light">
+                                    {row.stage}
+                                </Badge>,
+                                countWithMatched(row),
+                            ],
+                        }))}
+                    />
+                )}
+                {gates.failures.length > 0 && (
+                    <GateTable
+                        head={['Why attempts failed', 'Count']}
+                        rows={gates.failures.map(row => ({ key: row.failureClass, cells: [FAILURE_LABEL[row.failureClass], countWithMatched(row)] }))}
+                    />
+                )}
+                {gates.touchpoints.length > 0 && (
+                    <GateTable
+                        head={['Why a person was pulled in', 'Count']}
+                        rows={gates.touchpoints.map(row => ({ key: row.cause, cells: [TOUCHPOINT_LABEL[row.cause], row.count] }))}
+                    />
+                )}
+                {gates.rules.length > 0 && (
+                    <GateTable
+                        head={['Rule', 'Failed', 'No verdict']}
+                        rows={gates.rules.map(row => ({ key: row.rule, cells: [row.statement, row.failed, row.unavailable] }))}
+                    />
+                )}
+            </SimpleGrid>
+            {gates.matched > 0 && (
+                <Text size="xs" c="dimmed">
+                    {gates.matched} older failed attempts do not say why they failed, so they are placed by matching their text. Those that match
+                    nothing count as a verifier's rejection.
+                </Text>
+            )}
+        </Stack>
+    );
+}
+
 /**
  * What one project spent and how its stages went over a window. Tokens only, for the reason
  * `CardUsage` gives. Planning and review turns have their own table and are in no other figure here,
- * so the stage figures keep meaning what a budget or the daily ceiling counts.
+ * so the stage figures keep meaning what stages spent. They are raw tokens, where an input budget
+ * weights them by cost, so a stage's figure here is not what its cap was compared against.
  */
-export function ProjectStats({ project, stats }: { project: string; stats: Stats }) {
+export function ProjectStats({ project, stats, gates }: { project: string; stats: Stats; gates: ProjectGateStats }) {
     const [showDays, setShowDays] = useState(false);
     const { total } = stats;
     const conversationOutput = stats.conversations.reduce((sum, conversation) => sum + conversation.outputTokens, 0);
@@ -274,6 +412,8 @@ export function ProjectStats({ project, stats }: { project: string; stats: Stats
     }
 
     const cached = percentOf(total.cachedInputTokens, total.inputTokens);
+    const revised = revisedCount(gates.revised);
+    const passed = passedOutright(total.passed, revised);
 
     return (
         <Stack gap="lg">
@@ -286,8 +426,8 @@ export function ProjectStats({ project, stats }: { project: string; stats: Stats
                 <Tile label="Input tokens" value={compactTokens(total.inputTokens)} detail={`${percent(cached)} cached`} />
                 <Tile
                     label="Attempts passed"
-                    value={percent(percentOf(total.passed, total.attempts))}
-                    detail={`${total.passed} of ${total.attempts} attempts`}
+                    value={percent(percentOf(passed, total.attempts))}
+                    detail={`${passed} of ${total.attempts} attempts${revised > 0 ? `, ${revised} asked for changes` : ''}`}
                 />
                 <Tile
                     label="Cards"
@@ -297,6 +437,8 @@ export function ProjectStats({ project, stats }: { project: string; stats: Stats
                     }
                 />
             </SimpleGrid>
+
+            <GatesPanel gates={gates} />
 
             <Stack gap="xs">
                 <Group justify="space-between">
@@ -317,7 +459,7 @@ export function ProjectStats({ project, stats }: { project: string; stats: Stats
                 <Title order={5} fw={500}>
                     By stage
                 </Title>
-                <StagesTable stages={stats.stages} />
+                <StagesTable stages={stats.stages} revised={gates.revised} />
             </Stack>
 
             {hasConversations && (

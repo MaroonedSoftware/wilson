@@ -4,6 +4,7 @@ import type { PoolClient } from 'pg';
 import { DateTime } from 'luxon';
 import type { Logger } from '@maroonedsoftware/logger';
 import { KyselyPool } from '@maroonedsoftware/kysely';
+import type { CardEventType } from '#modules/events/card.event.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { CARD_FEED_CHANNEL } from '#modules/feed/card.feed.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
@@ -285,7 +286,7 @@ describe('EventLog.usageByStage', () => {
         await db.destroy();
     });
 
-    it('counts cached tokens in a card’s total, and takes older events as they are', async () => {
+    it('weights a card’s total by cost, counting an older event’s cached figure as reads', async () => {
         const project = uniqueProject();
         const eventLog = new EventLog(db, silentLogger);
         const append = (usage: Record<string, number>) =>
@@ -293,8 +294,9 @@ describe('EventLog.usageByStage', () => {
 
         await append({ inputTokens: 100 });
         await append({ inputTokens: 6, cachedInputTokens: 1000 });
+        await append({ inputTokens: 4, cachedInputTokens: 300, cacheWriteInputTokens: 200 });
 
-        expect(await eventLog.totalInputTokens(project, '0001')).toBe(1106);
+        expect(await eventLog.budgetedInputTokens(project, '0001')).toBe(100 + 6 + 100 + 4 + 10 + 250);
     });
 
     it('counts cached tokens in a card’s usage, and takes older events as they are', async () => {
@@ -416,7 +418,8 @@ describe('EventLog.usageByStage', () => {
 
         expect(usage.stages).toEqual([{ stage: 'implementing', attempts: 1, inputTokens: 130, cachedInputTokens: 100, outputTokens: 12 }]);
         expect(usage.total).toEqual({ attempts: 1, inputTokens: 130, cachedInputTokens: 100, outputTokens: 12 });
-        expect(usage.total.inputTokens).toBe(await eventLog.totalInputTokens(project, cardId));
+        // Raw here, weighted against the budget: 30 fresh plus 100 cached read at 0.1.
+        expect(await eventLog.budgetedInputTokens(project, cardId)).toBe(40);
     });
 
     it('reports a stage that has only been interrupted, with its tokens and no attempts', async () => {
@@ -668,7 +671,7 @@ describe('EventLog.projectStats', () => {
             { kind: 'review', turns: 2, cards: 1, inputTokens: 33, cachedInputTokens: 30, outputTokens: 11 },
         ]);
         expect(stats.total.outputTokens).toBe(0);
-        expect(await eventLog.totalInputTokens(project, '0001')).toBe(0);
+        expect(await eventLog.budgetedInputTokens(project, '0001')).toBe(0);
         expect(await eventLog.outputTokensSince(project, since)).toBe(0);
     });
 
@@ -696,6 +699,88 @@ describe('EventLog.projectStats', () => {
  * with itself about. Each test uses its own `uniqueProject()`, so no two tests' rows can be summed
  * together by accident.
  */
+describe('EventLog.gateStats', () => {
+    let db: Kysely<DB>;
+    const since = DateTime.utc(2026, 1, 13);
+    const until = DateTime.utc(2026, 1, 15);
+
+    beforeAll(() => {
+        db = testDb();
+    });
+
+    afterAll(async () => {
+        await db.destroy();
+    });
+
+    it('reads the fields it folds out of real payloads, within the window and the project', async () => {
+        const eventLog = new EventLog(db, silentLogger);
+        const project = uniqueProject();
+        const append = (type: CardEventType, stage: string, payload: Record<string, unknown>) =>
+            eventLog.append({ project, cardId: '0001', stage, type, payload });
+
+        await append('stage.passed', 'review', { step: 'challenge', result: { verdict: 'revise' } });
+        await append('transition.written', 'review', {
+            from: 'review',
+            to: 'implementing',
+            by: 'runner',
+            retries: { review: 1 },
+            failureClass: 'revise',
+        });
+        await append('stage.failed', 'testing', { failures: ['the engine failed: boom', 'no tests'], usage: {} });
+        await append('stage.failed', 'testing', { failures: ['stopped'], loopStopped: true, failureClass: 'loop' });
+        await append('rule.verdicts', 'review', {
+            verdicts: [
+                { rule: 'a', statement: 'A', verdict: 'fail', reused: false },
+                { rule: 'a', statement: 'A', verdict: 'fail', reused: true },
+                { rule: 'b', statement: 'B', verdict: 'unavailable', reused: false },
+                { rule: 'c', statement: 'C', verdict: 'pass', reused: false },
+            ],
+        });
+        await db
+            .updateTable('wilson.cardEvents')
+            .set({ createdAt: DateTime.utc(2026, 1, 14) })
+            .where('project', '=', project)
+            .execute();
+        await eventLog.append({ project, cardId: '0002', stage: 'review', type: 'stage.failed', payload: { failures: ['too late'] } });
+        await eventLog.append({ project: uniqueProject(), cardId: '0001', stage: 'review', type: 'stage.blocked', payload: {} });
+
+        const figures = await eventLog.gateStats(project, since, until);
+
+        expect(figures).toMatchObject({
+            since,
+            until,
+            kickbacks: [{ stage: 'review', step: 'challenge', reason: 'revise', count: 1, matched: 0 }],
+            challenge: { upheld: 1, overturned: 0 },
+            loopStops: 1,
+            matched: 1,
+            questions: { asked: 0, answered: 0 },
+            rules: [
+                { rule: 'a', statement: 'A', failed: 1, unavailable: 0 },
+                { rule: 'b', statement: 'B', failed: 0, unavailable: 1 },
+            ],
+        });
+        expect(figures.failures).toEqual(
+            expect.arrayContaining([
+                { failureClass: 'engine', count: 1, matched: 1 },
+                { failureClass: 'loop', count: 1, matched: 0 },
+            ]),
+        );
+    });
+
+    it('reads a project with no history as empty', async () => {
+        const figures = await new EventLog(db, silentLogger).gateStats(uniqueProject(), since, until);
+
+        expect(figures).toMatchObject({
+            kickbacks: [],
+            failures: [],
+            rules: [],
+            touchpoints: [],
+            loopStops: 0,
+            firstPass: { reached: 0, firstPass: 0 },
+        });
+    });
+});
+
 describe('EventLog.outputTokensSince', () => {
     let db: Kysely<DB>;
 

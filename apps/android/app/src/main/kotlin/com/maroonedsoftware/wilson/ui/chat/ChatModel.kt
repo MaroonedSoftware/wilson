@@ -8,6 +8,7 @@ import com.maroonedsoftware.wilson.auth.liveStream
 import com.maroonedsoftware.wilson.net.HttpClients
 import com.maroonedsoftware.wilson.net.Patience
 import com.maroonedsoftware.wilson.sdk.models.ChatMessage
+import com.maroonedsoftware.wilson.sdk.models.ChatMessageRole
 import com.maroonedsoftware.wilson.sdk.models.ChatPendingAction
 import com.maroonedsoftware.wilson.sdk.models.ChatPendingActionStatus
 import com.maroonedsoftware.wilson.sdk.models.ChatThread
@@ -38,7 +39,6 @@ internal fun draftWithoutSuggestions(draft: String): String {
     return draft
 }
 
-/** Whether a proposed action can still be answered. An expired one stays on record as it was. */
 /** What a message says about the images it carries, since only the desktop app draws them. Null when it carries none. */
 internal fun imagesCaption(count: Int): String? = when (count) {
     0 -> null
@@ -46,7 +46,52 @@ internal fun imagesCaption(count: Int): String? = when (count) {
     else -> "$count images"
 }
 
+/** Whether a proposed action can still be answered. An expired one stays on record as it was. */
 internal fun isAwaiting(action: ChatPendingAction, now: Instant): Boolean = action.status == ChatPendingActionStatus.PENDING && action.expiresAt > now
+
+/** How an action went, for its card. Null while it still waits on the person; past its expiry the server would refuse it, so it reads as expired though it is stored as pending. */
+internal fun actionOutcome(action: ChatPendingAction, now: Instant): String? = when (action.status) {
+    ChatPendingActionStatus.PENDING -> if (isAwaiting(action, now)) null else "expired"
+    ChatPendingActionStatus.RUNNING -> "running"
+    ChatPendingActionStatus.DONE -> "done"
+    ChatPendingActionStatus.FAILED -> "failed"
+    ChatPendingActionStatus.DECLINED -> "declined"
+    ChatPendingActionStatus.UNKNOWN -> "unknown"
+}
+
+/** One thing in a conversation, in the order [timeline] puts them. */
+internal sealed interface ChatEntry {
+    val key: String
+
+    data class Said(val message: ChatMessage) : ChatEntry {
+        override val key get() = "m${message.seq}"
+    }
+
+    data class Proposal(val action: ChatPendingAction) : ChatEntry {
+        override val key get() = "a${action.id}"
+    }
+}
+
+/**
+ * Messages and actions in the order they happened, except that an action follows the answer of the turn
+ * that proposed it. It is stored while the turn runs and the answer only at the end, so by time alone it
+ * would sit above that answer, off a phone's screen, and move when the answer arrived. Here it stays last,
+ * and a decided card does not jump away from the Confirm just pressed. The web app sorts by time alone.
+ */
+internal fun timeline(messages: List<ChatMessage>, actions: List<ChatPendingAction>): List<ChatEntry> {
+    val waiting = ArrayDeque(actions.sortedBy { it.createdAt })
+    val entries = mutableListOf<ChatEntry>()
+    fun takeActionsUpTo(at: Instant) {
+        while (waiting.firstOrNull()?.let { it.createdAt <= at } == true) entries += ChatEntry.Proposal(waiting.removeFirst())
+    }
+    messages.forEach { message ->
+        if (message.role == ChatMessageRole.USER) takeActionsUpTo(message.createdAt)
+        entries += ChatEntry.Said(message)
+        if (message.role != ChatMessageRole.USER) takeActionsUpTo(message.createdAt)
+    }
+    waiting.mapTo(entries) { ChatEntry.Proposal(it) }
+    return entries
+}
 
 class ThreadsModel(private val app: WilsonApp) : ViewModel() {
     val threads = MutableStateFlow<List<ChatThread>?>(null)

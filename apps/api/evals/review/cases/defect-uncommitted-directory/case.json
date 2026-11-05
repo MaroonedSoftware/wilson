@@ -1,0 +1,5 @@
+{
+    "base": "c7cd80d60fe329643c2cccee2af6b76ab7342b99",
+    "source": "2a4de659ca1a5a1081307c26999a6666e42ea5ff",
+    "title": "Judge a read-only stage on what it wrote, not on the card's diff"
+}

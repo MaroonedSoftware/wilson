@@ -16,6 +16,7 @@ import type { CardJobs } from '#modules/jobs/card.jobs.js';
 import type { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
 import type { Card } from '#modules/board/card.js';
 import type { Kysely } from 'kysely';
+import { registerNotificationChannel } from '#modules/notify/notifier.js';
 import type { DB } from '#modules/data/db.js';
 import { defaultSettings } from '#tests/support/fake.settings.js';
 
@@ -224,6 +225,20 @@ stages:
         await job.run({ cardId: '0001', stageName: 'testing' });
 
         expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('reaches a registered channel when no webhook URL is configured', async () => {
+        const send = vi.fn(async () => undefined);
+        const remove = registerNotificationChannel({ name: 'test', send });
+        try {
+            const { job } = await buildJob(undefined);
+
+            await job.run({ cardId: '0001', stageName: 'testing' });
+
+            expect(send).toHaveBeenCalledWith(expect.objectContaining({ moment: 'needs-human', cardId: '0001' }));
+        } finally {
+            remove();
+        }
     });
 
     it('does not re-notify a card that was already flagged before this overflow was noticed', async () => {

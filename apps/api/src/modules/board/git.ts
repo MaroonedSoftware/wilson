@@ -34,6 +34,23 @@ export const gitOn = async (host: ExecutionHost, cwd: string, args: string[]): P
     }
 };
 
+/**
+ * The files under `cwd` that contain `word` as a whole word, searched as fixed text, tracked or
+ * untracked but never ignored. `pathspecs` narrow the search, usually by exclusion.
+ *
+ * `git grep` exits 1 for no matches, which is an answer here and not a failure. Anything else, a bad
+ * pathspec or a directory that is not a repository, still throws.
+ */
+export const gitGrep = async (host: ExecutionHost, cwd: string, word: string, pathspecs: string[] = []): Promise<string[]> => {
+    try {
+        const { stdout } = await gitOn(host, cwd, ['grep', '-l', '-z', '-I', '-w', '-F', '--untracked', '-e', word, '--', '.', ...pathspecs]);
+        return stdout.split('\0').filter(Boolean);
+    } catch (err) {
+        if (((err as Error).cause as { code?: number | string } | undefined)?.code === 1) return [];
+        throw err;
+    }
+};
+
 /** True when the working tree has no uncommitted changes. */
 export const isClean = async (cwd: string, host: ExecutionHost = localHost): Promise<boolean> => {
     const { stdout } = await gitOn(host, cwd, ['status', '--porcelain']);

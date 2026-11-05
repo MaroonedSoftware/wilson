@@ -9,6 +9,7 @@ import { EventLog } from '#modules/events/event.log.js';
 import { Notifier } from '#modules/notify/notifier.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
+import type { ReviewFinding } from '#modules/stages/stage.result.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { decideChain } from './chain.decision.js';
 import { CardJobs } from './card.jobs.js';
@@ -114,6 +115,8 @@ export class CardStageJob extends Job<CardStagePayload> {
             await this.cardJobs.clear(cardId);
             return;
         }
+
+        await this.enqueueRuleProposal(cardId, stageName, outcome.upheldBlockers);
 
         const stages = await this.stageConfigs.load();
         const decision = outcome.nextStep
@@ -241,13 +244,30 @@ export class CardStageJob extends Job<CardStagePayload> {
     }
 
     /**
-     * Tell a person the card is waiting on them at a manual gate — one webhook call, off entirely
-     * when `NOTIFY_WEBHOOK_URL` is unset (card 0050). The card is re-read for its title only when a
-     * webhook is actually configured, so this costs nothing on the common, notification-off path.
+     * One `card.rule-proposal` for what a challenge upheld and sent back. The dispatcher stays
+     * queue-agnostic for the reason it does above. A failed send costs a proposal nobody asked for, so
+     * it is recorded and the card moves on.
+     */
+    private async enqueueRuleProposal(cardId: string, stageName: string, blockers: ReviewFinding[] | undefined): Promise<void> {
+        if (!blockers?.length) return;
+        try {
+            await this.broker.send('card.rule-proposal', { cardId, project: this.board.project, blockers });
+        } catch (error) {
+            await this.events.append({
+                project: this.board.project,
+                cardId,
+                stage: stageName,
+                type: 'rule.proposed',
+                payload: { reason: `could not enqueue it: ${error instanceof Error ? error.message : String(error)}` },
+            });
+        }
+    }
+
+    /**
+     * Tell a person the card is waiting on them at a manual gate (card 0050). Not gated on the
+     * webhook: `Notifier` decides what is switched on, and a registered channel works without one.
      */
     private async notifyManualGate(cardId: string, stage: string): Promise<void> {
-        if (!this.board.notifyWebhookUrl) return;
-
         const card = await this.boardRepo.read(cardId).catch(() => undefined);
         await new Notifier(this.board.notifyWebhookUrl, this.board.notifyBaseUrl).notify({
             project: this.board.project,
@@ -297,11 +317,11 @@ export class CardStageJob extends Job<CardStagePayload> {
                 cardId,
                 stage: stageName,
                 type: 'transition.written',
-                payload: { from: stageName, to: stageName, by: 'runner', needsHuman: true },
+                payload: { from: stageName, to: stageName, by: 'runner', needsHuman: true, reason },
             },
         );
 
-        if (this.board.notifyWebhookUrl && !alreadyFlagged) {
+        if (!alreadyFlagged) {
             await new Notifier(this.board.notifyWebhookUrl, this.board.notifyBaseUrl).notify({
                 project: this.board.project,
                 cardId,

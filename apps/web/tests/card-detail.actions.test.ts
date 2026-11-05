@@ -147,6 +147,28 @@ afterEach(() => {
     notifications.clean();
 });
 
+describe('the merge status', () => {
+    it('shows a conflict with its paths beside the Merge button, before anyone presses it', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(
+            card('ready', { mergeStatus: { state: 'conflict', target: 'main', conflicts: ['a.ts', 'b.ts'], movedUnder: [] } }),
+        );
+
+        renderApp(CARD_PATH);
+
+        expect(await screen.findByText('Conflicts with main: a.ts, b.ts')).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Merge' })).toBeTruthy();
+    });
+
+    it('shows nothing for a card without a status', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('ready'));
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        expect(screen.queryByText(/Merges cleanly|Conflicts with|back to review|Could not check/)).toBeNull();
+    });
+});
+
 describe('the move control', () => {
     it("offers the board's configured stages and non-stages, not a hard-coded list", async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('planning'));
@@ -878,5 +900,88 @@ describe('the usage panel', () => {
 
         expect(await screen.findByText('No usage recorded yet.')).toBeTruthy();
         expect(screen.queryByRole('table')).toBeNull();
+    });
+});
+
+describe('the question panel', () => {
+    const asked = (overrides: Partial<NonNullable<CardDetail['blocked']>> = {}): CardDetail => ({
+        ...card('implementing'),
+        needsHuman: true,
+        needsHumanReason: 'Red or blue?',
+        blocked: {
+            category: 'decision',
+            tried: 'read the callers',
+            question: 'Red or blue?',
+            options: ['Red', 'Blue'],
+            stage: 'implementing',
+            askedAt: DateTime.fromISO('2026-11-04T09:00:00.000Z'),
+            ...overrides,
+        },
+    });
+
+    it('shows the question, what was tried and the likely answers', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(asked());
+
+        renderApp(CARD_PATH);
+
+        expect(await screen.findByText('Red or blue?')).toBeTruthy();
+        expect(screen.getByText('Already tried: read the callers')).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Red' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Acknowledge' })).toBeTruthy();
+    });
+
+    it('sends what is in the box, with an option only filling it, and keeps the panel until the re-fetch', async () => {
+        const getCard = vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(asked());
+        const answer = vi.spyOn(BoardClient.prototype, 'answerABlockedCard').mockResolvedValue(card('implementing'));
+
+        renderApp(CARD_PATH);
+        const send = (await screen.findByRole('button', { name: 'Send answer' })) as HTMLButtonElement;
+        expect(send.disabled).toBe(true);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Blue' }));
+        expect(answer).not.toHaveBeenCalled();
+        const box = screen.getByLabelText('Your answer') as HTMLTextAreaElement;
+        expect(box.value).toBe('Blue');
+        fireEvent.change(box, { target: { value: 'Blue, but darker' } });
+
+        getCard.mockResolvedValue(card('implementing'));
+        await act(async () => {
+            fireEvent.click(send);
+        });
+
+        expect(answer).toHaveBeenCalledWith('0007', { answer: 'Blue, but darker' });
+        await waitFor(() => expect(screen.queryByText('Red or blue?')).toBeNull());
+    });
+
+    it('names a refusal and keeps the answer for another try', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(asked());
+        vi.spyOn(BoardClient.prototype, 'answerABlockedCard').mockRejectedValue(
+            new SdkError(
+                400,
+                'Bad Request',
+                { statusCode: 400, message: 'Bad Request', details: { reason: '0007 has no question waiting for an answer' } },
+                new Headers(),
+            ),
+        );
+        const show = vi.spyOn(notifications, 'show');
+
+        renderApp(CARD_PATH);
+        const box = (await screen.findByLabelText('Your answer')) as HTMLTextAreaElement;
+        fireEvent.change(box, { target: { value: 'Blue' } });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Send answer' }));
+        });
+
+        await waitFor(() => expect(show).toHaveBeenCalledWith(expect.objectContaining({ title: 'Could not send the answer' })));
+        expect(box.value).toBe('Blue');
+    });
+
+    it('is not shown for a card flagged for any other reason, which keeps the plain panel', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(flaggedCard('testing'));
+
+        renderApp(CARD_PATH);
+
+        expect(await screen.findByRole('button', { name: 'Acknowledge' })).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Send answer' })).toBeNull();
     });
 });

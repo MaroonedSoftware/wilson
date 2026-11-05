@@ -404,6 +404,15 @@ stages:
             await store.importLanes();
         });
 
+        it("stores a lane's depths, and refuses a tier with a blank model", async () => {
+            await store.patchLane('implementing', { settings: { depths: [{ minChangedLines: 0, model: 'claude-haiku', maxSteps: 40 }] } }, 'tiers');
+            expect(findStage(await store.load(), 'implementing').depths).toEqual([{ minChangedLines: 0, model: 'claude-haiku', maxSteps: 40 }]);
+
+            await expect(
+                store.patchLane('implementing', { settings: { depths: [{ minChangedLines: 0, model: '   ' }] } }, 'blank'),
+            ).rejects.toMatchObject({ kind: 'config-invalid', message: 'a model is required' });
+        });
+
         it('changes one setting, seen straight after a cached load, with one revision', async () => {
             await store.load();
             const before = (await revisions()).length;

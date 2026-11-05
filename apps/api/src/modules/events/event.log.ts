@@ -2,10 +2,13 @@ import { Injectable } from 'injectkit';
 import { Kysely, sql, type Transaction } from 'kysely';
 import type { DateTime } from 'luxon';
 import { Logger } from '@maroonedsoftware/logger';
+import { budgetedInputTokens } from '#modules/agent/budget.js';
 import type { DB } from '#modules/data/db.js';
+import { EVAL_RUN_ID_PREFIX } from '#modules/evals/eval.run.id.js';
 import { CARD_FEED_CHANNEL } from '#modules/feed/card.feed.js';
-import type { ProjectConversationStats, ProjectStageStats, ProjectStats, ProjectStatsCounts } from '../../generated/board.js';
+import type { ProjectConversationStats, ProjectGateStats, ProjectStageStats, ProjectStats, ProjectStatsCounts } from '../../generated/board.js';
 import type { CardEvent, CardEventType } from './card.event.js';
+import { foldGateStats, type GateEventRow } from './gate.stats.js';
 
 export interface CardEventRow {
     id: string;
@@ -47,6 +50,21 @@ export interface CardUsage {
 
 /** How many cards {@link EventLog.projectStats} names. */
 const TOP_CARDS = 10;
+
+/** Every event {@link EventLog.gateStats} folds. */
+const GATE_EVENT_TYPES: AppendableCardEventType[] = [
+    'stage.passed',
+    'stage.failed',
+    'stage.blocked',
+    'transition.written',
+    'card.answered',
+    'card.acked',
+    'card.over-budget',
+    'context.overflow',
+    'rebase.conflict',
+    'stage.poisoned',
+    'stage.dead',
+];
 
 const noCounts = (): ProjectStatsCounts => ({
     attempts: 0,
@@ -198,6 +216,7 @@ export class EventLog {
             .leftJoin('wilson.cards as card', join => join.onRef('card.project', '=', 'event.project').onRef('card.id', '=', 'event.cardId'))
             .where('event.project', '=', project)
             .where('event.type', 'not in', QUIET_ACTIVITY_TYPES)
+            .where('event.cardId', 'not like', `${EVAL_RUN_ID_PREFIX}%`)
             .orderBy('event.id', 'desc')
             .limit(limit)
             .select(['event.id', 'event.cardId', 'card.title as cardTitle', 'event.stage', 'event.type', 'event.payload', 'event.createdAt']);
@@ -216,27 +235,34 @@ export class EventLog {
     }
 
     /**
-     * What a card has spent in total, across every stage and every attempt, cached tokens included
-     * as `budgetedInputTokens` counts them. Events from before `cachedInputTokens` was recorded count
-     * only what they hold.
+     * What a card has spent against its budget, across every stage and every attempt, weighted as
+     * `budgetedInputTokens` weights one run. The raw figures are summed first, so the weights live in
+     * that one function. Events from before `cacheWriteInputTokens` was recorded count their whole
+     * cached figure as reads, and events from before `cachedInputTokens` count only what they hold.
      *
      * Every stage already records `usage` in its `stage.passed` / `stage.failed`
      * payload, so this reads that history rather than tracking a separate running counter. Nulls —
      * a card with no usage recorded — coalesce to zero rather than surfacing as null.
      */
-    async totalInputTokens(project: string, cardId: string): Promise<number> {
+    async budgetedInputTokens(project: string, cardId: string): Promise<number> {
         const row = await this.db
             .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
-            .select(
-                sql<string>`coalesce(sum(coalesce((payload->'usage'->>'inputTokens')::bigint, 0) + coalesce((payload->'usage'->>'cachedInputTokens')::bigint, 0)), 0)`.as(
-                    'total',
-                ),
-            )
+            .select([
+                sql<string>`coalesce(sum((payload->'usage'->>'inputTokens')::bigint), 0)`.as('inputTokens'),
+                sql<string>`coalesce(sum((payload->'usage'->>'cachedInputTokens')::bigint), 0)`.as('cachedInputTokens'),
+                sql<string>`coalesce(sum((payload->'usage'->>'cacheWriteInputTokens')::bigint), 0)`.as('cacheWriteInputTokens'),
+            ])
             .executeTakeFirstOrThrow();
 
-        return Number(row.total);
+        return (
+            budgetedInputTokens({
+                inputTokens: Number(row.inputTokens),
+                cachedInputTokens: Number(row.cachedInputTokens),
+                cacheWriteInputTokens: Number(row.cacheWriteInputTokens),
+            }) ?? 0
+        );
     }
 
     /**
@@ -245,25 +271,26 @@ export class EventLog {
      * (card 0263's Constraints); these are token counts, and a subscription run's tokens are not a
      * price.
      *
-     * One grouped query over `stage.passed`/`stage.failed`/`stage.interrupted` rows, keyed by `stage`.
+     * One grouped query over `stage.passed`/`stage.failed`/`stage.interrupted`/`stage.blocked` rows, keyed by `stage`,
+     * plus `rule.verdicts` and `rule.proposed`: what those spent for a stage counts as that stage's, and as no attempt.
      * `stages` comes back in the order each stage was first run — `min(id)` ascending, since `id` is a
-     * `BIGSERIAL` assigned in insertion order (`append`) — not alphabetically. An interrupted run spent
+     * `BIGSERIAL` assigned in insertion order (`append`) — not alphabetically. An interrupted or blocked run spent
      * its tokens but ended in no verdict and spends no retry, so it adds to the token sums and not to
      * `attempts`; a stage interrupted every time so far has a row with no attempts. A passed or failed
      * event whose payload has no `usage` still counts as an attempt, at zero tokens, so `attempts` can
      * never disagree with what `tail` shows for the same card: nothing here is silently skipped.
-     * `inputTokens` includes cached tokens, the same total `totalInputTokens` holds a card to, and
-     * `cachedInputTokens` says how many of them those are.
+     * `inputTokens` includes cached tokens and `cachedInputTokens` says how many of them those are.
+     * These are raw tokens: a card's budget weights them (`budgetedInputTokens`), so the two differ.
      */
     async usageByStage(project: string, cardId: string): Promise<CardUsage> {
         const rows = await this.db
             .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
             .where('cardId', '=', cardId)
-            .where('type', 'in', ['stage.passed', 'stage.failed', 'stage.interrupted'])
+            .where('type', 'in', ['stage.passed', 'stage.failed', 'stage.interrupted', 'stage.blocked', 'rule.verdicts', 'rule.proposed'])
             .select([
                 'stage',
-                sql<string>`count(*) filter (where type <> 'stage.interrupted')`.as('attempts'),
+                sql<string>`count(*) filter (where type in ('stage.passed', 'stage.failed'))`.as('attempts'),
                 sql<string>`coalesce(sum(coalesce((payload->'usage'->>'inputTokens')::bigint, 0) + coalesce((payload->'usage'->>'cachedInputTokens')::bigint, 0)), 0)`.as(
                     'inputTokens',
                 ),
@@ -313,7 +340,7 @@ export class EventLog {
             .selectFrom('wilson.cardEvents as event')
             .leftJoin('wilson.cards as card', join => join.onRef('card.project', '=', 'event.project').onRef('card.id', '=', 'event.cardId'))
             .where('event.project', '=', project)
-            .where('event.type', 'in', ['stage.passed', 'stage.failed', 'stage.interrupted'])
+            .where('event.type', 'in', ['stage.passed', 'stage.failed', 'stage.interrupted', 'stage.blocked', 'rule.verdicts', 'rule.proposed'])
             .where('event.createdAt', '>=', since)
             .where('event.createdAt', '<', until)
             .select([
@@ -386,6 +413,81 @@ export class EventLog {
         };
     }
 
+    /**
+     * What the gates caught from `since` up to `until`, and how often a person was pulled in. Reads only
+     * the fields it folds out of each `payload`, in `foldGateStats`, since a run's whole payload is large.
+     * Rule verdicts are grouped here instead, as one event holds many.
+     */
+    async gateStats(project: string, since: DateTime, until: DateTime): Promise<ProjectGateStats> {
+        const [rows, rules] = await Promise.all([
+            this.db
+                .selectFrom('wilson.cardEvents as event')
+                .where('event.project', '=', project)
+                .where('event.type', 'in', GATE_EVENT_TYPES)
+                .where('event.createdAt', '>=', since)
+                .where('event.createdAt', '<', until)
+                .select([
+                    'event.cardId',
+                    'event.stage',
+                    'event.type',
+                    sql<string | null>`event.payload->>'step'`.as('step'),
+                    sql<string | null>`event.payload->'result'->>'verdict'`.as('verdict'),
+                    sql<string | null>`event.payload->>'failureClass'`.as('failureClass'),
+                    sql<string | null>`event.payload->>'error'`.as('error'),
+                    sql<string | null>`event.payload->'failures'->>0`.as('firstFailure'),
+                    sql<boolean | null>`(event.payload->>'loopStopped')::boolean`.as('loopStopped'),
+                    sql<boolean | null>`(event.payload->>'alreadyResolved')::boolean`.as('alreadyResolved'),
+                    sql<string | null>`event.payload->>'from'`.as('from'),
+                    sql<string | null>`event.payload->>'to'`.as('to'),
+                    sql<string | null>`event.payload->>'by'`.as('by'),
+                    sql<boolean | null>`(event.payload->>'needsHuman')::boolean`.as('needsHuman'),
+                    sql<string | null>`event.payload->>'reason'`.as('reason'),
+                    sql<GateEventRow['retries']>`event.payload->'retries'`.as('retries'),
+                ])
+                .orderBy('event.id', 'asc')
+                .execute(),
+            this.db
+                .selectFrom('wilson.cardEvents as event')
+                .innerJoinLateral(
+                    eb =>
+                        eb
+                            .selectFrom(sql<{ value: unknown }>`jsonb_array_elements(event.payload->'verdicts')`.as('element'))
+                            .select([
+                                sql<string>`element.value->>'rule'`.as('rule'),
+                                sql<string>`element.value->>'statement'`.as('statement'),
+                                sql<string>`element.value->>'verdict'`.as('verdict'),
+                                sql<boolean>`coalesce((element.value->>'reused')::boolean, false)`.as('reused'),
+                            ])
+                            .as('verdict'),
+                    join => join.onTrue(),
+                )
+                .where('event.project', '=', project)
+                .where('event.type', '=', 'rule.verdicts')
+                .where('event.createdAt', '>=', since)
+                .where('event.createdAt', '<', until)
+                .where('verdict.reused', '=', false)
+                .select([
+                    'verdict.rule',
+                    sql<string>`max(verdict.statement)`.as('statement'),
+                    sql<string>`count(*) filter (where verdict.verdict = 'fail')`.as('failed'),
+                    sql<string>`count(*) filter (where verdict.verdict = 'unavailable')`.as('unavailable'),
+                ])
+                .groupBy('verdict.rule')
+                .execute(),
+        ]);
+
+        return {
+            since,
+            until,
+            zone: since.zoneName ?? 'UTC',
+            ...foldGateStats(rows),
+            rules: rules
+                .map(({ rule, statement, failed, unavailable }) => ({ rule, statement, failed: Number(failed), unavailable: Number(unavailable) }))
+                .filter(rule => rule.failed > 0 || rule.unavailable > 0)
+                .sort((a, b) => b.failed - a.failed || b.unavailable - a.unavailable || a.rule.localeCompare(b.rule)),
+        };
+    }
+
     /** What planning and review turns spent from `since` up to `until`. Only an answer with a recorded cost counts as a turn. */
     private async conversationStats(project: string, since: DateTime, until: DateTime): Promise<ProjectConversationStats[]> {
         const figures = (card: string) =>
@@ -437,12 +539,13 @@ export class EventLog {
     /**
      * What a project has spent in output tokens since a given instant — card 0264's rollup, beside
      * `usageByStage`'s per-card one, that a daily ceiling is checked against. `stage.passed`/
-     * `stage.failed` rows, summed across every card in the project rather than grouped by one card's
+     * `stage.failed` rows, and what rule judges spent, summed across every card in the project rather than grouped by one card's
      * stages, and only `outputTokens`: the ceiling this backs is output-only for the reason
      * `DAILY_OUTPUT_TOKEN_CEILING`'s own doc comment gives, and there is no per-stage grouping to
      * preserve here the way `usageByStage` needs one. An event with no `usage` still coalesces to zero
      * rather than being skipped, the same as `usageByStage`. Unlike `usageByStage`, this leaves out
-     * `stage.interrupted` rows, so what an interrupted run spent does not count against the ceiling.
+     * `stage.interrupted` rows, so what an interrupted run spent does not count against the ceiling. A
+     * `stage.blocked` run counts: it finished, and the stage is not sent again to spend it twice.
      *
      * `since` is compared straight against `createdAt` — a caller means whatever zone it computed
      * `since` in, and this does no conversion of its own. `createdAt` is stored in UTC (this table's
@@ -453,7 +556,7 @@ export class EventLog {
         const row = await this.db
             .selectFrom('wilson.cardEvents')
             .where('project', '=', project)
-            .where('type', 'in', ['stage.passed', 'stage.failed'])
+            .where('type', 'in', ['stage.passed', 'stage.failed', 'stage.blocked', 'rule.verdicts', 'rule.proposed'])
             .where('createdAt', '>=', since)
             .select(sql<string>`coalesce(sum((payload->'usage'->>'outputTokens')::bigint), 0)`.as('total'))
             .executeTakeFirstOrThrow();

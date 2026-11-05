@@ -220,6 +220,35 @@ public class BoardRulesTests
         Assert.Empty(BoardRules.UnfinishedDeps(card, [card, dep]));
     }
 
+    private static MergeStatus Merge(MergeStatusState state, string[]? conflicts = null, string[]? moved = null, string? reason = null) =>
+        new() { State = state, Target = "main", Conflicts = [.. conflicts ?? []], MovedUnder = [.. moved ?? []], Reason = reason };
+
+    [Fact]
+    public void AMergeStatusNamesWhatItWouldHit()
+    {
+        Assert.Null(BoardRules.MergeStatusLine(null));
+        Assert.Equal("Merges cleanly into main.", BoardRules.MergeStatusLine(Merge(MergeStatusState.Clean)));
+        Assert.Equal("Conflicts with main: a, b", BoardRules.MergeStatusLine(Merge(MergeStatusState.Conflict, ["a", "b"])));
+        Assert.Equal("Conflicts with main.", BoardRules.MergeStatusLine(Merge(MergeStatusState.Conflict)));
+        Assert.Equal("Merge would send this back to review: main moved under a.", BoardRules.MergeStatusLine(Merge(MergeStatusState.Rereview, moved: ["a"])));
+        Assert.Equal(
+            "Merge would send this back to review: main moved under a. It also conflicts: a",
+            BoardRules.MergeStatusLine(Merge(MergeStatusState.Rereview, ["a"], ["a"])));
+        Assert.Equal(
+            "Merge would stop and flag this for a human: main moved under a, and it has used up its re-reviews.",
+            BoardRules.MergeStatusLine(Merge(MergeStatusState.Capped, moved: ["a"])));
+        Assert.Equal("Could not check the merge: gone", BoardRules.MergeStatusLine(Merge(MergeStatusState.Unknown, reason: "gone")));
+    }
+
+    [Theory]
+    [InlineData(MergeStatusState.Clean, false)]
+    [InlineData(MergeStatusState.Unknown, false)]
+    [InlineData(MergeStatusState.Conflict, true)]
+    [InlineData(MergeStatusState.Rereview, true)]
+    [InlineData(MergeStatusState.Capped, true)]
+    public void OnlyAMergeThatWouldNotLandWarns(MergeStatusState state, bool warns) =>
+        Assert.Equal(warns, BoardRules.MergeStatusWarns(Merge(state)));
+
     [Fact]
     public void APlanCheckSaysWhereItHasGot()
     {

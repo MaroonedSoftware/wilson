@@ -9,7 +9,14 @@ import type { ExecutionHost } from '#modules/host/execution.host.js';
 import { localHost } from '#modules/host/local.execution.host.js';
 import type { RemotePlacement } from '#modules/host/placement.js';
 import { LeaseService } from '#modules/lease/lease.service.js';
+import { addedLinesFromPatch, type AddedLine } from './added.lines.js';
 import { codeRootLock } from './code.root.lock.js';
+
+/** The size of a diff, in lines. */
+export interface Diffstat {
+    added: number;
+    removed: number;
+}
 
 export interface Worktree {
     /** Absolute path to the worktree root. Every agent tool is confined to this. */
@@ -31,6 +38,16 @@ export interface Worktree {
 
 /** The host a worktree's files and commands live on: its own, or this machine when it names none. */
 export const worktreeHost = (worktree: Worktree): ExecutionHost => worktree.host ?? localHost;
+
+/** What happened to a path since a branch was cut. A rename is `deleted` plus `added`. */
+export type PathChangeStatus = 'added' | 'modified' | 'deleted';
+
+/** One entry of `WorktreeManager.pathChanges`. */
+export interface PathChange {
+    /** Relative to the worktree root. */
+    path: string;
+    status: PathChangeStatus;
+}
 
 /** Card 0265. One file changed in {@link WorktreeManager.patchSinceFork}'s range. */
 export interface DiffFileEntry {
@@ -277,6 +294,31 @@ export class WorktreeManager {
             message => this.logger.info(message),
             () => this.reclaimUnlocked(cardId, placement),
         );
+    }
+
+    /**
+     * Remove everything a throwaway run left that `reclaim` does not: its branches and base ref, here
+     * and on its host, and its run folder. For an id no card will ever have again, which is why it is
+     * safe to delete what `reclaim` keeps on purpose. Best effort, like a reclaim.
+     */
+    async forget(id: string, branches: string[], placement?: RemotePlacement): Promise<void> {
+        const roots: [ExecutionHost, string][] = [
+            [localHost, this.config.codeRoot],
+            ...(placement ? [[placement.host, placement.codeRoot] as [ExecutionHost, string]] : []),
+        ];
+        await codeRootLock.run(
+            `${id} worktree forget`,
+            message => this.logger.info(message),
+            async () => {
+                for (const [host, root] of roots) {
+                    for (const branch of branches) await gitOn(host, root, ['branch', '-D', branch]).catch(() => undefined);
+                    for (const ref of [id, `${id}-baseline`])
+                        await gitOn(host, root, ['update-ref', '-d', `refs/wilson/base/${ref}`]).catch(() => undefined);
+                }
+            },
+        );
+        await rm(join(this.config.runRoot, 'cards', id), { recursive: true, force: true }).catch(() => undefined);
+        if (placement) await placement.host.removeTree(posix.join(placement.runRoot, 'cards', id)).catch(() => undefined);
     }
 
     /**
@@ -558,6 +600,38 @@ export class WorktreeManager {
     }
 
     /**
+     * How many lines `branch` changed since it forked from what `codeRoot` has checked out, or
+     * undefined for a branch that does not exist yet. The fork point is the one
+     * {@link rebaseOntoHead} replays from, read before any rebase, and nothing here touches a working
+     * tree or index.
+     */
+    async diffstatSinceFork(branch: string): Promise<Diffstat | undefined> {
+        const exists = await git(this.config.codeRoot, ['rev-parse', '--verify', '--quiet', branch]).then(
+            () => true,
+            () => false,
+        );
+        if (!exists) return undefined;
+
+        const base = (await git(this.config.codeRoot, ['merge-base', branch, 'HEAD'])).stdout.trim();
+        return this.numstatSince(base, branch);
+    }
+
+    /**
+     * Lines added and removed between `base` and `ref`. `--no-renames`, as {@link patchSinceFork} has
+     * it: a rename reads as a delete and an add. A binary file has no lines, so it counts for nothing.
+     */
+    async numstatSince(base: string, ref: string): Promise<Diffstat> {
+        const { stdout } = await git(this.config.codeRoot, ['diff', '--numstat', '--no-renames', base, ref, '--']);
+        const diffstat = { added: 0, removed: 0 };
+        for (const line of stdout.split('\n').filter(Boolean)) {
+            const [added, removed] = line.split('\t');
+            diffstat.added += Number(added) || 0;
+            diffstat.removed += Number(removed) || 0;
+        }
+        return diffstat;
+    }
+
+    /**
      * Card 0265. The diff behind `ready`'s human gate, read without a terminal: every file `branch`
      * changed since `merge-base(targetRef, branch)`, as unified patch text — one basis for the diff
      * `wilson card diff` already uses (`packages/cli/src/commands/card/diff.command.ts`, this card's
@@ -737,6 +811,26 @@ export class WorktreeManager {
     }
 
     /**
+     * The ref a merge would land on, for a caller that only wants to look: the integration branch
+     * when a dry run is on and it exists, otherwise `main`. A dry run with no integration branch yet
+     * would cut one from `main` ({@link ensureIntegrationBranch}), so `main` is the same answer
+     * without the write.
+     */
+    async peekMergeTarget(dryRun: boolean): Promise<string> {
+        if (!dryRun) return 'main';
+        const exists = await git(this.config.codeRoot, ['rev-parse', '--verify', `refs/heads/${DRY_RUN_INTEGRATION_BRANCH}`]).then(
+            () => true,
+            () => false,
+        );
+        return exists ? DRY_RUN_INTEGRATION_BRANCH : 'main';
+    }
+
+    /** The commit `ref` names in `codeRoot`. Throws when it names nothing. */
+    async shaOf(ref: string): Promise<string> {
+        return (await git(this.config.codeRoot, ['rev-parse', ref])).stdout.trim();
+    }
+
+    /**
      * Paths this stage has touched but not committed, relative to the worktree root.
      *
      * Distinct from `changedPaths`, which measures from the fork point and therefore describes the
@@ -847,5 +941,81 @@ export class WorktreeManager {
             .filter(Boolean);
 
         return [...added, ...untracked];
+    }
+
+    /**
+     * Every path that differs from the branch's base, with what happened to it: committed work,
+     * uncommitted work and untracked files alike, since a stage's work is still uncommitted when its
+     * verifier runs. For a caller that is about to compare the two sides of each file, which
+     * `changedPaths` and `addedPaths` cannot serve: both follow the repository's rename detection,
+     * and under it a test file that was renamed and gutted reads as a new file with nothing to compare
+     * against.
+     *
+     * `-z` because git quotes a path with a non-ASCII byte otherwise, and that quoted form opens nothing.
+     */
+    async pathChanges(worktree: Worktree): Promise<PathChange[]> {
+        const host = worktreeHost(worktree);
+        const { stdout } = await gitOn(host, worktree.path, ['diff', '--no-renames', '--name-status', '-z', worktree.baseSha, '--']);
+        const fields = stdout.split('\0');
+        const changes = new Map<string, PathChangeStatus>();
+        for (let index = 0; index + 1 < fields.length; index += 2) {
+            const [code, path] = [fields[index]!, fields[index + 1]!];
+            changes.set(path, code.startsWith('A') ? 'added' : code.startsWith('D') ? 'deleted' : 'modified');
+        }
+
+        const { stdout: untracked } = await gitOn(host, worktree.path, ['ls-files', '--others', '--exclude-standard', '-z']);
+        for (const path of untracked.split('\0').filter(Boolean)) {
+            // `git rm --cached` makes a file both: deleted to the diff and untracked on disk. It is
+            // still there, so it has two sides to compare.
+            changes.set(path, changes.has(path) ? 'modified' : 'added');
+        }
+
+        return [...changes].map(([path, status]) => ({ path, status })).sort((a, b) => (a.path < b.path ? -1 : 1));
+    }
+
+    /**
+     * Every line the card has added since the branch was cut, by file, uncommitted work included. Same
+     * basis as {@link pathChanges}. A binary file has no lines, and neither does anything ignored, which
+     * `commit`'s `git add -A` will not pick up either.
+     *
+     * Untracked files go through `git diff --no-index` rather than a read, so a symlink is its target's
+     * name and not whatever it points at, and git rather than this code decides what is binary. That
+     * form exits 1 when the sides differ, which here they always do.
+     */
+    async addedLines(worktree: Worktree): Promise<{ path: string; lines: AddedLine[] }[]> {
+        const host = worktreeHost(worktree);
+        const diff = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '--unified=0'];
+        const list = async (args: string[]): Promise<string[]> => (await gitOn(host, worktree.path, args)).stdout.split('\0').filter(Boolean);
+
+        const tracked = await list(['diff', '--no-renames', '--name-only', '--diff-filter=d', '-z', worktree.baseSha, '--']);
+        const untracked = await list(['ls-files', '--others', '--exclude-standard', '-z']);
+
+        const files: { path: string; lines: AddedLine[] }[] = [];
+        for (const path of tracked) {
+            const { stdout } = await gitOn(host, worktree.path, [...diff, worktree.baseSha, '--', path]);
+            files.push({ path, lines: addedLinesFromPatch(stdout) });
+        }
+        for (const path of untracked) {
+            const patch = await gitOn(host, worktree.path, [...diff, '--no-index', '--', '/dev/null', path]).then(
+                ({ stdout }) => stdout,
+                (err: Error) => {
+                    const cause = err.cause as { code?: number | string; stdout?: string } | undefined;
+                    if (cause?.code === 1 && cause.stdout !== undefined) return cause.stdout;
+                    throw err;
+                },
+            );
+            files.push({ path, lines: addedLinesFromPatch(patch) });
+        }
+        return files;
+    }
+
+    /** A file as it was when the branch was cut, read on the worktree's own host. Throws if it did not exist then. */
+    async readAtBase(worktree: Worktree, path: string): Promise<string> {
+        return (await gitOn(worktreeHost(worktree), worktree.path, ['show', `${worktree.baseSha}:${path}`])).stdout;
+    }
+
+    /** A file as it is now, uncommitted changes included, read on the worktree's own host. Throws if it is gone. */
+    async readCurrent(worktree: Worktree, path: string): Promise<string> {
+        return worktreeHost(worktree).readFile(join(worktree.path, path));
     }
 }

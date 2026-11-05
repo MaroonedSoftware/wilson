@@ -200,6 +200,24 @@ export function useAckCard(id: string) {
 }
 
 /**
+ * Answers the question a stage stopped to ask. Same shape as `useAckCard`: success only invalidates,
+ * so the panel keeps rendering until the refetched card says there is no question any more.
+ */
+export function useAnswerCard(id: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (answer: string) => wilson.board.answerABlockedCard(id, { answer }),
+        onSuccess: () => {
+            invalidateCardsList(queryClient);
+            invalidateCard(queryClient, id);
+        },
+        onError: err => {
+            notifications.show({ color: 'red', title: 'Could not send the answer', message: reasonFor(err) });
+        },
+    });
+}
+
+/**
  * Releases a card a job is carrying (card 0087's `POST .../release`) — the safe-cancel operator
  * action, joining `useStartCard`/`useMergeCard` as this card's other operator-facing end. Same
  * invalidation as `useStartCard`; success also shows a green notification naming which of the two

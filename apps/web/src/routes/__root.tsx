@@ -6,6 +6,7 @@ import {
     IconActivity,
     IconApps,
     IconChartBar,
+    IconGavel,
     IconLayoutKanban,
     IconLogout,
     IconMoon,
@@ -166,6 +167,15 @@ function Shell() {
                                         <Link to="/projects/$project/stats" params={{ project }} aria-label="Stats">
                                             <ActionIcon component="span" variant="subtle">
                                                 <IconChartBar size={18} />
+                                            </ActionIcon>
+                                        </Link>
+                                    </Tooltip>
+                                )}
+                                {project && (
+                                    <Tooltip label="Rules">
+                                        <Link to="/projects/$project/rules" params={{ project }} aria-label="Rules">
+                                            <ActionIcon component="span" variant="subtle">
+                                                <IconGavel size={18} />
                                             </ActionIcon>
                                         </Link>
                                     </Tooltip>

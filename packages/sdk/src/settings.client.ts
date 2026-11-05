@@ -11,6 +11,7 @@ import type {
     NotifyWebhookSetting,
     PollerInterval,
     PollerSetting,
+    RuleJudgeSetting,
     SetAutoSplitSettingRequest,
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
@@ -174,6 +175,22 @@ export class SettingsClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return await parseJson<AutoSplitSetting>(result);
+    }
+
+    /** @name Get rule judge setting */
+    async getRuleJudgeSetting(): Promise<RuleJudgeSetting> {
+        const result = await this.fetch(`/api/settings/rule-judge`, { method: 'GET' });
+        return await parseJson<RuleJudgeSetting>(result);
+    }
+
+    /** @name Set rule judge setting */
+    async setRuleJudgeSetting(body: RuleJudgeSetting): Promise<RuleJudgeSetting> {
+        const result = await this.fetch(`/api/settings/rule-judge`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<RuleJudgeSetting>(result);
     }
 
     /** @name Get chat engine setting */

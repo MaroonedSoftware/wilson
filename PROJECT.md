@@ -55,7 +55,7 @@ These are settled. Challenge them only if you find a concrete blocker.
    through `StageConfigStore` and edited with `wilson stages set`, `instructions` and `route`;
    every change is a revision in `wilson.lane_revisions`, and the next dispatch reads it, no
    restart involved. Lanes rarely change shape, so adding or removing one takes a migration.
-8. **Agents cannot modify the machinery.** Stage config, stage prompts, and
+8. **Agents cannot modify the machinery.** Stage config, stage prompts, checked rules and
    everything under `.runner/` are human-write-only. What actually enforces that differs by
    path. The board is unreachable from a worktree by construction (decision 6) — there is no
    file there for any tool or command to reach, since board state is rows in Postgres, not
@@ -276,6 +276,22 @@ that the CLI, run by hand in that environment, failed with "OAuth session expire
 refreshed". So `subscriptionEnv` still removes only the two provider keys. Whether a probe passes
 when run from inside a real stage, under the stage's own config directory, is still unmeasured.
 
+Those probes need a subscription, so nothing runs them on a schedule. `engine-compat.yml` asks a
+narrower question nightly, of the pinned engines and the newest ones, with no account and no model
+call: does the Claude handshake still complete with the pinned SDK, and has the protocol Codex
+declares drifted from `apps/api/tests/support/codex.protocol.kinds.json`? A new Codex item type fails
+it, because `itemStarted` lets through anything outside `TOOL_ITEMS` unguarded. So does a new server
+request, or the loss of a kind the adapter reads. A new notification is only noted. A binary that is
+missing or will not run fails too, since a check that could not run is not a pass. It cannot see what
+an engine does during a turn, so a skipped guard still takes the live probes to find.
+
+To run it by hand, or rewrite the baseline for a version bump and read the diff:
+
+```bash
+WILSON_ENGINE_COMPAT=1 CLAUDE_PROBE_BIN=$(which claude) CODEX_PROBE_BIN=$(which codex) pnpm --filter @wilson/api test:engine:compat
+CODEX_KINDS_UPDATE=1 WILSON_ENGINE_COMPAT=1 CLAUDE_PROBE_BIN=$(which claude) CODEX_PROBE_BIN=$(which codex) pnpm --filter @wilson/api test:engine:compat
+```
+
 ### Where a stage runs: here, an SSH host, or a worker
 
 A stage that cuts a worktree runs where its `placement` says: `local` (the default) on the daemon's
@@ -419,17 +435,58 @@ job is to add files nobody could have declared in advance.
 | parking lot | — | none | never dispatched | promote (human only) |
 | planning | manual | none | a person approves, then the `scope-check` step passes | backlog |
 | backlog | manual | none | picked up by the poller | implementing |
-| implementing | agent | rw | build passes, diff non-empty, diff within scope | testing |
-| testing | agent | rw | suite green, test count non-decreasing, no new skips, new tests fail against the pre-change tree | review |
-| review | agent | readonly | findings schema valid, every finding cites a file:line in the card's diff, severity in enum; a `revise` then has to survive the `challenge` step | ready |
+| implementing | agent | rw | build passes, diff non-empty, diff within scope, no credential added | testing |
+| testing | agent | rw | suite green, test count non-decreasing, no new skips, no weakened tests, new tests fail against the pre-change tree, no credential added | review |
+| review | agent | readonly | findings schema valid, every finding cites a file:line in the card's diff, severity in enum; rule judges' failures are merged in; a `revise` then has to survive the `challenge` step | ready |
 | ready | manual | none | human approval | merge, then `done` |
 | done | — | — | never dispatched | — |
+
+"No weakened tests" reads the AST of the card's changed TS/JS test files on both sides, and fails on
+a net drop in `expect(` and `expect*(` calls across the card, or on a new literal-against-literal
+tautology such as `expect(true).toBe(true)`. Moving a test between files nets to nothing. `.toBeTruthy()`
+and the like are not flagged. It does not depend on `baselineCheck`, and a lane can turn it off with
+`assertionCheck: false`. A card with a good reason declares it as a plan Constraint,
+`Expected assertion drop: N (reason)`, whose `N` covers drops and new tautologies together; a stage's
+`caveats` do not count. Other languages' test files are not read.
+
+Implementing and testing also fail on a credential in the card's diff: a private key with its body,
+a GitHub token, an AWS access key, or an Anthropic or OpenAI key, on any line added since the fork
+point. Each format must also look random, so a header in a parser, the AWS documentation key and
+`ghp_xxxx` pass. Failures name the file, line and kind and never the value. It measures the card's whole
+diff, and flags a person at once rather than kicking back, because nothing a retry can do settles it: a
+real key has to be rotated, and a second attempt that deleted it would pass and advance with nobody
+told. With no retry there is also nothing to get stuck on inherited work (see "Whose work a stage is
+judged on"). The value stays in the worktree, and the next run saves it to the failed-attempt patch,
+which that run can read. A fixture is declared in the plan, one file to a bullet, as a Constraint
+`Expected secret: path (reason)`; a path and not a count, since a count could be spent on a real key
+anywhere. It reads text only, decodes nothing, and looks at no intermediate history. Command output and
+run traces are not redacted, so a value a command prints can still reach `stage.failed`.
 
 A lane can hold **steps**: runs of their own, with their own prompt, verifier and budgets, on the
 lane's provider, model and routes, with the card staying in the lane throughout. `planning` runs
 `scope-check` when a plan is approved, and a card waits there under a `planCheck` until it passes,
 or until a person reads why it did not. `review` runs `challenge` when it reports `revise`, a fresh
-context trying to refute each blocker before anything is kicked back.
+context trying to refute each blocker before anything is kicked back. The card holds nothing of that
+`revise` yet, so the step's plan, and only its plan, carries the review's result under `## Review
+findings`.
+
+A card in `ready` also reports a `mergeStatus` on every board read: what Merge would do right now,
+`clean`, `conflict`, `rereview` (it would go back to review, because the target moved under files the
+card changed), `capped` (the same, on a card out of re-reviews, so Merge would flag a human) or
+`unknown` (the read failed). It is worked out on read and cached by the two commits,
+since an operator fast-forwarding `main` emits no event. A read moves no ref, creates no branch, and
+leaves only unreferenced objects behind. It answers against `dry-run-integration` when a dry run would
+land there. The status is advice and refreshes when a client next reads the card: Merge still decides
+for itself.
+
+A stage that cannot go on without a person's decision can stop and ask one question. It is no verdict
+on the work, so no kickback is spent and no `stage.failed` is written: the card is flagged where it
+stands with the question as its reason, and `blocked` holds the detail. An answer goes into the plan
+under `## Operator answer`, clears the flag and keeps the card's retries, and the stage runs again in
+a fresh session, with the stopped run's uncommitted work as its preserved patch. The section is shed
+when the stage passes. A stage may ask three times (`retries['<stage>:blocked']`); the next question
+is a plain flag, as is any question on a card whose ticket closed during the run. A step cannot ask,
+because an answer resumes the lane's own run and the step would be lost.
 
 The table above shows only where a stage goes when it passes; a kickback target — a stage's
 `onFail` — is a separate decision and is not automatically the stage before the one that failed. It
@@ -487,6 +544,26 @@ chose a blanket self-loop for it). `unjudged` only closes the narrower gap card 
 would need the same signal — the run's own outcome, not just which stage failed and how many times —
 and remains a human call via `wilson card move`, exactly as card 0062 left it.
 
+A run repeating itself is stopped the same way, and sooner than any budget would. Every adapter feeds
+its tool calls to a `RepeatedCallWatch` (`apps/api/src/modules/agent/repeated.call.ts`), which counts
+identical calls (tool name plus canonical JSON of the input) and sets `AgentRunOutput.loopFailure` at
+`REPEATED_CALL_LIMIT`. A successful write clears the count, because the same command against a changed
+tree is a new question, so re-running the tests after an edit never trips it; a refused write, or one
+identical to the last, clears nothing. `cli` watches the stream rather than the guard, `codex` watches
+`item/started` because a read-only command may never ask, and `api` replays its steps in a `stopWhen`.
+A write made through a shell command looks like any other command, so it does not clear the count.
+The stop is unjudged: it retries in the same stage, in a fresh session, and charges `retries[stage.name]`
+so `maxKickbacks` bounds it. It differs from other unjudged failures twice over. The dispatcher skips the
+verifier, since the outcome is already decided and testing would run its whole suite to confirm it. And
+it writes an attempt bullet, the only unjudged failure that does, so the fresh session knows what the
+last one got stuck on. `stage.failed` carries `loopStopped: true`.
+
+Every `stage.failed` also carries `failureClass`, a word for why (`verifier`, `reportRejected`,
+`schemaInvalid`, `noReport`, `resultDropped`, `budget`, `engine`, `loop` or `error`), and `reason`, the
+failure it leads with. A runner `transition.written` that sent a card back carries the same two, with
+`revise` as the class for a review that asked for changes, and one that flagged a card carries the
+flag's `reason`. Only `verifier` and `revise` are judgments about the work.
+
 `plan-review` is a separate stage rather than a gate inside planning. It has its own
 model, budget, retry policy, and structured output — all stage-level concepts — and
 folding it into planning would make planning a stage with two models and two
@@ -539,7 +616,8 @@ be a kickback. A card's retry budget is for work that came back wrong, and spend
 on an exhausted balance both wastes the budget and misreports the cause — this project
 watched a card burn three retry cycles against "credit balance is too low", each one
 cutting a worktree and installing dependencies before failing at the first model call.
-The job returns normally after poisoning so the queue does not retry it either.
+The job returns normally after poisoning so the queue does not retry it either. A card
+that has already ended keeps its ending: a late job records `stage.stale` and sends nothing.
 
 Classification is by message text, because neither the SDK nor the provider surfaces a
 stable machine-readable class. It is deliberately conservative: a miss costs a few
@@ -551,6 +629,89 @@ Human gates are a first-class stage type, not a special case in the runner.
 
 Review failure moves the card backward with findings appended to the plan and a
 retry counter incremented.
+
+### What the reviewer is told before it starts
+
+A lane that reviews gets a `## Machine evidence` section on its plan, worked out after setup and
+before the agent starts. It is an input and never a gate: nothing reads it but the reviewer, and
+failing to work it out writes "could not compute" and leaves the stage to run.
+
+- **Net-new type errors.** A lane with a `typecheckCommand` has it run on the branch and, only if the
+  branch has errors, on a second tree at `baseSha`, cached by `baseSha` and command. Errors compare by
+  package, file, code and message, never by line, and are counted, so a second identical error is new.
+  Under turbo the command needs `--continue`, or the first failing package cancels the rest and an
+  existing error can hide a new one, so without it the section reads "could not compute". A command
+  that writes outside ignored files has its writes reverted and reports "could not compute", because
+  the review verifier rejects uncommitted paths.
+- **Exports nothing references.** Exports the branch adds, by the AST, whose name `git grep` finds
+  nowhere outside the file's own declaration, tests and docs. It fails toward silence: a name its own
+  file uses, a move between changed files, and files found without an import (entry points, routes,
+  migrations, configs) are never listed, and a match is written up as evidence, not a verdict.
+
+All of it fits in `REVIEW_EVIDENCE_DEADLINE_MS` (4 minutes). That time is outside the stage's own wall
+clock and comes out of the ten minutes `CARD_STAGE_EXPIRES_IN` leaves around it. Steps of a review lane
+inherit its settings but get no evidence. `review.evidence` records the counts on the event log.
+
+### Checked rules
+
+Learnings are advice nothing checks. A **rule** is a statement a person says must hold, with the path
+globs it is about and a severity: `wilson.rules`, with every change in `wilson.rule_revisions`, written
+through `wilson rules add|edit|rm` or the web's rules page. Rules are machinery (decision 8), so every
+write needs step-up and none is offered through MCP. Planning and implementing read them beside the
+learnings, so work can meet them before anyone judges it.
+
+At review, beside the evidence, each rule whose globs match a changed path gets its own **judge**
+(`RuleJudge`): one fresh, tool-less model call, handed the rule, the plan and that rule's part of the
+diff (`git diff --no-renames`), at most three at a time. It shares nothing with the reviewer, so it
+cannot be argued out of a rule by the rest of the change or by what the reviewer concluded. The
+`rule-judge` setting (`wilson rules route`, or the rules page) names its engine and model, `api` or
+`cli`, apart from any lane's routing, so a review lane on `codex` still has judges.
+
+- **A failure with a real `file:line`** on a `blocker` rule is merged into the review's report as a
+  blocker before `ReviewVerifier` reads it, and forces `revise`. From there it is an ordinary blocker: it
+  goes through `challenge` and kickback like any other, and routing knows nothing about rules. A rule's
+  finding starts `Rule <id> failed:`, which keeps its text unique for the challenge's accounting.
+- **A failure with no citation that holds up**, or any failure of a `concern` rule, is a concern. A
+  citation is only believed if the file is one the judge was shown and the line is in it, so a judge's
+  bad citation can never get the review's report rejected. The cap of 20 findings drops the review's
+  concerns first, then the rules' concerns.
+- **No verdict** is `unavailable`: the engine failed after one retry, the deadline passed, or the
+  rule's diff is over `RULE_DIFF_MAX_CHARS`, since a judge reading part of a diff could pass a rule the
+  unread part breaks. It is advisory, never blocking, and says so on the plan.
+
+`wilson.rule_verdicts` holds every verdict, keyed by rule revision and diff hash, so a stage sent again
+over the same code makes no new calls. An `unavailable` is not reused, and a later answer replaces it.
+No rule matching leaves no trace at all. `rule.verdicts` records what was said on the event log with
+its `usage`, which counts against the card's budget and in its stats as the stage's, and as no attempt.
+All of this shares `REVIEW_PREPARATION_DEADLINE_MS` (5 minutes) with the evidence. Steps get no judges.
+
+`wilson rules check <branch>` asks the same judges about any branch's diff from its merge base, with
+nothing on the board moving, and exits 1 when a blocker rule fails. It writes verdicts, so a card over
+the same code gets them for free.
+
+A blocker that survives `challenge` and sends a card back can also become a **proposal**:
+`card.rule-proposal` asks a fresh model whether it points at a lasting rule, on the judges' route. A card
+gets one look however many kickbacks it takes, and most looks should find nothing. A proposal is
+`wilson.rule_proposals`, and is nothing until a person names and accepts it (`wilson rules accept`, or the
+rules page), behind step-up. It stops being offered after 45 days. Rule failures are never proposed from.
+
+### Measuring the reviewer
+
+Lanes can be re-routed and prompts edited, and neither says whether the change helped.
+`pnpm --filter @wilson/api eval:review` scores the real review stage on diffs with a known
+answer, so two models or two prompts can be compared on the same cases.
+
+The corpus in `apps/api/evals/review` holds 20 real defects from Wilson's history and 10
+controls. Each case runs in a scratch repository of one commit, through the same plan file,
+scope guard, adapter and `ReviewVerifier` a stage uses, with no board or database. Recall
+and specificity are reported with their `n`, both as the model reported them and as the
+verifier would have them.
+
+These scores stop at review, so they overstate what survives `challenge`. Type-check evidence,
+rule judges and learnings do not run. A scratch repository is not a sandbox: a reviewer's
+allowed commands run on this machine and can reach its test database. The live prompt is only
+in the database, so a run takes a labelled copy of it. Real runs spend model usage, so they are
+started by hand and never by CI. `apps/api/evals/review/README.md` has the method and how to read a result.
 
 ### Before the work: parking lot, planning, backlog
 
@@ -596,6 +757,15 @@ since they are one `ToolLoopAgent` model argument apart. Routing lives in
 `wilson.stage_routing`, apart from the stage config document, so one stage can change
 without rewriting it (`wilson stages route`, or Settings in the web app). Provider
 credentials are per-deployment, not per-project.
+
+A lane can also scale with the card's diff. Its optional `depths` is a ladder of
+`{ minChangedLines, model?, maxSteps?, maxInputTokens? }`, smallest first. The highest tier the
+diff reaches applies, measured as lines added plus removed from `merge-base..branch` on this
+machine before the rebase. A diff below every tier, or one that can't be measured, runs the lane
+as written. A step such as `challenge` always runs on the lane's own model, an interrupted stage
+goes back on the tier it started on, and `stage.dispatched` records the tier. `maxInputTokens` is
+cost-weighted here as everywhere. No lane should turn this on without a comparison from the
+reviewer measurement in `apps/api/evals/review/`.
 
 The adversarial reviewer reads the plan cold, with no access to the planning
 conversation, and emits `{verdict, findings[]}`.
@@ -930,24 +1100,27 @@ throughout.
 
 ## Notification
 
-ServerKit `comms` with a `ChannelRouter`; the Slack and Discord packages each ship a
-`./comms` adapter, so the channel is configuration. Per project:
-`notify: { channel: slack, target: "#wilson" }`.
+`Notifier` posts JSON to one webhook, `notifyWebhookUrl`, off when it is unset. No delivery guarantee
+beyond at-most-once.
 
-Notifications are dispatched as jobbroker jobs, never inline, so a Slack outage
-cannot fail a transition.
+A notification is sent inline, once the write it reports has committed, and a failure is logged and
+swallowed, so a webhook outage cannot fail a transition.
 
-Four triggers only — anything more and the operator learns to ignore them:
+Six moments only (`NotifyMoment`), each naming what the reader is being asked to do, because anything
+more and the operator learns to ignore them:
 
-- a card enters a `manual` stage and is waiting on a human
-- a card reaches `needs-human`
-- a card dead-letters to `poisoned`
-- a dry-run pass completes end to end
+- `manual`: a card enters a `manual` stage and is waiting on a human
+- `needs-human`: a card is flagged, by exhausted retries or a spent budget
+- `needs-answer`: a stage stopped to ask one question, which is the message's `reason`
+- `poisoned`: a card dead-letters
+- `source-closed`: a card's ticket closed upstream
+- `auto-split`: a refusal retired a card in favour of pieces waiting in `planning`
 
-Each message deep-links to the card in the web app.
+A webhook message deep-links to the card in the web app when `notifyBaseUrl` is set.
 
 Push to the Android app is a second channel beside the webhook, registered with `Notifier` at boot
-and off unless `FCM_SERVICE_ACCOUNT_FILE` names a Firebase service-account file. Delivery is
+and off unless `FCM_SERVICE_ACCOUNT_FILE` names a Firebase service-account file. It needs no webhook:
+callers always go through `Notifier`, which decides what is on. Delivery is
 at-most-once, like the webhook, and a failure can never reach a stage. Phones sign up through
 `POST /api/devices`, and FCM reporting a token `UNREGISTERED` removes it from `wilson.push_devices`.
 A message carries only the moment, the project and the card id, so card titles and failure reasons
@@ -1048,9 +1221,8 @@ reason for snapshotting: the plan's input pinned beside the plan. Two limits on 
 
 ### Notification channels
 
-Already covered by ServerKit `comms`. A `ChannelRouter` with the Slack or Discord
-`./comms` adapter makes the channel a config value, so this seam needs no new
-mechanism — see Notification.
+A `NotificationChannel` beside the webhook, registered with `Notifier` at boot, as push is — see
+Notification.
 
 ### Imported content is untrusted
 
@@ -1072,6 +1244,65 @@ executes. Treat it as data, always:
 
 Worth stating plainly because this is the one feature that opens the pipeline to
 input the operator did not write.
+
+## Evals
+
+Lanes, prompts and routes are data, and a change to one takes effect on the next dispatch. An eval is
+how to find out whether it helped before real cards pay for finding out.
+
+A **fixture** is one past stage attempt, kept: a copy of the plan as that attempt read it, and the
+commits it started from, held alive by `refs/wilson/eval/<id>/{base,head}`. `wilson eval fixture add
+<card> <stage>` captures one, for `implementing`, `testing` or `review`. Steps are left out, since
+`challenge` takes a review's findings as its input. The base is the fork point the head was committed
+on rather than the one the attempt was about to rebase onto, or everything `main` gained in between
+would read as the card's own diff.
+
+A **batch** runs fixtures again, `wilson eval run <fixtures> --host my-mac --runs 3`, and `wilson eval
+show` reports it. It freezes the lanes and learnings when it starts. Each run gets the same
+preparation, agent and verifier a stage gets (`prepareStage`, `executeStage`), so its result means what
+a stage's does, and then its work is kept as a patch on the run's row and its tree is thrown away.
+
+`--candidate <file>` adds a second arm: a YAML file naming a lane and what to change on it
+(`instructions`, `settings`, `adapter`, `provider`, `model`), validated as saving it would be and never
+saved. Each fixture must be an attempt at that lane, and the arms alternate so a slow hour falls on both.
+The report gives counts, medians and ranges and names no winner, because a few runs each cannot carry
+one. A candidate that changes nothing makes an A/A batch, which measures how far runs differ by chance;
+run one first, since a real difference has to clear that noise.
+
+**A review needs more than a verifier.** `ReviewVerifier` checks that a report is coherent, not that it
+is right, so a review that passes everything looks flawless to it. A `review` fixture therefore carries
+what the review should find, read at capture from what the card's own review concluded, with a
+`challenge` step's result taking precedence. A batch reports caught, missed, false alarms and clean. That
+default is the model agreeing with itself, so `wilson eval fixture label <id> --verdict revise --blockers
+<files>` replaces it with a person's word, and `wilson eval fixture list` shows which each one has. An
+eval's review runs no `challenge` step, so its false alarms include blockers a challenge might refute.
+
+**What a replay leaves out.** It gets review evidence and scales to its diff like a stage does, but it
+runs no rule judges and gets no rule guidance, because a judge's spend counts toward the daily ceiling
+and an eval's is held apart from it. A stage that stops to ask a question counts as not finishing, since
+nobody is there to answer. This is separate from `pnpm eval:review` (`apps/api/evals/review`), which
+scores the review stage against a curated corpus with hidden answers on the operator's own machine; a
+batch here replays the board's own history, for any of three stages, on a host, with two arms.
+
+**Nothing here reaches the board.** A run's id is `eval-<row id>`, which no card can have. It writes
+no `stage.passed`, `stage.failed` or `stage.blocked` and commits nothing, so a card's budget, the daily ceiling, the
+poller and the scope check never see it. Its tool events do land in `wilson.card_events`, which has no
+foreign key to a card, and the activity feed leaves them out. It does hold a real host slot:
+`wilson.leases` checks its card key through a column that is empty for an eval id, and a lease is live
+for as long as its run is `running`.
+
+**What it does share is the account.** A batch spends the same engine quota as real cards, held to its
+own `--max-output-tokens` (300,000 unless it says otherwise) and not to the daily ceiling. A batch stops
+when an account hits its limit rather than waiting, and waits while the server drains. A running eval
+is not something Auto-mode or `wilson card` commands can see, so check `wilson eval list` before a
+deploy as well as the running engines. A restart costs the run in progress: it is marked `abandoned`,
+left out of the counts, and the batch carries on.
+
+**Every run lands on one named host,** because a comparison between two machines measures the machines.
+Tower's container is red on tests that pass on `my-mac`, which is why a batch has no local option.
+
+Starting a batch needs step-up, as saving a lane does, and no eval operation is in the operation
+catalog (decision 8): it spends tokens and runs a config nobody saved.
 
 ## Operator apps
 
@@ -1358,7 +1589,18 @@ what is done, what is not, and what each remaining one is actually waiting on.
 **Done:**
 
 - **Budget caps.** `maxCardInputTokens`, checked before a worktree is cut so an
-  over-budget card never reaches a model.
+  over-budget card never reaches a model. Input caps are cost-weighted: fresh input
+  at 1, cache reads at 0.1, cache writes at 1.25 (`budgetedInputTokens`), mirroring API
+  pricing. Stats show raw tokens, so a stage's figure there is not what its cap saw.
+- **Gate stats.** `GET /api/stats/gates` and the Gates panel on the web stats page report kickbacks by
+  reason, why attempts failed, questions, rule failures, loop stops, how often a person was pulled in and
+  first-pass rate. A flag counts once however many events describe it. Older `stage.failed` events have no
+  `failureClass`, so they are matched by text and labelled as matched. A `revise` is a pass in `/api/stats`,
+  so the page takes those out of its pass rates.
+- **Engine compaction.** A lane's optional `autoCompactWindow` sets the window the `cli`
+  engine compacts against, at about that window minus 33k. Unset leaves it to the engine.
+  Stage config refuses a window `maxContextWindowFraction` would stop first, from about
+  315k at 0.9. Each compaction is a `stage.compacted` event.
 - **Worktree GC.** `reclaimIfTerminal` on a terminal transition; `preserveUncommitted`
   keeps a failed attempt's work as a patch first.
 - **Planning, and the interactive planning surface.** The `planning` stage, the
@@ -1532,7 +1774,7 @@ Sequenced by human toil removed per unit of work:
   `request_scope` as an auditable escape valve. See Scope enforcement.
 - **Out-of-band edits:** there is no out-of-band path; the operator edits through the CLI
   or the web app. See The operator's escape hatch.
-- **Reaching a human:** ServerKit `comms`, four triggers, dispatched as jobs. See
+- **Reaching a human:** a webhook and Android push, six moments, sent inline. See
   Notification.
 - **Adversarial plan review:** its own stage, no worktree, not a gate inside
   planning. See Stage model.
@@ -1564,4 +1806,5 @@ looking at the result:
   produce one good enough that `scope_violation: kickback` is reachable, or does
   `widen` stay on indefinitely?
 - Does `plan-review` earn its cost, or does human approval catch everything it
-  catches? Worth measuring once a few cards have run rather than assuming.
+  catches? Worth measuring once a few cards have run rather than assuming. Measuring the
+  reviewer (above) is the method to start from, though it scores only the review stage.

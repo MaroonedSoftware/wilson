@@ -1,4 +1,5 @@
 import { Injectable } from 'injectkit';
+import { evalRunRowId } from '#modules/evals/eval.run.id.js';
 import { Kysely, type Transaction } from 'kysely';
 import type { DB } from '#modules/data/db.js';
 import { EventLog, type AppendableCardEvent } from '#modules/events/event.log.js';
@@ -188,6 +189,18 @@ export class PostgresBoardRepository extends BoardRepository {
      * they held one because of the stage they happened to sit in.
      */
     async hasLiveClaim(project: string, cardId: string): Promise<boolean> {
+        // An eval run holds leases under an id with no card and no `card.stage` job.
+        const evalRun = evalRunRowId(cardId);
+        if (evalRun !== undefined) {
+            const running = await this.db
+                .selectFrom('wilson.evalRuns')
+                .select('id')
+                .where('project', '=', project)
+                .where('id', '=', evalRun)
+                .where('status', '=', 'running')
+                .executeTakeFirst();
+            return running !== undefined;
+        }
         const row = await this.db
             .selectFrom('wilson.cardJobs')
             .select('cardId')
@@ -255,6 +268,7 @@ export class PostgresBoardRepository extends BoardRepository {
                 sourceClosed: fm.sourceClosed ?? null,
                 needsHuman: fm.needsHuman ?? false,
                 needsHumanReason: fm.needsHumanReason ?? null,
+                blocked: fm.blocked ? JSON.stringify(fm.blocked) : null,
                 pinnedVersionId: fm.planVersionId ? BigInt(fm.planVersionId) : null,
             })
             .where('project', '=', this.config.project)
@@ -343,7 +357,7 @@ const versionId = (id: bigint): string => String(id);
  */
 const withDoneReason = (card: Card): Card => {
     const { doneReason: previous, ...unfinished } = card.frontmatter;
-    const { planCheck: _planCheck, planCheckReason: _planCheckReason, ...frontmatter } = unfinished;
+    const { planCheck: _planCheck, planCheckReason: _planCheckReason, blocked: _blocked, ...frontmatter } = unfinished;
     const ending = doneReasonFor(frontmatter.stage);
     if (ending) return { ...card, frontmatter: { ...frontmatter, stage: DONE, doneReason: ending } };
     if (frontmatter.stage === DONE) return { ...card, frontmatter: { ...frontmatter, doneReason: previous ?? 'merged' } };
@@ -365,6 +379,7 @@ const toCard = (
         sourceClosed: boolean | null;
         needsHuman: boolean;
         needsHumanReason: string | null;
+        blocked: unknown;
         pinnedVersionId: bigint | null;
         position: number | null;
         splitFrom: string | null;
@@ -392,6 +407,7 @@ const toCard = (
         sourceClosed: row.sourceClosed ?? undefined,
         needsHuman: row.needsHuman,
         needsHumanReason: row.needsHumanReason ?? undefined,
+        blocked: (row.blocked as CardFrontmatter['blocked'] | null) ?? undefined,
         position: row.position ?? undefined,
         splitFrom: row.splitFrom ?? undefined,
     };

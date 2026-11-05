@@ -1,5 +1,43 @@
 # @wilson/desktop
 
+## 0.17.2
+
+### Patch Changes
+
+- dfeb89f: The activity feed now names the two events checked rules write: judges looking at a review's diff, and a rule being proposed after a kickback.
+
+## 0.17.1
+
+### Patch Changes
+
+- e8c601a: The app now looks for a new version every 5 minutes rather than every six hours. A download that fails is tried again every six hours, or at once from Check for Updates or when a newer release appears.
+
+## 0.17.0
+
+### Minor Changes
+
+- 1f64883: A card whose stage stopped to ask a question now shows the question, what the stage already tried and any likely answers, with a box to send an answer. The stage then runs again in a fresh session with the answer in its plan. Needs an API with the answer operation, so deploy that first.
+
+## 0.16.0
+
+### Minor Changes
+
+- 28d6417: Show what Merge would do on a `ready` card, on the board and the card page.
+
+### Patch Changes
+
+- 4da0eb6: Name engine compaction in a card's activity.
+
+## 0.15.0
+
+### Minor Changes
+
+- 08b0e56: A change the chat proposes now reads as labelled fields instead of raw JSON, with long text drawn as Markdown in its own scrolling box. Raw JSON on the card shows exactly what Confirm will send.
+
+### Patch Changes
+
+- fcfc69a: Fix the board going blank or stale after a card was opened: clicking a card left the board unable to redraw, so it stopped following changes, and switching project showed no lanes or cards.
+
 ## 0.14.0
 
 ### Minor Changes

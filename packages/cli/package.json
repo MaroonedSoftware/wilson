@@ -24,7 +24,8 @@
         "injectkit": "^1.7.1",
         "luxon": "^3.7.2",
         "pg": "^8.23.0",
-        "reflect-metadata": "^0.2.2"
+        "reflect-metadata": "^0.2.2",
+        "yaml": "^2.9.0"
     },
     "devDependencies": {
         "@repo/config-eslint": "workspace:*",

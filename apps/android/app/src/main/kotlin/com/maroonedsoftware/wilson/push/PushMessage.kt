@@ -16,6 +16,7 @@ data class PushMessage(val moment: String, val project: String, val cardId: Stri
         when (moment) {
             "manual" -> "Card $cardId is waiting at a gate"
             "needs-human" -> "Card $cardId needs you"
+            "needs-answer" -> "Card $cardId has a question for you"
             "poisoned" -> "Card $cardId was poisoned"
             "source-closed" -> "Card $cardId's ticket closed"
             else -> "Card $cardId needs a look"

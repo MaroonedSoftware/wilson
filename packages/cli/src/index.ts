@@ -19,6 +19,7 @@ import authTokenCommand from './commands/auth/token.command.js';
 import boardInitCommand from './commands/board/init.command.js';
 import cardListCommand from './commands/card/list.command.js';
 import cardAckCommand from './commands/card/ack.command.js';
+import cardAnswerCommand from './commands/card/answer.command.js';
 import cardApproveCommand from './commands/card/approve.command.js';
 import cardCreateCommand from './commands/card/create.command.js';
 import cardDependCommand from './commands/card/depend.command.js';
@@ -58,10 +59,28 @@ import stagesSetCommand from './commands/stages/set.command.js';
 import stagesRouteCommand from './commands/stages/route.command.js';
 import stagesInstructionsCommand from './commands/stages/instructions.command.js';
 import stagesHistoryCommand from './commands/stages/history.command.js';
+import evalListCommand from './commands/eval/list.command.js';
+import evalPatchCommand from './commands/eval/patch.command.js';
+import evalRunCommand from './commands/eval/run.command.js';
+import evalShowCommand from './commands/eval/show.command.js';
+import evalStopCommand from './commands/eval/stop.command.js';
+import evalFixtureAddCommand from './commands/eval/fixture-add.command.js';
+import evalFixtureLabelCommand from './commands/eval/fixture-label.command.js';
+import evalFixtureListCommand from './commands/eval/fixture-list.command.js';
+import evalFixtureRemoveCommand from './commands/eval/fixture-remove.command.js';
 import learningsShowCommand from './commands/learnings/show.command.js';
 import learningsEditCommand from './commands/learnings/edit.command.js';
 import learningsSetCommand from './commands/learnings/set.command.js';
 import learningsVersionsCommand from './commands/learnings/versions.command.js';
+import rulesListCommand from './commands/rules/list.command.js';
+import rulesAddCommand from './commands/rules/add.command.js';
+import rulesEditCommand from './commands/rules/edit.command.js';
+import rulesRmCommand from './commands/rules/rm.command.js';
+import rulesCheckCommand from './commands/rules/check.command.js';
+import rulesRouteCommand from './commands/rules/route.command.js';
+import rulesProposalsCommand from './commands/rules/proposals.command.js';
+import rulesAcceptCommand from './commands/rules/accept.command.js';
+import rulesDeclineCommand from './commands/rules/decline.command.js';
 
 import { apiSignedIn } from './checks/api.signed.in.js';
 import { boardReady } from './checks/board.ready.js';
@@ -95,6 +114,7 @@ const app = await createCliApp({
         reg(['board', 'init'], boardInitCommand),
         reg(['card', 'list'], cardListCommand),
         reg(['card', 'ack'], cardAckCommand),
+        reg(['card', 'answer'], cardAnswerCommand),
         reg(['card', 'approve'], cardApproveCommand),
         reg(['card', 'create'], cardCreateCommand),
         reg(['card', 'depend'], cardDependCommand),
@@ -134,10 +154,28 @@ const app = await createCliApp({
         reg(['stages', 'route'], stagesRouteCommand),
         reg(['stages', 'instructions'], stagesInstructionsCommand),
         reg(['stages', 'history'], stagesHistoryCommand),
+        reg(['eval', 'run'], evalRunCommand),
+        reg(['eval', 'list'], evalListCommand),
+        reg(['eval', 'show'], evalShowCommand),
+        reg(['eval', 'stop'], evalStopCommand),
+        reg(['eval', 'patch'], evalPatchCommand),
+        reg(['eval', 'fixture', 'add'], evalFixtureAddCommand),
+        reg(['eval', 'fixture', 'label'], evalFixtureLabelCommand),
+        reg(['eval', 'fixture', 'list'], evalFixtureListCommand),
+        reg(['eval', 'fixture', 'rm'], evalFixtureRemoveCommand),
         reg(['learnings', 'show'], learningsShowCommand),
         reg(['learnings', 'edit'], learningsEditCommand),
         reg(['learnings', 'set'], learningsSetCommand),
         reg(['learnings', 'versions'], learningsVersionsCommand),
+        reg(['rules', 'list'], rulesListCommand),
+        reg(['rules', 'add'], rulesAddCommand),
+        reg(['rules', 'edit'], rulesEditCommand),
+        reg(['rules', 'rm'], rulesRmCommand),
+        reg(['rules', 'check'], rulesCheckCommand),
+        reg(['rules', 'route'], rulesRouteCommand),
+        reg(['rules', 'proposals'], rulesProposalsCommand),
+        reg(['rules', 'accept'], rulesAcceptCommand),
+        reg(['rules', 'decline'], rulesDeclineCommand),
     ],
     checks: [
         nodeVersion({ min: 22 }),

@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon';
 import { describe, expect, it } from 'vitest';
-import type { BoardColumns, CardSummary } from '@wilson/sdk';
+import type { BoardColumns, CardSummary, MergeStatus } from '@wilson/sdk';
 import {
     withDoneReason,
     ageInStage,
@@ -8,6 +8,8 @@ import {
     collapsedColumnsKey,
     columnOrder,
     groupByStage,
+    mergeStatusBadge,
+    mergeStatusLine,
     toggleCollapsed,
     unfinishedDeps,
 } from '#src/lib/board.js';
@@ -217,5 +219,61 @@ describe('ageInStage', () => {
 
     it('renders days at a day or more', () => {
         expect(ageInStage(DateTime.fromISO('2026-01-07T12:00:00.000Z'), now)).toBe('3d in stage');
+    });
+});
+
+describe('mergeStatusLine', () => {
+    const status = (over: Partial<MergeStatus>): MergeStatus => ({ state: 'clean', target: 'main', conflicts: [], movedUnder: [], ...over });
+
+    it('says a clean merge cleanly, against the target it was computed for', () => {
+        expect(mergeStatusLine(status({ target: 'dry-run-integration' }))).toBe('Merges cleanly into dry-run-integration.');
+    });
+
+    it('names the conflicting paths', () => {
+        expect(mergeStatusLine(status({ state: 'conflict', conflicts: ['a.ts', 'b.ts'] }))).toBe('Conflicts with main: a.ts, b.ts');
+    });
+
+    it('reads sensibly for a conflict git named no path for', () => {
+        expect(mergeStatusLine(status({ state: 'conflict' }))).toBe('Conflicts with main.');
+    });
+
+    it('says a merge would go back to review, and what it would hit there', () => {
+        expect(mergeStatusLine(status({ state: 'rereview', movedUnder: ['a.ts'] }))).toBe(
+            'Merge would send this back to review: main moved under a.ts.',
+        );
+        expect(mergeStatusLine(status({ state: 'rereview', movedUnder: ['a.ts'], conflicts: ['a.ts'] }))).toBe(
+            'Merge would send this back to review: main moved under a.ts. It also conflicts: a.ts',
+        );
+    });
+
+    it('says a card out of re-reviews would stop for a human', () => {
+        expect(mergeStatusLine(status({ state: 'capped', movedUnder: ['a.ts'] }))).toBe(
+            'Merge would stop and flag this for a human: main moved under a.ts, and it has used up its re-reviews.',
+        );
+    });
+
+    it('carries the reason when the check failed', () => {
+        expect(mergeStatusLine(status({ state: 'unknown', target: undefined, reason: 'no such branch' }))).toBe(
+            'Could not check the merge: no such branch',
+        );
+    });
+});
+
+describe('mergeStatusBadge', () => {
+    it('keeps a conflict visible when re-review comes first', () => {
+        expect(mergeStatusBadge({ state: 'rereview', conflicts: ['a.ts'], movedUnder: ['a.ts'] })).toEqual({
+            label: 'conflict, back to review',
+            color: 'red',
+        });
+    });
+
+    it.each([
+        ['clean', 'merges cleanly', 'green'],
+        ['conflict', 'merge conflict', 'red'],
+        ['rereview', 'back to review', 'orange'],
+        ['capped', 'merge needs a human', 'red'],
+        ['unknown', 'merge unknown', 'gray'],
+    ] as const)('labels %s', (state, label, color) => {
+        expect(mergeStatusBadge({ state, conflicts: [], movedUnder: [] })).toEqual({ label, color });
     });
 });

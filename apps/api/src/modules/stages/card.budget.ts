@@ -12,7 +12,7 @@ export const cardOverBudget = (spent: number, cap: number | undefined): string |
     if (cap === undefined || spent < cap) {
         return undefined;
     }
-    return `card has spent its budget across all stages: ${spent} input tokens spent, cap is ${cap}`;
+    return `card has spent its budget across all stages: ${spent} cost-weighted input tokens spent, cap is ${cap}`;
 };
 
 /**

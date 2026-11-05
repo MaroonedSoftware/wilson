@@ -187,7 +187,31 @@ export const patchLane = (config: LaneConfig, name: string, patch: LanePatch, so
     const patched = { ...lane, ...columns, settings };
     const next = { ...config, lanes: config.lanes.map(candidate => (candidate === lane ? patched : candidate)) };
     const { stages } = validateStages(documentFromLanes(next), source);
-    const { adapter, provider, model, isolated } = stages.find(stage => stage.name === name)!;
+    const { adapter, provider, model, isolated, depths } = stages.find(stage => stage.name === name)!;
     if (model) assertRoutable(name, { adapter, provider, model }, isolated);
+    for (const depth of depths ?? []) {
+        if (depth.model !== undefined) assertRoutable(name, { adapter, provider, model: depth.model }, isolated);
+    }
     return next;
+};
+
+/** A change to try on one lane, in the shape an operator writes it. Never saved. */
+export interface LaneCandidate {
+    lane: string;
+    instructions?: string;
+    settings?: Record<string, unknown>;
+    adapter?: string;
+    provider?: string;
+    model?: string;
+}
+
+/**
+ * `config` with a candidate applied, validated exactly as saving it would be, including its route.
+ * Pure: an eval compares this against the lanes as they stand, and nothing reaches `wilson.lanes`.
+ */
+export const applyCandidate = (config: LaneConfig, candidate: LaneCandidate, source: string): LaneConfig => {
+    const { lane: name, instructions, settings, adapter, provider, model } = candidate;
+    const route = { ...(adapter && { adapter }), ...(provider && { provider }), ...(model && { model }) };
+    const routed = { ...config, lanes: config.lanes.map(lane => (lane.name === name ? { ...lane, ...route } : lane)) };
+    return patchLane(routed, name, { ...(instructions !== undefined && { instructions }), ...(settings && { settings }) }, source);
 };

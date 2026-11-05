@@ -19,10 +19,12 @@ import { FactorsRouter } from '#src/routes/factors.router.js';
 import { HealthRouter } from '#src/routes/health.router.js';
 import { EngineTokensRouter } from '#src/routes/engine.tokens.router.js';
 import { HostsRouter } from '#src/routes/hosts.router.js';
+import { EvalsRouter } from '#src/routes/evals.router.js';
 import { LearningsRouter } from '#src/routes/learnings.router.js';
 import { OnboardingRouter } from '#src/routes/onboarding.router.js';
 import { ProjectsRouter } from '#src/routes/projects.router.js';
 import { ReviewRouter } from '#src/routes/review.router.js';
+import { RulesRouter } from '#src/routes/rules.router.js';
 import { SettingsRouter } from '#src/routes/settings.router.js';
 import { StagesRouter } from '#src/routes/stages.router.js';
 
@@ -53,9 +55,11 @@ const ROUTERS = [
     HealthRouter,
     HostsRouter,
     LearningsRouter,
+    EvalsRouter,
     OnboardingRouter,
     ProjectsRouter,
     ReviewRouter,
+    RulesRouter,
     SettingsRouter,
     StagesRouter,
 ];
@@ -100,6 +104,8 @@ describe('the MCP operation catalog', () => {
             'record_findings',
             'set_stage_config',
             'set_learnings',
+            'create_eval_batch',
+            'capture_eval_fixture',
             'send_a_plan_turn',
             'open_a_planning_session',
             'add_a_review_comment',

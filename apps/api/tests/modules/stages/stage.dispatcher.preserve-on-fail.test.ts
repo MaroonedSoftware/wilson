@@ -178,7 +178,7 @@ describe('StageDispatcher.run names the failed-attempt patch on a failing stage 
                 cardId: '0001',
                 stage: 'testing',
                 type: 'stage.failed',
-                payload: { error: 'agent adapter exploded', patchPath },
+                payload: { error: 'agent adapter exploded', patchPath, failureClass: 'error', reason: 'agent adapter exploded' },
             }),
         );
     });
