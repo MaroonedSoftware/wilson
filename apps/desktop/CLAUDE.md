@@ -100,7 +100,12 @@ background it was refused focus in 3 of 6 runs, and it skips what needs focus wh
 ## Packaging
 
 `tools/macos/make-app-bundle.sh` builds `artifacts/Wilson.app`, signed ad hoc under the hardened
-runtime. `tools/macos/make-app-icon.sh` rebuilds the committed `.icns`. Releases are not notarised, so
+runtime. It signs with `codesign` on a Mac and `rcodesign` (apple-codesign) anywhere else, and
+`SIGNER=rcodesign` tries that path on a Mac. The app is published as a single file so that
+`Contents/MacOS` holds only Mach-O: `codesign` signs any other file there in extended attributes,
+which only `ditto` keeps through a zip, and `rcodesign` cannot sign one at all, so the script refuses
+one. Measured 2026-11-05 with rcodesign 0.29.0: a bundle it signed passed `codesign --verify --strict`
+after a plain `zip -ry` and `ditto -x -k`, and launched. `tools/macos/make-app-icon.sh` rebuilds the committed `.icns`. Releases are not notarised, so
 macOS refuses a first launch.
 
 ## Releasing

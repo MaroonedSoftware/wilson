@@ -5,6 +5,9 @@
         <RootNamespace>MaroonedSoftware.Wilson.Desktop</RootNamespace>
         <AssemblyName>wilson</AssemblyName>
         <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+        <!-- Here and not on the command line, so a restore writes the lock file a publish needs. Why one
+             file: `tools/macos/make-app-bundle.sh`. -->
+        <PublishSingleFile>true</PublishSingleFile>
     </PropertyGroup>
 
     <ItemGroup>
