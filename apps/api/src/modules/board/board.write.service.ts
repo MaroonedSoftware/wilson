@@ -51,7 +51,7 @@ import { rankBetween, renormalizedPositions } from './card.position.js';
 import { blockedRetryKey, filesInScope, PLAN_SECTIONS, planGap, sectionKey, withSection, type Card } from './card.js';
 import { nextCardId, seedSplitBody, splitProblem } from './split.js';
 import type { ReviewFinding } from '#modules/stages/stage.result.js';
-import { DONE, endedAs } from '#modules/stages/terminal.js';
+import { DONE, endedAs, isTerminal } from '#modules/stages/terminal.js';
 
 /**
  * A card's retries without its current stage's own counters: what clearing a flag gives back, in full,
@@ -284,6 +284,23 @@ export class BoardWriteService {
               });
         if (reclaimed.error) {
             this.logger.warn(`could not reclaim worktree for ${id} after moving to "${target}": ${reclaimed.error}`);
+        }
+
+        // An ended card has nothing left to run, so a job still queued for it (one held across a
+        // usage limit, say) would only fire later to be refused as `stage.stale`. Cancel it on the
+        // same terminal rule as the reclaim above. Only a job that has not started: an `active` one
+        // is a stage that notices the move when it finishes. Best-effort, like the reclaim: the
+        // card has already ended, and the late job is refused anyway if this fails.
+        if (isTerminal(target)) {
+            try {
+                const jobId = await this.cardJobs.inFlight(id);
+                const job = jobId ? await this.broker.getJob('card.stage', jobId) : undefined;
+                if (jobId && (job?.state === 'created' || job?.state === 'retry')) {
+                    await this.cancelJob(id, jobId);
+                }
+            } catch (err) {
+                this.logger.warn(`could not cancel the queued job for ${id} after moving to "${target}": ${(err as Error).message}`);
+            }
         }
 
         return toCardDetail(await this.boardRepository.read(id));
@@ -836,12 +853,20 @@ export class BoardWriteService {
         const job = await this.broker.getJob('card.stage', jobId);
         const releasedAs: ReleaseResult['releasedAs'] = job?.state === 'active' ? 'orphan' : 'queued';
 
-        // Cancel, not delete: a cancelled job leaves a record behind that explains the gap in the
-        // card's history; a deleted one leaves nothing.
-        await this.broker.cancel('card.stage', jobId);
-        await this.cardJobs.clear(id);
+        await this.cancelJob(id, jobId);
 
         return { ...toCardDetail(await this.readOrThrow(id)), releasedAs };
+    }
+
+    /**
+     * Cancel a card's claimed job and clear its claim, in that order — the one way this service
+     * cancels, shared by {@link release} and a terminal {@link move}. Cancel, not delete: a cancelled
+     * job leaves a record behind that explains the gap in the card's history; a deleted one leaves
+     * nothing.
+     */
+    private async cancelJob(id: string, jobId: string): Promise<void> {
+        await this.broker.cancel('card.stage', jobId);
+        await this.cardJobs.clear(id);
     }
 
     /**
