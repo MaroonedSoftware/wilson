@@ -21,4 +21,9 @@
         <None Include="../../../android/app/src/test/resources/api/*.json" LinkBase="api" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
+    <!-- What the web app's operator-app host and this one must agree on. It reads the same file. -->
+    <ItemGroup>
+        <None Include="../../../web/tests/fixtures/app-host.json" Link="fixtures/app-host.json" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
 </Project>

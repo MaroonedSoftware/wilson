@@ -18,4 +18,8 @@
         <ProjectReference Include="../../src/MaroonedSoftware.Wilson.Desktop.Mac/MaroonedSoftware.Wilson.Desktop.Mac.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+        <None Include="hostile-app.html" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
 </Project>

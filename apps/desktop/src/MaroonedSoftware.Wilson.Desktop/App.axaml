@@ -41,6 +41,8 @@
             </StackPanel>
         </DataTemplate>
         <DataTemplate DataType="vm:ActivityViewModel"><views:ActivityView /></DataTemplate>
+        <DataTemplate DataType="vm:AppsViewModel"><views:AppsView /></DataTemplate>
+        <DataTemplate DataType="vm:AppViewModel"><views:AppView /></DataTemplate>
         <DataTemplate DataType="vm:LanesViewModel"><views:LanesView /></DataTemplate>
         <DataTemplate DataType="vm:NewProjectViewModel"><views:NewProjectView /></DataTemplate>
         <DataTemplate DataType="vm:HostsViewModel"><views:HostsView /></DataTemplate>

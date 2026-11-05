@@ -59,6 +59,7 @@ The older diff step needs a card with a branch: that API's `code_root` is its ow
 this for the findings step, which brings its own card.
 
 `dotnet run --project tools/Walk -- keychain` round-trips a throwaway item through the real Keychain.
+`apps` as a sixth argument walks only the list and page around an operator app, with no web view in it, as the headless platform has none. `app-probe` and `app-live` need a real window: see Operator apps.
 
 The walk is headless and has no menu bar. Ask macOS instead, with the app running:
 
@@ -147,9 +148,9 @@ so a GitHub that did not answer never reads as up to date.
 ## Against the web app
 
 Here: sign-in, the board and its feed, card detail and every card action, creating and editing,
-planning, chat, the diff, projects, hosts, settings and making the first account. Not here yet, so this
-still needs the web app: making a passkey, which an app signed ad hoc cannot do. Settings lists and removes
-passkeys and opens the web app to add one.
+planning, chat, the diff, projects, hosts, settings, opening operator apps and making the first account. Not
+here yet, so this still needs the web app: installing an operator app, and making a passkey, which an app signed
+ad hoc cannot do. Settings lists and removes passkeys and opens the web app to add one.
 Splitting a card is not
 here either, but the web app has no such control: it only shows a split's progress. There are no
 notifications.
@@ -180,6 +181,20 @@ each change of page, and for the project in hand where the web app reads the ser
 `ActivityViewModel` is `routes/projects.$project.activity.tsx` and `ActivitySummary` is `lib/activity.ts`.
 The header's Activity shows on a page that has a project, and Back returns to it. A re-read asks for
 as many events as are showing, so one from the feed does not take back what Show older brought in.
+
+## Operator apps
+
+The web app's rules are in `PROJECT.md`, decision 12 and Operator apps. This runs the same thing somewhere that gives none of it for free. A native web view has no iframe sandbox and no response header, so each property is built here, and **`dotnet run --project tools/Walk -- app-probe` is what says it holds**: run it after any change to these files and on each new major macOS. It opens a window for a few minutes, runs `tools/Walk/hostile-app.html` against a server logging every connection and datagram, with each lock off as the control, and fails if a control did not get out or anything did with every lock on.
+
+- **Why a hand-bound WKWebView.** No new dependency, as WebKit ships with macOS. `Avalonia.Controls.WebView` 12.1.1 wraps the same view, but its public surface, read and not run, shows a hook for the data store and none for the rule list or the private switches below, and messages with no frame on them. So the unsafe code would be needed anyway, with a wrapper in the middle of the security decision. A bundled Chromium is a very large addition, and the engine where WebRTC was measured getting out. Opening the page in the system browser adds no risk, but it needs a second sign-in, and whichever browser is the default is mostly unmeasured.
+- **The same document, the same frame.** `AppDocument` is `appDocument` to the byte, and `apps/web/tests/fixtures/app-host.json` is read by a test on each side, along with the method table. Change it deliberately in both. An app gets an opaque origin the way it does on the web, from `sandbox="allow-scripts"` on a frame `AppHostPage.Script` makes.
+- **The bridge is out of the frame's reach.** `window.webkit` exists in every frame by default, and an app's frame could post to a handler in the page's world, measured. The handler and the host script are in a named `WKContentWorld`, where the frame cannot see them, and `Receive` still checks for the main frame.
+- **`AppBroker` keeps the API's bytes.** It is `app.broker.ts`, but `ServerAppReads` goes under the generated clients, since an SDK model refuses to write a value newer than its build. The project is in the client's header, fixed when the page opens.
+- **Navigation is stopped, then noticed.** `AppHostPage.Html` carries `frame-src 'none'` in a meta element, there being no response to send it, and it stops a frame's self-navigation as the header does on the web. `AppNavigationPolicy` is a second, independent stop before any request. Each stopped alone, per the probe's table. A second `load` still fires when the policy stops one, as in Chromium, which is what closes the app. A blocked port such as 9 fires nothing, so the page stays open, having sent nothing.
+- **What only a native view can do.** `WKContentRuleList` refuses `http`, `https`, `ws`, `wss` and `file` requests. `_setPeerConnectionEnabled:` removes WebRTC, which CSP's `webrtc 'block'` does not, as WebKit ignores it just as Chromium does. Turning off the `LinkPreconnect` feature stops two things: `rel=preconnect`, which the document's policy lets through, and **a connection opened when a link with a `target` is pressed**, which the sandbox then refuses without stopping it, and which no rule list or delegate sees. That one first looked like a straggler from the unlocked run before it, and repeated with every locked run going first, which is why they do. A stray connection there is a finding, not noise.
+- **Failure.** If the rules will not compile, the app is not loaded. The two private switches go through `respondsToSelector:`, so a macOS without one still runs the app, with the limit the web app has, and only `Trace` says so. That is deliberate, as the boundary is what an app can read. The probe would fail.
+- `AppWebHost` makes the view when shown and destroys it when not, so leaving the page ends the app's document, and `OpenAgain` gets a new one with a new broker. A native view draws over everything Avalonia draws in its rectangle. `StepUpViewModel`'s overlay would be under it, though none of the five reads needs a step-up.
+- Installing stays in the web app, whose Settings already does it behind a step-up.
 
 ## Lanes
 
@@ -299,6 +314,8 @@ chat turn, chat as the home page opening the latest thread and surviving a trip 
 diff of a real branch (that diff step was not repeated after chat became the home page). The Keychain
 round trip passed on a real Keychain, and `Wilson.app` launched and opened its window. The first
 release built, signed and published from the workflow, and that download launched from `/Applications`.
+
+2026-11-05, operator apps, on macOS 26.6 and WebKit from that release. `tools/Walk -- app-probe`, in a real window and again as a copy signed with the hardened runtime and `wilson.entitlements`: with every lock on, none of 23 requests, WebRTC's datagrams or 16 ways of leaving reached the server, an opaque origin, no storage, no `window.webkit`, and only `listCards` and `getCard` reaching the broker with `board.read`. The unlocked control got out by every request and the leaving ways the sandbox itself does not stop. `tools/Walk -- app-live`, against the throwaway API in the real shell: Apps in the header, the same app reading only its own project's cards in two projects, three calls refused for want of a grant, `onChange` from a real move through the feed, a change of scheme, and an app that navigated being closed and opened again. `tools/Walk -- ... apps`: none installed, the list, and an app that has gone. Not seen: a real `Wilson.app` opening one, macOS before 26, a person's right-click menu (Reload would close the app) or a file dropped on the view, a real DNS name (`.local` lookups were watched by multicast, and images caused them unlocked and not locked, but `rel=dns-prefetch` caused none even unlocked, so that switch is unproved), and the app against Tower.
 
 2026-11-04, proposed changes: with `tools/Walk -- ... actions`, in the dark appearance, rows written to the throwaway database and read back through the API as labelled fields, a body as Markdown in its scrolling box, a list as JSON and the raw view. `ChatArguments` is `lib/chat.arguments.ts`. A proposal from a real agent turn was not seen, and neither was Confirm.
 
