@@ -13,7 +13,9 @@ options {
 #
 # The floor is `wilson.step.up`, because a grant hands out authority: only a session that proved a
 # factor in the last five minutes may install, replace or remove an app, never a key. Reading lowers
-# it to `wilson.view`. Every operation is out of an agent's reach (PROJECT.md decision 8).
+# it to `wilson.view`. Every operation is out of an agent's reach (PROJECT.md decision 8). The chat can
+# propose a new app, but that is its own pending action (`chat.app.proposal.ts`), which only the
+# person's confirm installs, with the grants they chose.
 
 # What an app may ask the web app for. All of it is read-only, and all of it is about the project the
 # app was opened in.

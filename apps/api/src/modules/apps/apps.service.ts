@@ -9,7 +9,8 @@ import { AppsRepository, type AppRow, type AppValues } from './apps.repository.j
  */
 export const MAX_APP_HTML_BYTES = 512 * 1024;
 
-const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
+/** What an app's slug must match. */
+export const APP_SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 /**
  * A stored grant this build no longer knows is dropped, not an error. An app then loses that access
@@ -30,7 +31,7 @@ const toApp = (row: AppRow): App => ({ ...toSummary(row), html: row.html });
 
 /** What an install writes, once its slug, name and size pass. */
 const validated = (slug: string, request: InstallAppRequest): AppValues => {
-    if (!SLUG.test(slug)) {
+    if (!APP_SLUG.test(slug)) {
         throw httpError(400).withDetails({ reason: 'a slug is 1 to 63 lowercase letters, digits or hyphens, starting with a letter or digit' });
     }
     const name = request.name.trim();
@@ -79,6 +80,11 @@ export class AppsService {
         const row = await this.apps.insert(validated(slug, request));
         if (!row) throw httpError(409).withDetails({ reason: `an app named "${slug}" is already installed` });
         return toApp(row);
+    }
+
+    /** Whether an app is installed under this slug. */
+    async exists(slug: string): Promise<boolean> {
+        return (await this.apps.find(slug)) !== undefined;
     }
 
     async remove(slug: string): Promise<void> {

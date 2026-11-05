@@ -123,7 +123,7 @@ const threadLock = (threadId: string): Mutex => {
 };
 
 /**
- * The chat (`chat.ck`). A turn stores the person's message, runs the thread's engine with the five
+ * The chat (`chat.ck`). A turn stores the person's message, runs the thread's engine with the
  * chat tools (`chatTools`), and stores its answer with the operations it ran. A change the answer
  * proposed runs only through {@link decide}, and a question it asked only through
  * {@link answerQuestions} — both as the person's own act, never guessed on their behalf.
