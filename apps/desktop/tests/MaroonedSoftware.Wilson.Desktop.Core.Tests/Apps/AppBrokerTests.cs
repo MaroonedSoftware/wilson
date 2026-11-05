@@ -305,6 +305,6 @@ public class AppBrokerTests
             Assert.Equal(HttpMethod.Get, request.Method);
             Assert.Equal("demo", request.Project);
         });
-        Assert.Equal(["/api/cards", "/api/cards/0001", "/api/stages", "/api/activity?limit=5&before=9", "/api/stats?days=30"], seen.Select(request => request.Url));
+        Assert.Equal(["/api/app-api/v1/cards", "/api/app-api/v1/cards/0001", "/api/app-api/v1/columns", "/api/app-api/v1/activity?limit=5&before=9", "/api/app-api/v1/stats?days=30"], seen.Select(request => request.Url));
     }
 }
