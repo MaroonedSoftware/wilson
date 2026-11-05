@@ -21,7 +21,8 @@
         "lint:check": "eslint",
         "typecheck": "tsc -p tsconfig.tests.json",
         "test": "vitest run",
-        "test:engine": "vitest run --config vitest.engine.config.ts"
+        "test:engine": "vitest run --config vitest.engine.config.ts",
+        "test:engine:compat": "vitest run --config vitest.engine.config.ts engine.compat codex.engine.contract"
     },
     "dependencies": {
         "@ai-sdk/anthropic": "^4.0.41",
