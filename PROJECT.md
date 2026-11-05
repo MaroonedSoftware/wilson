@@ -1389,7 +1389,9 @@ Measured in Brave and Chromium on 2026-11-05, with an app built to escape and a 
 
 What an app reads comes from its own routes, `app.api.ck`, under `/api/app-api/v1/`. `AppApiService` copies each
 field by name, because the routers send whatever a service returns, so a field the board gains later does not
-reach apps until it is added here. An activity event has no `payload`, and a stopped card has no `patchPath`.
+reach apps until it is added here. An activity event has no `payload`, and a stopped card has no `patchPath`. An app that
+wants more than that can call `wilson.openCard(id)`, which needs no grant and opens the card's page, closing
+the app.
 
 So the boundary is what an app can read, not where it can send it. Your session and anything ungranted stay
 out of reach, and what you grant could leave. Safari and Firefox are unmeasured.

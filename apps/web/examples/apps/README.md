@@ -33,6 +33,7 @@ rejects with an `Error` whose message is the reason. Dates arrive as ISO strings
 | `wilson.listBoardColumns()`                     | `board.read`    | `{ stages, nonStages }`     |
 | `wilson.listProjectActivity({ limit, before })` | `activity.read` | Recent events, newest first |
 | `wilson.getProjectStats({ days })`              | `stats.read`    | What the project spent      |
+| `wilson.openCard(id)`                           | none            | Nothing. See below          |
 
 Answers come from version 1 of the app API (`/api/app-api/v1`, defined in `apps/api/data/contracts/app.api.ck`).
 Fields may be added to it, but none will be changed or taken away. An optional field is left out, not sent
@@ -44,6 +45,10 @@ as `null`, unless it says otherwise.
 | `getCard`                | A card's fields plus `body`, `sections` and, for a card that was split, `pieces`                                                                                                                                |
 | An activity event        | `id`, `cardId`, `cardTitle` (`null` once the card is gone), `type`, `stage` (may be `null`), `createdAt`. Not what the event carried: open the card for that                                                    |
 | `getProjectStats`        | `since`, `until`, `zone`, `total`, `stages`, `days`, `topCards`, `conversations`, all token and attempt counts                                                                                                  |
+
+`wilson.openCard(id)` opens one of the project's cards in Wilson, for a person who wants more than the app
+shows, such as what an activity event carried. It needs no grant and answers the same whether the card exists.
+Opening the card leaves the app's page, so the app closes. Call it from a click, not on your own.
 
 An app may have 16 requests waiting at once. Past that, a request is refused until one finishes.
 

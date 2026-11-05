@@ -68,7 +68,8 @@ public class AppBrokerTests
     {
         var methods = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "app-host.json"))).RootElement.GetProperty("methods");
         var data = new TheoryData<string, string>();
-        foreach (var method in methods.EnumerateArray())
+        // A method with no grant reads nothing, so it has none to need.
+        foreach (var method in methods.EnumerateArray().Where(method => method.TryGetProperty("grant", out _)))
         {
             data.Add(method.GetProperty("name").GetString()!, method.GetProperty("grant").GetString()!);
         }
@@ -86,6 +87,36 @@ public class AppBrokerTests
         Assert.True((await Ask(method, args, [granted])).Answer.GetProperty("ok").GetBoolean());
         Assert.Contains(grant, await Refusal(method, args, [.. All.Where(other => other != granted)]), StringComparison.Ordinal);
         Assert.Contains(grant, await Refusal(method, args, []), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task OpeningACardNeedsNoGrantAndAsksTheHost()
+    {
+        var opened = new List<string>();
+        var sent = new List<string>();
+        using var broker = new AppBroker([], new FakeReads(), sent.Add, opened.Add);
+
+        await broker.ReceiveAsync("""{"id":7,"method":"openCard","args":["0001"]}""");
+
+        Assert.Equal("""{"id":7,"ok":true,"result":null}""", Assert.Single(sent));
+        Assert.Equal(["0001"], opened);
+    }
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("""[".."]""")]
+    [InlineData("""["0001","0002"]""")]
+    [InlineData("[7]")]
+    public async Task OpeningACardRefusesAnythingButOneId(string args)
+    {
+        var opened = new List<string>();
+        var sent = new List<string>();
+        using var broker = new AppBroker([], new FakeReads(), sent.Add, opened.Add);
+
+        await broker.ReceiveAsync($$"""{"id":7,"method":"openCard","args":{{args}}}""");
+
+        Assert.Contains("card id", Assert.Single(sent), StringComparison.Ordinal);
+        Assert.Empty(opened);
     }
 
     [Fact]

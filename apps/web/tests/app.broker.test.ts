@@ -22,17 +22,18 @@ const fakeClient = () => {
         listProjectActivityV1: vi.fn(async () => []),
         getProjectStatsV1: vi.fn(async () => ({ days: 7 })),
     };
-    return { client: { appApi } as unknown as AppBrokerClient, appApi };
+    const openCard = vi.fn();
+    return { client: { appApi, openCard } as unknown as AppBrokerClient, appApi, openCard };
 };
 
 const ask = async (method: string, args: unknown[] = [], grants: AppGrant[] = ALL, client = fakeClient().client) =>
     (await answerAppRequest({ id: 1, method, args }, grants, client)) as AppResponse;
 
 const failure = async (method: string, args: unknown[] = [], grants: AppGrant[] = ALL) => {
-    const { client, appApi } = fakeClient();
+    const { client, appApi, openCard } = fakeClient();
     const response = await ask(method, args, grants, client);
     expect(response.ok).toBe(false);
-    for (const call of Object.values(appApi)) expect(call).not.toHaveBeenCalled();
+    for (const call of [...Object.values(appApi), openCard]) expect(call).not.toHaveBeenCalled();
     return (response as { error: string }).error;
 };
 
@@ -58,7 +59,27 @@ describe('what each grant allows', () => {
     });
 
     it('offers exactly those methods', () => {
-        expect([...APP_METHOD_NAMES].sort()).toEqual(['getCard', 'getProjectStats', 'listBoardColumns', 'listCards', 'listProjectActivity']);
+        expect([...APP_METHOD_NAMES].sort()).toEqual([
+            'getCard',
+            'getProjectStats',
+            'listBoardColumns',
+            'listCards',
+            'listProjectActivity',
+            'openCard',
+        ]);
+    });
+});
+
+describe('opening a card', () => {
+    it('asks the host to open it, with no grant needed', async () => {
+        const { client, openCard } = fakeClient();
+
+        expect(await ask('openCard', ['0001'], [], client)).toEqual({ id: 1, ok: true, result: null });
+        expect(openCard).toHaveBeenCalledWith('0001');
+    });
+
+    it.each([[[]], [['..']], [['0001', '0002']], [[7]]])('refuses %j', async args => {
+        expect(await failure('openCard', args, [])).toContain('card id');
     });
 });
 

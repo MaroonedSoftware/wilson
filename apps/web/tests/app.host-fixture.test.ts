@@ -14,7 +14,7 @@ const fixture = JSON.parse(readFileSync(new URL('./fixtures/app-host.json', impo
     sandbox: string;
     connectMessage: string;
     maxRequestsInFlight: number;
-    methods: { name: string; grant: AppGrant }[];
+    methods: { name: string; grant?: AppGrant }[];
     html: string;
     context: { project: string; grants: AppGrant[]; colorScheme: AppColorScheme };
     document: string;
@@ -39,7 +39,7 @@ describe('what the web and desktop hosts share', () => {
         expect(APP_METHOD_NAMES).toEqual(fixture.methods.map(method => method.name));
     });
 
-    it.each(fixture.methods)('$name needs $grant', async ({ name, grant }) => {
+    it.each(fixture.methods.filter(method => method.grant))('$name needs $grant', async ({ name, grant }) => {
         const response = await answerAppRequest({ id: 1, method: name, args: [] }, [], {} as AppBrokerClient);
 
         expect(response).toEqual({ id: 1, ok: false, error: `${name} needs the ${grant} grant, which this app was not installed with` });

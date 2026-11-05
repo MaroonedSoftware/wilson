@@ -29,7 +29,7 @@ public static class AppDocument
     public const string ConnectMessage = "wilson.connect";
 
     /// <summary>The methods `window.wilson` offers, granted or not, in the web app's order.</summary>
-    public static readonly IReadOnlyList<string> MethodNames = ["listCards", "getCard", "listBoardColumns", "listProjectActivity", "getProjectStats"];
+    public static readonly IReadOnlyList<string> MethodNames = ["listCards", "getCard", "listBoardColumns", "listProjectActivity", "getProjectStats", "openCard"];
 
     private static readonly JsonSerializerOptions ScriptOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 

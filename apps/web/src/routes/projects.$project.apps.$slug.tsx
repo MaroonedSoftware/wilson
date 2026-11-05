@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Loader, Stack, Title } from '@mantine/core';
 import { AppFrame } from '#src/components/AppFrame.js';
@@ -22,6 +22,7 @@ function ProjectAppRoute() {
     const sdk = useWilsonSdk();
     const app = useQuery({ queryKey: ['apps', slug], queryFn: () => sdk.apps.getApp(slug) });
     const client = useMemo(() => wilsonForProject(project), [project]);
+    const navigate = useNavigate();
 
     return (
         <Stack gap="sm" h={`calc(100dvh - ${SHELL_OFFSET})`}>
@@ -48,6 +49,7 @@ function ProjectAppRoute() {
                             html={app.data.html}
                             project={project}
                             grants={app.data.grants}
+                            openCard={cardId => void navigate({ to: '/projects/$project/cards/$cardId', params: { project, cardId } })}
                         />
                     </WilsonSdkProvider>
                 </>
