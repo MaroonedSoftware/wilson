@@ -4,10 +4,19 @@ import { JobBroker } from '@maroonedsoftware/jobbroker';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { HostRepository } from '#modules/host/host.repository.js';
 import { LearningsStore } from '#modules/learnings/learnings.store.js';
-import { documentFromLanes } from '#modules/stages/lane.rows.js';
+import { applyCandidate, documentFromLanes, type LaneConfig } from '#modules/stages/lane.rows.js';
+import { StageConfigError } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
-import type { CreateEvalBatchRequest, EvalBatch, EvalBatchDetail, EvalRun, EvalRunPatch, ListEvalBatchesQuery } from '../../generated/evals.js';
-import { summarizeRuns } from './eval.report.js';
+import type {
+    CreateEvalBatchRequest,
+    EvalBatch,
+    EvalBatchDetail,
+    EvalRun,
+    EvalRunPatch,
+    LaneCandidate as LaneCandidateContract,
+    ListEvalBatchesQuery,
+} from '../../generated/evals.js';
+import { summarizeRuns, totalRuns } from './eval.report.js';
 import { EvalFixtureRepository } from './eval.fixture.repository.js';
 import { EvalRunRepository, type EvalArm, type EvalBatchRow, type EvalRunRow } from './eval.run.repository.js';
 
@@ -27,6 +36,7 @@ const batchContract = (batch: EvalBatchRow, spentOutputTokens: number): EvalBatc
     runsPerFixture: batch.runsPerFixture,
     maxOutputTokens: batch.maxOutputTokens,
     spentOutputTokens,
+    ...(batch.candidate !== undefined && { candidate: batch.candidate as LaneCandidateContract }),
     ...(batch.stopReason && { stopReason: batch.stopReason }),
     ...(batch.waitingReason && { waitingReason: batch.waitingReason }),
     createdAt: batch.createdAt,
@@ -59,6 +69,20 @@ const runContract = (run: EvalRunRow): EvalRun => ({
 export const orderRuns = (fixtureIds: readonly string[], arms: readonly EvalArm[], runs: number): { fixtureId: string; arm: EvalArm }[] =>
     fixtureIds.flatMap(fixtureId => Array.from({ length: runs }, () => arms.map(arm => ({ fixtureId, arm }))).flat());
 
+/** The lanes with a candidate applied, refused the way saving that change would be. */
+const candidateDocument = (lanes: LaneConfig, candidate: LaneCandidateContract): unknown => {
+    const { settings } = candidate;
+    if (settings !== undefined && (typeof settings !== 'object' || settings === null || Array.isArray(settings))) {
+        throw httpError(400).withDetails({ reason: "a candidate's settings must be a mapping of names to values" });
+    }
+    try {
+        return documentFromLanes(applyCandidate(lanes, { ...candidate, settings }, `the candidate for lane "${candidate.lane}"`));
+    } catch (err) {
+        if (err instanceof StageConfigError) throw httpError(400).withDetails({ reason: err.message });
+        throw err;
+    }
+};
+
 /** Starting a batch and reading what it found. Never touches a card or a lane. */
 @Injectable()
 export class EvalBatchesService {
@@ -72,7 +96,7 @@ export class EvalBatchesService {
         private readonly broker: JobBroker,
     ) {}
 
-    async create({ fixtureIds, host, runs, maxOutputTokens }: CreateEvalBatchRequest): Promise<EvalBatchDetail> {
+    async create({ fixtureIds, host, candidate, runs, maxOutputTokens }: CreateEvalBatchRequest): Promise<EvalBatchDetail> {
         const perFixture = runs ?? DEFAULT_RUNS;
         if (perFixture < 1 || perFixture > MAX_RUNS) {
             throw httpError(400).withDetails({ reason: `runs must be between 1 and ${MAX_RUNS}` });
@@ -83,18 +107,27 @@ export class EvalBatchesService {
         if (unique.length === 0) throw httpError(400).withDetails({ reason: 'name at least one fixture' });
 
         for (const id of unique) {
-            if (!IS_ID.test(id) || !(await this.fixtures.find(id))) throw httpError(404).withDetails({ reason: `no fixture ${id}` });
+            const fixture = IS_ID.test(id) ? await this.fixtures.find(id) : undefined;
+            if (!fixture) throw httpError(404).withDetails({ reason: `no fixture ${id}` });
+            // The other lanes are not read by this attempt, so both arms would be the same run.
+            if (candidate && fixture.stage !== candidate.lane) {
+                throw httpError(400).withDetails({
+                    reason: `fixture ${id} is an attempt at ${fixture.stage}, which a change to ${candidate.lane} cannot affect`,
+                });
+            }
         }
         const row = await this.hosts.find(host);
         if (!row) throw httpError(404).withDetails({ reason: `no host named "${host}"` });
 
+        const lanes = await this.stages.laneConfig();
         const batch = await this.runs.createBatch({
             host,
             runsPerFixture: perFixture,
             maxOutputTokens: limit,
-            currentLanes: documentFromLanes(await this.stages.laneConfig()),
+            currentLanes: documentFromLanes(lanes),
+            ...(candidate && { candidateLanes: candidateDocument(lanes, candidate), candidate }),
             learnings: await this.learnings.load(),
-            runs: orderRuns(unique, ['current'], perFixture),
+            runs: orderRuns(unique, candidate ? ['current', 'candidate'] : ['current'], perFixture),
         });
         await this.broker.send('eval.run', { batchId: batch.id, project: this.config.project });
         return this.show(batch.id);
@@ -113,6 +146,7 @@ export class EvalBatchesService {
             batch: batchContract(batch, await this.runs.outputTokensSpent(id)),
             runs: runs.map(runContract),
             summary: summarizeRuns(runs),
+            totals: totalRuns(runs),
         };
     }
 

@@ -29,6 +29,32 @@ const spread = (values: number[]): EvalSpread | undefined => {
     return { median, min: sorted[0]!, max: sorted[sorted.length - 1]! };
 };
 
+/** One arm across every fixture. */
+export type EvalArmTotal = Omit<EvalArmSummary, 'fixtureId' | 'failures'>;
+
+const countsOf = (group: readonly EvalRunRow[]): Omit<EvalArmTotal, 'arm'> => {
+    const judged = group.filter(run => run.status === 'passed' || run.status === 'failed');
+    const count = (...statuses: EvalRunRow['status'][]) => group.filter(run => statuses.includes(run.status)).length;
+    const outputTokens = spread(judged.flatMap(run => (run.outputTokens === undefined ? [] : [run.outputTokens])));
+    const wallClockMs = spread(judged.flatMap(run => (run.wallClockMs === undefined ? [] : [run.wallClockMs])));
+    return {
+        passed: count('passed'),
+        failed: count('failed'),
+        errored: count('errored'),
+        interrupted: count('interrupted', 'abandoned'),
+        pending: count('queued', 'running', 'skipped'),
+        ...(outputTokens && { outputTokens }),
+        ...(wallClockMs && { wallClockMs }),
+    };
+};
+
+/** Each arm across the whole batch, current first. */
+export const totalRuns = (runs: readonly EvalRunRow[]): EvalArmTotal[] =>
+    (['current', 'candidate'] as const).flatMap(arm => {
+        const group = runs.filter(run => run.arm === arm);
+        return group.length === 0 ? [] : [{ arm, ...countsOf(group) }];
+    });
+
 /**
  * A batch's results per fixture and arm. Deliberately no verdict: with a handful of runs each, the
  * honest report is the counts and the spread, for a person to read against an A/A batch's noise.
@@ -41,22 +67,16 @@ export const summarizeRuns = (runs: readonly EvalRunRow[]): EvalArmSummary[] => 
     }
 
     return [...groups.values()].map(group => {
-        const judged = group.filter(run => run.status === 'passed' || run.status === 'failed');
-        const count = (...statuses: EvalRunRow['status'][]) => group.filter(run => statuses.includes(run.status)).length;
         const reasons = new Map<string, number>();
-        for (const run of judged) for (const reason of run.failures) reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
-        const outputTokens = spread(judged.flatMap(run => (run.outputTokens === undefined ? [] : [run.outputTokens])));
-        const wallClockMs = spread(judged.flatMap(run => (run.wallClockMs === undefined ? [] : [run.wallClockMs])));
+        for (const run of group) {
+            if (run.status === 'passed' || run.status === 'failed') {
+                for (const reason of run.failures) reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
+            }
+        }
         return {
             fixtureId: group[0]!.fixtureId,
             arm: group[0]!.arm,
-            passed: count('passed'),
-            failed: count('failed'),
-            errored: count('errored'),
-            interrupted: count('interrupted', 'abandoned'),
-            pending: count('queued', 'running', 'skipped'),
-            ...(outputTokens && { outputTokens }),
-            ...(wallClockMs && { wallClockMs }),
+            ...countsOf(group),
             failures: [...reasons].map(([reason, n]) => ({ reason, count: n })).sort((a, b) => b.count - a.count),
         };
     });

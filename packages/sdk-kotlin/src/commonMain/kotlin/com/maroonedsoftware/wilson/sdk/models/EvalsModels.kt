@@ -4,6 +4,7 @@ package com.maroonedsoftware.wilson.sdk.models
 import com.maroonedsoftware.wilson.sdk.runtime.SdkEnumSerializer
 import kotlin.time.Instant
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 /** One past attempt, kept to be run again. `warnings` is only ever filled when capturing one. */
 @Serializable
@@ -28,21 +29,17 @@ data class CaptureEvalFixtureRequest(
 )
 
 /**
- * One batch: fixtures run again on one host, up to a limit on what it spends. `waitingReason` says why
- * nothing is running right now, such as a host with no slot free.
+ * A change to try on one lane, never saved. With nothing but `lane` it changes nothing, which makes an
+ * A/A batch: both arms the same, to measure how much runs differ by chance.
  */
 @Serializable
-data class EvalBatch(
-    val id: String,
-    val status: EvalBatchStatus,
-    val host: String,
-    val runsPerFixture: Long,
-    val maxOutputTokens: Long,
-    val spentOutputTokens: Long,
-    val stopReason: String? = null,
-    val waitingReason: String? = null,
-    val createdAt: Instant,
-    val finishedAt: Instant? = null,
+data class LaneCandidate(
+    val lane: String,
+    val instructions: String? = null,
+    val settings: JsonElement? = null,
+    val adapter: String? = null,
+    val provider: String? = null,
+    val model: String? = null,
 )
 
 /**
@@ -88,18 +85,54 @@ data class EvalRunPatch(
     val truncated: Boolean,
 )
 
-/** `runs` is per fixture and defaults to 3. `maxOutputTokens` defaults to 300000. */
+@Serializable
+data class ListEvalBatchesQuery(
+    val limit: Long? = null,
+)
+
+/**
+ * One batch: fixtures run again on one host, up to a limit on what it spends. `waitingReason` says why
+ * nothing is running right now, such as a host with no slot free.
+ */
+@Serializable
+data class EvalBatch(
+    val id: String,
+    val status: EvalBatchStatus,
+    val host: String,
+    val runsPerFixture: Long,
+    val maxOutputTokens: Long,
+    val spentOutputTokens: Long,
+    val candidate: LaneCandidate? = null,
+    val stopReason: String? = null,
+    val waitingReason: String? = null,
+    val createdAt: Instant,
+    val finishedAt: Instant? = null,
+)
+
+/**
+ * `runs` is per fixture and per arm, and defaults to 3. `maxOutputTokens` defaults to 300000. With a
+ * `candidate`, every fixture must be an attempt at the lane it changes, and the arms alternate.
+ */
 @Serializable
 data class CreateEvalBatchRequest(
     val fixtureIds: List<String>,
     val host: String,
+    val candidate: LaneCandidate? = null,
     val runs: Long? = null,
     val maxOutputTokens: Long? = null,
 )
 
+/** One arm across every fixture in the batch. */
 @Serializable
-data class ListEvalBatchesQuery(
-    val limit: Long? = null,
+data class EvalArmTotal(
+    val arm: EvalArmTotalArm,
+    val passed: Long,
+    val failed: Long,
+    val errored: Long,
+    val interrupted: Long,
+    val pending: Long,
+    val outputTokens: EvalSpread? = null,
+    val wallClockMs: EvalSpread? = null,
 )
 
 /**
@@ -125,6 +158,7 @@ data class EvalBatchDetail(
     val batch: EvalBatch,
     val runs: List<EvalRun>,
     val summary: List<EvalArmSummary>,
+    val totals: List<EvalArmTotal>,
 )
 
 @Serializable(with = EvalBatchStatusSerializer::class)
@@ -219,4 +253,24 @@ object EvalArmSummaryArmSerializer : SdkEnumSerializer<EvalArmSummaryArm>(
     EvalArmSummaryArm.UNKNOWN,
     EvalArmSummaryArm.CURRENT to "current",
     EvalArmSummaryArm.CANDIDATE to "candidate",
+)
+
+@Serializable(with = EvalArmTotalArmSerializer::class)
+enum class EvalArmTotalArm {
+    CURRENT,
+    CANDIDATE,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [EvalArmTotalArm] by its wire spelling. A spelling it does not know reads as [EvalArmTotalArm.UNKNOWN]. */
+object EvalArmTotalArmSerializer : SdkEnumSerializer<EvalArmTotalArm>(
+    "EvalArmTotalArm",
+    EvalArmTotalArm.UNKNOWN,
+    EvalArmTotalArm.CURRENT to "current",
+    EvalArmTotalArm.CANDIDATE to "candidate",
 )

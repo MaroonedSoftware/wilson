@@ -25,7 +25,7 @@ import { hostSlotKey } from '#modules/host/placement.js';
 import { gitSshCommand, SshHost } from '#modules/host/ssh.execution.host.js';
 import { SshGitTransport } from '#modules/host/ssh.git.transport.js';
 import { LeaseService } from '#modules/lease/lease.service.js';
-import { documentFromLanes, lanesFromDocument } from '#modules/stages/lane.rows.js';
+import { applyCandidate, documentFromLanes, lanesFromDocument } from '#modules/stages/lane.rows.js';
 import { StageResultSchemaMap } from '#modules/stages/stage.result.js';
 import { StageVerifierMap, type StageVerifier, type VerificationInput } from '#modules/stages/stage.verifier.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
@@ -265,6 +265,31 @@ describe('EvalRunner', () => {
         expect(await gitIn(codeRoot, 'branch', '--list', `eval/${id}`)).toBe('');
         expect(await gitIn(hostClone, 'for-each-ref', 'refs/wilson/base/')).toBe('');
         expect(await gitIn(hostClone, 'worktree', 'list', '--porcelain')).not.toContain(id);
+    });
+
+    it('runs each arm under its own lanes, frozen when the batch began', async () => {
+        const seen: string[] = [];
+        agent = async ({ stage }) => {
+            seen.push(stage.instructions);
+            return { result: {}, truncated: false };
+        };
+        const config = lanesFromDocument(lanes, new Map(), 'test');
+        const batch = await runs.createBatch({
+            host: 'agent-t',
+            runsPerFixture: 1,
+            maxOutputTokens: 1000,
+            currentLanes: documentFromLanes(config),
+            candidateLanes: documentFromLanes(applyCandidate(config, { lane: 'review', instructions: 'review it harder' }, 'test')),
+            learnings: '',
+            runs: [
+                { fixtureId, arm: 'current' },
+                { fixtureId, arm: 'candidate' },
+            ],
+        });
+
+        await drain(batch.id);
+
+        expect(seen).toEqual(['review it', 'review it harder']);
     });
 
     it('records a verifier’s failures as the run’s, and goes on', async () => {

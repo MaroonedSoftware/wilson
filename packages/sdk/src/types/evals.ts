@@ -1,4 +1,6 @@
 import { DateTime } from 'luxon';
+import type { JsonValue } from '../sdk-options.js';
+
 const __dt = (v: unknown, path: string): DateTime => {
     if (typeof v !== 'string') {
         throw new TypeError(`ContractKit: expected an ISO 8601 string at '${path}', received ${typeof v}.`);
@@ -42,31 +44,17 @@ export interface CaptureEvalFixtureRequest {
 }
 
 /**
- * One batch: fixtures run again on one host, up to a limit on what it spends. `waitingReason` says why
- * nothing is running right now, such as a host with no slot free.
- * generated from [EvalBatch](../../../../apps/api/data/contracts/evals.ck)
+ * A change to try on one lane, never saved. With nothing but `lane` it changes nothing, which makes an
+ * A/A batch: both arms the same, to measure how much runs differ by chance.
+ * generated from [LaneCandidate](../../../../apps/api/data/contracts/evals.ck)
  */
-export interface EvalBatch {
-    id: string;
-    status: 'running' | 'finished' | 'stopped';
-    host: string;
-    runsPerFixture: number;
-    maxOutputTokens: number;
-    spentOutputTokens: number;
-    stopReason?: string;
-    waitingReason?: string;
-    createdAt: DateTime;
-    finishedAt?: DateTime;
-}
-
-/** Rehydrates every wire-encoded scalar in a EvalBatch into its runtime type. Mutates and returns `raw`. */
-export function reviveEvalBatch(raw: EvalBatch): EvalBatch {
-    const __o0 = raw as unknown as Record<string, unknown>;
-    __o0['createdAt'] = __dt(__o0['createdAt'], 'EvalBatch.createdAt');
-    if (__o0['finishedAt'] != null) {
-        __o0['finishedAt'] = __dt(__o0['finishedAt'], 'EvalBatch.finishedAt');
-    }
-    return raw;
+export interface LaneCandidate {
+    lane: string;
+    instructions?: string;
+    settings?: JsonValue;
+    adapter?: string;
+    provider?: string;
+    model?: string;
 }
 
 /**
@@ -119,21 +107,67 @@ export interface EvalRunPatch {
 }
 
 /**
- * `runs` is per fixture and defaults to 3. `maxOutputTokens` defaults to 300000.
+ * generated from [ListEvalBatchesQuery](../../../../apps/api/data/contracts/evals.ck)
+ */
+export interface ListEvalBatchesQuery {
+    limit?: number;
+}
+
+/**
+ * One batch: fixtures run again on one host, up to a limit on what it spends. `waitingReason` says why
+ * nothing is running right now, such as a host with no slot free.
+ * generated from [EvalBatch](../../../../apps/api/data/contracts/evals.ck)
+ */
+export interface EvalBatch {
+    id: string;
+    status: 'running' | 'finished' | 'stopped';
+    host: string;
+    runsPerFixture: number;
+    maxOutputTokens: number;
+    spentOutputTokens: number;
+    candidate?: LaneCandidate;
+    stopReason?: string;
+    waitingReason?: string;
+    createdAt: DateTime;
+    finishedAt?: DateTime;
+}
+
+/** Rehydrates every wire-encoded scalar in a EvalBatch into its runtime type. Mutates and returns `raw`. */
+export function reviveEvalBatch(raw: EvalBatch): EvalBatch {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['createdAt'] = __dt(__o0['createdAt'], 'EvalBatch.createdAt');
+    if (__o0['finishedAt'] != null) {
+        __o0['finishedAt'] = __dt(__o0['finishedAt'], 'EvalBatch.finishedAt');
+    }
+    return raw;
+}
+
+/**
+ * `runs` is per fixture and per arm, and defaults to 3. `maxOutputTokens` defaults to 300000. With a
+ * `candidate`, every fixture must be an attempt at the lane it changes, and the arms alternate.
  * generated from [CreateEvalBatchRequest](../../../../apps/api/data/contracts/evals.ck)
  */
 export interface CreateEvalBatchRequest {
     fixtureIds: string[];
     host: string;
+    candidate?: LaneCandidate;
     runs?: number;
     maxOutputTokens?: number;
 }
 
 /**
- * generated from [ListEvalBatchesQuery](../../../../apps/api/data/contracts/evals.ck)
+ * One arm across every fixture in the batch.
+ * generated from [EvalArmTotal](../../../../apps/api/data/contracts/evals.ck)
  */
-export interface ListEvalBatchesQuery {
-    limit?: number;
+export interface EvalArmTotal {
+    arm: 'current' | 'candidate';
+    passed: number;
+    failed: number;
+    errored: number;
+    interrupted: number;
+    pending: number;
+    outputTokens?: EvalSpread;
+    wallClockMs?: EvalSpread;
 }
 
 /**
@@ -161,6 +195,7 @@ export interface EvalBatchDetail {
     batch: EvalBatch;
     runs: EvalRun[];
     summary: EvalArmSummary[];
+    totals: EvalArmTotal[];
 }
 
 /** Rehydrates every wire-encoded scalar in a EvalBatchDetail into its runtime type. Mutates and returns `raw`. */

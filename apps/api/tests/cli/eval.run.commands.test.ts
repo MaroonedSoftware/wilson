@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { EvalBatchDetail } from '@wilson/sdk';
 import { buildCtx, fetchMock, jsonResponse, methodOf, reasonResponse, urlOf, type Handler } from './sdk-fetch.helper.js';
@@ -41,6 +44,7 @@ const detail = (): EvalBatchDetail =>
                 error: 'setup failed',
             },
         ],
+        totals: [{ arm: 'current', passed: 1, failed: 1, errored: 1, interrupted: 0, pending: 0 }],
         summary: [
             {
                 fixtureId: '7',
@@ -79,7 +83,57 @@ describe('wilson eval run', () => {
     });
 });
 
+describe('wilson eval run --candidate', () => {
+    it('sends the candidate the file describes', async () => {
+        const dir = await mkdtemp(join(tmpdir(), 'eval-candidate-'));
+        const file = join(dir, 'candidate.yaml');
+        await writeFile(file, 'lane: review\ninstructions: |\n  look harder\nsettings:\n  maxSteps: 80\n');
+        fetchMock.mockResolvedValueOnce(jsonResponse(detail(), 201));
+        const { ctx } = buildCtx();
+
+        await (run.run as unknown as Handler)({ host: 'my-mac', candidate: file }, ctx, ['7']);
+
+        expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body)).candidate).toEqual({
+            lane: 'review',
+            instructions: 'look harder\n',
+            settings: { maxSteps: 80 },
+        });
+    });
+});
+
 describe('renderBatch', () => {
+    it('shows both arms of a fixture, the change and a total, and names no winner', () => {
+        const base = detail();
+        const summary = [
+            { fixtureId: '7', arm: 'current', passed: 2, failed: 1, errored: 0, interrupted: 0, pending: 0, failures: [] },
+            { fixtureId: '7', arm: 'candidate', passed: 3, failed: 0, errored: 0, interrupted: 0, pending: 0, failures: [] },
+            { fixtureId: '8', arm: 'current', passed: 1, failed: 0, errored: 0, interrupted: 0, pending: 0, failures: [] },
+        ];
+        const text = renderBatch({
+            ...base,
+            batch: { ...base.batch, candidate: { lane: 'review', model: 'other' } },
+            summary,
+            totals: [
+                { arm: 'current', passed: 3, failed: 1, errored: 0, interrupted: 0, pending: 0 },
+                { arm: 'candidate', passed: 3, failed: 0, errored: 0, interrupted: 0, pending: 0 },
+            ],
+        } as unknown as EvalBatchDetail);
+
+        expect(text).toContain('candidate: review, changing model');
+        expect(text).toMatch(/current\s+passed 2\/3/);
+        expect(text).toMatch(/candidate\s+passed 3\/3/);
+        expect(text).toContain('all fixtures');
+        expect(text).toMatch(/current\s+passed 3\/4/);
+        expect(text.toLowerCase()).not.toMatch(/winner|better|worse|significant/);
+    });
+
+    it('calls a candidate that changes nothing an A/A batch', () => {
+        const base = detail();
+        const text = renderBatch({ ...base, batch: { ...base.batch, candidate: { lane: 'review' } } } as unknown as EvalBatchDetail);
+
+        expect(text).toContain('changing nothing (A/A)');
+    });
+
     it('reports counts, spreads, reasons and runs with no verdict, and names no winner', () => {
         const text = renderBatch(detail());
 

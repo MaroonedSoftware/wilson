@@ -1083,6 +1083,13 @@ show` reports it. It freezes the lanes and learnings when it starts. Each run ge
 preparation, agent and verifier a stage gets (`prepareStage`, `executeStage`), so its result means what
 a stage's does, and then its work is kept as a patch on the run's row and its tree is thrown away.
 
+`--candidate <file>` adds a second arm: a YAML file naming a lane and what to change on it
+(`instructions`, `settings`, `adapter`, `provider`, `model`), validated as saving it would be and never
+saved. Each fixture must be an attempt at that lane, and the arms alternate so a slow hour falls on both.
+The report gives counts, medians and ranges and names no winner, because a few runs each cannot carry
+one. A candidate that changes nothing makes an A/A batch, which measures how far runs differ by chance;
+run one first, since a real difference has to clear that noise.
+
 **Nothing here reaches the board.** A run's id is `eval-<row id>`, which no card can have. It writes
 no `stage.passed` or `stage.failed` and commits nothing, so a card's budget, the daily ceiling, the
 poller and the scope check never see it. Its tool events do land in `wilson.card_events`, which has no

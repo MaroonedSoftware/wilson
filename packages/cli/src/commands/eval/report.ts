@@ -1,11 +1,11 @@
-import type { EvalArmSummary, EvalBatchDetail, EvalSpread } from '@wilson/sdk';
+import type { EvalArmTotal, EvalBatchDetail, EvalSpread, LaneCandidate } from '@wilson/sdk';
 
 const spread = (value: EvalSpread | undefined, unit: string): string => (value ? `${value.median}${unit} (${value.min}-${value.max})` : '-');
 
 const seconds = (value: EvalSpread | undefined): EvalSpread | undefined =>
     value && { median: Math.round(value.median / 1000), min: Math.round(value.min / 1000), max: Math.round(value.max / 1000) };
 
-const armLine = (summary: EvalArmSummary): string => {
+const armLine = (summary: EvalArmTotal): string => {
     const judged = summary.passed + summary.failed;
     const apart = [
         summary.errored > 0 ? `${summary.errored} errored` : '',
@@ -21,12 +21,18 @@ const armLine = (summary: EvalArmSummary): string => {
     ].join(' ');
 };
 
+const describeCandidate = ({ lane, ...changes }: LaneCandidate): string => {
+    const names = Object.keys(changes);
+    return `candidate: ${lane}, ${names.length > 0 ? `changing ${names.join(', ')}` : 'changing nothing (A/A)'}`;
+};
+
 /**
  * A batch as text. Counts and spreads with no verdict: with a handful of runs each, whether a gap
  * means anything is for a person to judge against an A/A batch's noise.
  */
-export const renderBatch = ({ batch, runs, summary }: EvalBatchDetail): string => {
+export const renderBatch = ({ batch, runs, summary, totals }: EvalBatchDetail): string => {
     const lines = [`batch ${batch.id}: ${batch.status} on ${batch.host}, ${batch.spentOutputTokens}/${batch.maxOutputTokens} output tokens`];
+    if (batch.candidate) lines.push(describeCandidate(batch.candidate));
     if (batch.stopReason) lines.push(`stopped: ${batch.stopReason}`);
     if (batch.waitingReason) lines.push(`waiting: ${batch.waitingReason}`);
     for (const fixtureId of new Set(summary.map(row => row.fixtureId))) {
@@ -35,6 +41,10 @@ export const renderBatch = ({ batch, runs, summary }: EvalBatchDetail): string =
             lines.push(armLine(row));
             for (const { reason, count } of row.failures) lines.push(`    ${count}x ${reason}`);
         }
+    }
+    if (new Set(summary.map(row => row.fixtureId)).size > 1) {
+        lines.push('', 'all fixtures');
+        for (const total of totals) lines.push(armLine(total));
     }
     const errors = runs.filter(run => run.error);
     if (errors.length > 0) {

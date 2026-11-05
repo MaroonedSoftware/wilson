@@ -57,43 +57,33 @@ public sealed record CaptureEvalFixtureRequest
 }
 
 /// <summary>
-/// One batch: fixtures run again on one host, up to a limit on what it spends. `waitingReason` says why
-/// nothing is running right now, such as a host with no slot free.
+/// A change to try on one lane, never saved. With nothing but `lane` it changes nothing, which makes an
+/// A/A batch: both arms the same, to measure how much runs differ by chance.
 /// </summary>
-public sealed record EvalBatch
+public sealed record LaneCandidate
 {
-    [JsonPropertyName("id")]
-    public required string Id { get; init; }
+    [JsonPropertyName("lane")]
+    public required string Lane { get; init; }
 
-    [JsonPropertyName("status")]
-    public required EvalBatchStatus Status { get; init; }
-
-    [JsonPropertyName("host")]
-    public required string Host { get; init; }
-
-    [JsonPropertyName("runsPerFixture")]
-    public required long RunsPerFixture { get; init; }
-
-    [JsonPropertyName("maxOutputTokens")]
-    public required long MaxOutputTokens { get; init; }
-
-    [JsonPropertyName("spentOutputTokens")]
-    public required long SpentOutputTokens { get; init; }
-
-    [JsonPropertyName("stopReason")]
+    [JsonPropertyName("instructions")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? StopReason { get; init; }
+    public string? Instructions { get; init; }
 
-    [JsonPropertyName("waitingReason")]
+    [JsonPropertyName("settings")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? WaitingReason { get; init; }
+    public JsonElement? Settings { get; init; }
 
-    [JsonPropertyName("createdAt")]
-    public required DateTimeOffset CreatedAt { get; init; }
-
-    [JsonPropertyName("finishedAt")]
+    [JsonPropertyName("adapter")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public DateTimeOffset? FinishedAt { get; init; }
+    public string? Adapter { get; init; }
+
+    [JsonPropertyName("provider")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Provider { get; init; }
+
+    [JsonPropertyName("model")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Model { get; init; }
 }
 
 /// <summary>
@@ -188,7 +178,61 @@ public sealed record EvalRunPatch
     public required bool Truncated { get; init; }
 }
 
-/// <summary>`runs` is per fixture and defaults to 3. `maxOutputTokens` defaults to 300000.</summary>
+public sealed record ListEvalBatchesQuery
+{
+    [JsonPropertyName("limit")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? Limit { get; init; }
+}
+
+/// <summary>
+/// One batch: fixtures run again on one host, up to a limit on what it spends. `waitingReason` says why
+/// nothing is running right now, such as a host with no slot free.
+/// </summary>
+public sealed record EvalBatch
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("status")]
+    public required EvalBatchStatus Status { get; init; }
+
+    [JsonPropertyName("host")]
+    public required string Host { get; init; }
+
+    [JsonPropertyName("runsPerFixture")]
+    public required long RunsPerFixture { get; init; }
+
+    [JsonPropertyName("maxOutputTokens")]
+    public required long MaxOutputTokens { get; init; }
+
+    [JsonPropertyName("spentOutputTokens")]
+    public required long SpentOutputTokens { get; init; }
+
+    [JsonPropertyName("candidate")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public LaneCandidate? Candidate { get; init; }
+
+    [JsonPropertyName("stopReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? StopReason { get; init; }
+
+    [JsonPropertyName("waitingReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WaitingReason { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; init; }
+
+    [JsonPropertyName("finishedAt")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? FinishedAt { get; init; }
+}
+
+/// <summary>
+/// `runs` is per fixture and per arm, and defaults to 3. `maxOutputTokens` defaults to 300000. With a
+/// `candidate`, every fixture must be an attempt at the lane it changes, and the arms alternate.
+/// </summary>
 public sealed record CreateEvalBatchRequest
 {
     [JsonPropertyName("fixtureIds")]
@@ -196,6 +240,10 @@ public sealed record CreateEvalBatchRequest
 
     [JsonPropertyName("host")]
     public required string Host { get; init; }
+
+    [JsonPropertyName("candidate")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public LaneCandidate? Candidate { get; init; }
 
     [JsonPropertyName("runs")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -206,11 +254,34 @@ public sealed record CreateEvalBatchRequest
     public long? MaxOutputTokens { get; init; }
 }
 
-public sealed record ListEvalBatchesQuery
+/// <summary>One arm across every fixture in the batch.</summary>
+public sealed record EvalArmTotal
 {
-    [JsonPropertyName("limit")]
+    [JsonPropertyName("arm")]
+    public required EvalArmTotalArm Arm { get; init; }
+
+    [JsonPropertyName("passed")]
+    public required long Passed { get; init; }
+
+    [JsonPropertyName("failed")]
+    public required long Failed { get; init; }
+
+    [JsonPropertyName("errored")]
+    public required long Errored { get; init; }
+
+    [JsonPropertyName("interrupted")]
+    public required long Interrupted { get; init; }
+
+    [JsonPropertyName("pending")]
+    public required long Pending { get; init; }
+
+    [JsonPropertyName("outputTokens")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public long? Limit { get; init; }
+    public EvalSpread? OutputTokens { get; init; }
+
+    [JsonPropertyName("wallClockMs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EvalSpread? WallClockMs { get; init; }
 }
 
 /// <summary>
@@ -262,6 +333,9 @@ public sealed record EvalBatchDetail
 
     [JsonPropertyName("summary")]
     public required List<EvalArmSummary> Summary { get; init; }
+
+    [JsonPropertyName("totals")]
+    public required List<EvalArmTotal> Totals { get; init; }
 }
 
 [JsonConverter(typeof(EvalBatchStatusConverter))]
@@ -520,5 +594,61 @@ public sealed class EvalArmSummaryArmConverter : JsonConverter<EvalArmSummaryArm
         EvalArmSummaryArm.Current => "current",
         EvalArmSummaryArm.Candidate => "candidate",
         _ => throw new JsonException($"EvalArmSummaryArm.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(EvalArmTotalArmConverter))]
+public enum EvalArmTotalArm
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("current")]
+    Current,
+
+    [JsonStringEnumMemberName("candidate")]
+    Candidate,
+}
+
+/// <summary>
+/// Reads and writes <see cref="EvalArmTotalArm"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="EvalArmTotalArm.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class EvalArmTotalArmConverter : JsonConverter<EvalArmTotalArm>
+{
+    public override EvalArmTotalArm Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for EvalArmTotalArm, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, EvalArmTotalArm value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override EvalArmTotalArm ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, EvalArmTotalArm value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static EvalArmTotalArm FromWire(string? text) => text switch
+    {
+        "current" => EvalArmTotalArm.Current,
+        "candidate" => EvalArmTotalArm.Candidate,
+        _ => EvalArmTotalArm.Unknown,
+    };
+
+    private static string ToWire(EvalArmTotalArm value) => value switch
+    {
+        EvalArmTotalArm.Current => "current",
+        EvalArmTotalArm.Candidate => "candidate",
+        _ => throw new JsonException($"EvalArmTotalArm.{value} has no wire spelling, so it cannot be sent."),
     };
 }

@@ -82,6 +82,17 @@ operation /api/evals/fixtures/{id}: {
     }
 }
 
+# A change to try on one lane, never saved. With nothing but `lane` it changes nothing, which makes an
+# A/A batch: both arms the same, to measure how much runs differ by chance.
+contract LaneCandidate: {
+    lane: string
+    instructions?: string
+    settings?: json
+    adapter?: string
+    provider?: string
+    model?: string
+}
+
 # One batch: fixtures run again on one host, up to a limit on what it spends. `waitingReason` says why
 # nothing is running right now, such as a host with no slot free.
 contract EvalBatch: {
@@ -91,6 +102,7 @@ contract EvalBatch: {
     runsPerFixture: int
     maxOutputTokens: int
     spentOutputTokens: int
+    candidate?: LaneCandidate
     stopReason?: string
     waitingReason?: string
     createdAt: datetime
@@ -144,10 +156,23 @@ contract EvalArmSummary: {
     failures: array(EvalFailureCount)
 }
 
+# One arm across every fixture in the batch.
+contract EvalArmTotal: {
+    arm: enum(current, candidate)
+    passed: int
+    failed: int
+    errored: int
+    interrupted: int
+    pending: int
+    outputTokens?: EvalSpread
+    wallClockMs?: EvalSpread
+}
+
 contract EvalBatchDetail: {
     batch: EvalBatch
     runs: array(EvalRun)
     summary: array(EvalArmSummary)
+    totals: array(EvalArmTotal)
 }
 
 contract EvalRunPatch: {
@@ -155,10 +180,12 @@ contract EvalRunPatch: {
     truncated: boolean
 }
 
-# `runs` is per fixture and defaults to 3. `maxOutputTokens` defaults to 300000.
+# `runs` is per fixture and per arm, and defaults to 3. `maxOutputTokens` defaults to 300000. With a
+# `candidate`, every fixture must be an attempt at the lane it changes, and the arms alternate.
 contract CreateEvalBatchRequest: {
     fixtureIds: array(string)
     host: string
+    candidate?: LaneCandidate
     runs?: int
     maxOutputTokens?: int
 }
