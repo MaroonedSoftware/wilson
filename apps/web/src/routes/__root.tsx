@@ -4,6 +4,7 @@ import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { Notifications } from '@mantine/notifications';
 import {
     IconActivity,
+    IconApps,
     IconChartBar,
     IconGavel,
     IconLayoutKanban,
@@ -117,7 +118,7 @@ function Shell() {
 
     return (
         <WilsonSdkProvider client={wilson}>
-            <CardActivityContext.Provider value={{ activity: feed.activity, toolLog: feed.toolLog, now: feed.now }}>
+            <CardActivityContext.Provider value={{ activity: feed.activity, toolLog: feed.toolLog, now: feed.now, changes: feed.changes }}>
                 <AppShell
                     header={{ height: 48 }}
                     aside={{ width: dock.width, breakpoint: 'sm', collapsed: { desktop: !right, mobile: true } }}
@@ -181,6 +182,15 @@ function Shell() {
                                         <Link to="/projects/$project/rules" params={{ project }} aria-label="Rules">
                                             <ActionIcon component="span" variant="subtle">
                                                 <IconGavel size={18} />
+                                            </ActionIcon>
+                                        </Link>
+                                    </Tooltip>
+                                )}
+                                {project && (
+                                    <Tooltip label="Apps">
+                                        <Link to="/projects/$project/apps" params={{ project }} aria-label="Apps">
+                                            <ActionIcon component="span" variant="subtle">
+                                                <IconApps size={18} />
                                             </ActionIcon>
                                         </Link>
                                     </Tooltip>

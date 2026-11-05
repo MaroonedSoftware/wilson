@@ -23,6 +23,7 @@ import { apiErrorMessage } from '#src/lib/api.error.js';
 import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
 import { AccountsControl, MachineSignInControl } from '#src/components/AccountsControl.js';
+import { AppsControl } from '#src/components/AppsControl.js';
 import { DrainControl } from '#src/components/DrainControl.js';
 import { SecurityControls } from '#src/components/SecurityControls.js';
 
@@ -1011,6 +1012,13 @@ function SettingsRoute() {
                 <Stack gap="sm">
                     <Title order={4}>Chat</Title>
                     <ChatEngineControl />
+                </Stack>
+            </Paper>
+
+            <Paper withBorder p="md" radius="sm">
+                <Stack gap="sm">
+                    <Title order={4}>Apps</Title>
+                    <AppsControl project={project} />
                 </Stack>
             </Paper>
 
