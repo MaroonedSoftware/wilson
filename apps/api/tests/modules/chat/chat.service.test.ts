@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { AuthenticationSession } from '@maroonedsoftware/authentication';
 import type { Kysely } from 'kysely';
@@ -23,6 +24,7 @@ import {
 import { ChatThreadRepository } from '#modules/chat/chat.thread.repository.js';
 import { ChatUsageRepository } from '#modules/chat/chat.usage.repository.js';
 import type { DB } from '#modules/data/db.js';
+import { GoalRepository } from '#modules/goal/goal.repository.js';
 import { testDb } from '#tests/support/test.db.js';
 import { fakeCatalog, fakeContainer, fakeHandler, fakeSession, refusal, type FakeCall } from './chat.fakes.js';
 import { calls, says, scriptedModel } from './chat.model.fake.js';
@@ -65,6 +67,7 @@ describe('ChatService', () => {
             actions,
             questions,
             new ChatUsageRepository(db),
+            new GoalRepository(db),
             catalog,
             container.get(ProjectRepository),
             { api: new ApiChatEngine(model.registry), cli: undefined },
@@ -352,6 +355,20 @@ describe('ChatService', () => {
 
         expect(turn.mock.calls.map(([input]) => input.onlyOwnTools)).toEqual([true]);
         turn.mockRestore();
+    });
+
+    it("tells the model its thread's goal, and leaves its cards to be read", async () => {
+        const project = `chat-goal-${randomUUID()}`;
+        await db.insertInto('wilson.projects').values({ name: project, codeRoot: '/c', worktreeRoot: '/w', runRoot: '/r' }).execute();
+        const { service, model } = setup([says('Noted.')]);
+        const thread = await service.startThread();
+        const goal = await new GoalRepository(db).create({ threadId: thread.id, project, title: 'Add SSO', outcome: 'People sign in with SSO' });
+
+        await service.sendMessage(thread.id, { text: 'Where are we?' });
+
+        const prompt = JSON.stringify(model.prompts[0]);
+        expect(prompt).toContain(`sees through goal ${goal.id}`);
+        expect(prompt).toContain('People sign in with SSO');
     });
 
     it('tells the model which project the person is looking at', async () => {

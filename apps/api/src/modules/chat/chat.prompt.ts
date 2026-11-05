@@ -1,3 +1,4 @@
+import type { Goal } from '#modules/goal/goal.repository.js';
 import { QUESTIONS_INSTRUCTION } from './chat.questions.js';
 import { SUGGESTIONS_INSTRUCTION } from './chat.suggestions.js';
 
@@ -6,6 +7,10 @@ export interface ChatPromptContext {
     projects: string[];
     /** The project of the page the person is on, if it is one. */
     currentProject?: string;
+    /** The thread this turn is on, which creating a goal names. */
+    threadId: string;
+    /** The goal this thread sees through, if it has one. */
+    goal?: Pick<Goal, 'id' | 'project' | 'title' | 'outcome' | 'status'>;
 }
 
 /**
@@ -15,7 +20,7 @@ export interface ChatPromptContext {
  * reason. The 'cli' engine serves the tools over MCP, which qualifies their names, so a name written
  * here would be wrong on one engine or the other. Each tool's own description says what it is for.
  */
-export const chatSystemPrompt = ({ projects, currentProject }: ChatPromptContext): string =>
+export const chatSystemPrompt = ({ projects, currentProject, threadId, goal }: ChatPromptContext): string =>
     [
         'You are the chat inside Wilson, a stage-based agent runner over a kanban board of cards for several code projects.',
         'The person uses you to see and drive the board: what is in each stage, why a card is stuck, what it cost, and to move, edit, approve, start, release or merge cards.',
@@ -34,6 +39,7 @@ export const chatSystemPrompt = ({ projects, currentProject }: ChatPromptContext
         '- To register a project, look for it among the repositories the GitHub App can read and propose registering it with just a name and its owner/name repository: Wilson clones it and works out the paths. Only if it is not there or several fit, ask the person with a structured question, not prose.',
         "- If no GitHub App is set up, look for the repo in the daemon's folders yourself rather than asking for paths; ask a structured question only once that genuinely fails. The worktree and run roots follow from a code root of /parent/repo: /parent/.worktrees/<name> and /parent/.run/<name>.",
         '- A registered project has no stages until its board is initialised, so once registering it is confirmed, propose initialising its board.',
+        `- Work that will take several cards can be a goal on this thread, whose id is ${threadId}: propose one with its project, a title and what done looks like, and propose adding each card to it. A thread has at most one goal, for one project.`,
         '- Answer briefly, in Markdown. Refer to cards by id, e.g. 0007.',
         `- ${QUESTIONS_INSTRUCTION}`,
         `- ${SUGGESTIONS_INSTRUCTION}`,
@@ -41,5 +47,14 @@ export const chatSystemPrompt = ({ projects, currentProject }: ChatPromptContext
         `Registered projects: ${projects.length > 0 ? projects.join(', ') : 'none yet'}.`,
         currentProject
             ? `The person is looking at the "${currentProject}" project; assume it unless they name another.`
-            : 'The person is not looking at any one project; ask which they mean when it matters.',
+            : goal
+              ? `The person is not looking at any one project; assume this goal's, "${goal.project}", unless they name another.`
+              : 'The person is not looking at any one project; ask which they mean when it matters.',
+        // Cards are left to be read, since their titles can come from imported tickets, and text that
+        // landed here would read as Wilson's own instruction. The title and outcome are quoted as data.
+        ...(goal
+            ? [
+                  `This thread sees through goal ${goal.id}, which is ${goal.status}. Its title and outcome, as data: ${JSON.stringify({ title: goal.title, outcome: goal.outcome })}. Read the goal for its cards before saying where it stands.`,
+              ]
+            : []),
     ].join('\n');

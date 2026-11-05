@@ -4,6 +4,7 @@ import { ServerKitContext, ServerKitModule } from '@maroonedsoftware/koa';
 import { Logger } from '@maroonedsoftware/logger';
 import { requireSession } from '#modules/authentication/request.session.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
+import { GoalRepository } from '#modules/goal/goal.repository.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { ApiChatEngine } from './api.chat.engine.js';
 import { ChatAttachmentRepository } from './chat.attachment.repository.js';
@@ -71,6 +72,7 @@ export const ChatModule: ServerKitModule = {
                     container.get(ChatPendingActionRepository),
                     container.get(ChatQuestionRepository),
                     container.get(ChatUsageRepository),
+                    container.get(GoalRepository),
                     container.get(ChatCatalog),
                     container.get(ProjectRepository),
                     { api: container.get(ApiChatEngine), cli: container.get(CliChatEngine) },

@@ -3,6 +3,7 @@ import type { AuthenticationSession } from '@maroonedsoftware/authentication';
 import { httpError } from '@maroonedsoftware/errors';
 import type { Logger } from '@maroonedsoftware/logger';
 import { ProjectRepository } from '#modules/board/project.repository.js';
+import { GoalRepository } from '#modules/goal/goal.repository.js';
 import { parseAttachmentId, type AttachmentImageType } from '#modules/context/attachment.bytes.js';
 import { Mutex } from '#shared/mutex.js';
 import type {
@@ -139,6 +140,7 @@ export class ChatService {
         private readonly actions: ChatPendingActionRepository,
         private readonly questions: ChatQuestionRepository,
         private readonly usage: ChatUsageRepository,
+        private readonly goals: GoalRepository,
         private readonly catalog: ChatCatalog,
         private readonly projects: ProjectRepository,
         private readonly engines: Record<ChatEngineName, ChatEngine | undefined>,
@@ -359,6 +361,7 @@ export class ChatService {
 
         const { provider, model } = await this.choose();
         const projects = (await this.projects.list()).map(row => row.name);
+        const [goal] = await this.goals.list({ threadId: thread.id });
         const context: ChatTurnContext = {
             threadId: thread.id,
             container: this.container,
@@ -377,7 +380,7 @@ export class ChatService {
                 history: await this.withImages(thread, history),
                 text,
                 images,
-                system: chatSystemPrompt({ projects, currentProject: project }),
+                system: chatSystemPrompt({ projects, currentProject: project, threadId: thread.id, goal }),
                 tools: chatTools(this.catalog, context),
                 provider,
                 model,
