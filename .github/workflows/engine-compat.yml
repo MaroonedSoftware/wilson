@@ -1,0 +1,68 @@
+name: Engine compatibility
+
+# The engines ship on their own schedule, and no lockfile holds them, so a release can break a stage
+# with nothing changing here. Each night this asks the pinned builds and the newest ones whether they
+# still speak the way the adapters expect. It needs no account and calls no model, so it cannot see
+# what an engine does during a turn: that is what the live probes in PROJECT.md are for.
+on:
+    schedule:
+        - cron: '0 6 * * *'
+    workflow_dispatch:
+    # A schedule only runs from main, so this is how a change to the check gets tried before it lands.
+    pull_request:
+        paths:
+            - '.github/workflows/engine-compat.yml'
+            - 'apps/api/tests/modules/agent/engine.compat.probe.ts'
+            - 'apps/api/tests/support/codex.protocol*'
+            - 'apps/api/src/modules/agent/cli.engine.version.ts'
+            - 'apps/api/src/modules/agent/codex.engine.version.ts'
+
+permissions:
+    contents: read
+
+concurrency:
+    group: engine-compat-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    compat:
+        name: Engines (${{ matrix.engines }})
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+
+        strategy:
+            # A red `latest` says nothing about `pinned`, and the other way round.
+            fail-fast: false
+            matrix:
+                engines: [pinned, latest]
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            - name: Set up the workspace
+              uses: ./.github/actions/setup-workspace
+
+            - name: Install the engines
+              env:
+                  ENGINES: ${{ matrix.engines }}
+              run: |
+                  claude_version=latest
+                  codex_version=latest
+                  if [ "$ENGINES" = pinned ]; then
+                      claude_version=$(sed -n "s/.*CLAUDE_BINARY_VERSION = '\(.*\)'.*/\1/p" apps/api/src/modules/agent/cli.engine.version.ts)
+                      codex_version=$(sed -n "s/.*CODEX_BINARY_VERSION = '\(.*\)'.*/\1/p" apps/api/src/modules/agent/codex.engine.version.ts)
+                  fi
+                  # An empty version would quietly install the newest and call it pinned.
+                  : "${claude_version:?could not read CLAUDE_BINARY_VERSION}" "${codex_version:?could not read CODEX_BINARY_VERSION}"
+                  npm install --prefix "$RUNNER_TEMP/engines" --no-fund --no-audit --loglevel=error \
+                      "@anthropic-ai/claude-code@$claude_version" "@openai/codex@$codex_version"
+                  echo "CLAUDE_PROBE_BIN=$RUNNER_TEMP/engines/node_modules/.bin/claude" >> "$GITHUB_ENV"
+                  echo "CODEX_PROBE_BIN=$RUNNER_TEMP/engines/node_modules/.bin/codex" >> "$GITHUB_ENV"
+
+            - name: Check the engines
+              env:
+                  WILSON_ENGINE_COMPAT: '1'
+              run: pnpm --filter @wilson/api test:engine:compat

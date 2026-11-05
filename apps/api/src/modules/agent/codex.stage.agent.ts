@@ -40,7 +40,7 @@ const codexEnv = (): NodeJS.ProcessEnv => {
 export const unwrapShell = (command: string): string => /^(?:\S*\/)?(?:ba|z)?sh -l?c '([^']*)'$/.exec(command.trim())?.[1] ?? command;
 
 /** The engine's own tool items, which a stage's guards are meant to see before they run. */
-const TOOL_ITEMS = new Set([
+export const TOOL_ITEMS = new Set([
     'commandExecution',
     'fileChange',
     'dynamicToolCall',
