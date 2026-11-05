@@ -100,7 +100,12 @@ background it was refused focus in 3 of 6 runs, and it skips what needs focus wh
 ## Packaging
 
 `tools/macos/make-app-bundle.sh` builds `artifacts/Wilson.app`, signed ad hoc under the hardened
-runtime. `tools/macos/make-app-icon.sh` rebuilds the committed `.icns`. Releases are not notarised, so
+runtime. It signs with `codesign` on a Mac and `rcodesign` (apple-codesign) anywhere else, and
+`SIGNER=rcodesign` tries that path on a Mac. The app is published as a single file so that
+`Contents/MacOS` holds only Mach-O: `codesign` signs any other file there in extended attributes,
+which only `ditto` keeps through a zip, and `rcodesign` cannot sign one at all, so the script refuses
+one. Measured 2026-11-05 with rcodesign 0.29.0: a bundle it signed passed `codesign --verify --strict`
+after a plain `zip -ry` and `ditto -x -k`, and launched. `tools/macos/make-app-icon.sh` rebuilds the committed `.icns`. Releases are not notarised, so
 macOS refuses a first launch.
 
 ## Releasing
@@ -118,7 +123,10 @@ because merging it would stop every release until it was removed.
    installed copies offer it within six hours. The tests cover Core and not the screens, so walk the
    app first. A bad release can only be replaced by a higher version.
 3. The merge changes `Directory.Build.props`, which runs `desktop-release.yml`. It publishes
-   `desktop-v<version>`, and skips a version that already has a release, draft or not. Run by hand,
+   `desktop-v<version>`, and skips a version that already has a release, draft or not. It runs on
+   Linux and signs with `rcodesign`, as macOS runners can go unassigned until GitHub gives up. The
+   `bundle` job in `desktop.yml` builds the same zip on every pull request, kept for a week, to check
+   on a Mac with `ditto -x -k` and `codesign --verify --strict`. Run by hand,
    it makes a draft.
 
 The version pull request is opened with the workflow token, so GitHub starts no workflow for it, and
@@ -465,6 +473,11 @@ dropping on one, the faces on tiles, a click surviving a re-read during its pres
 2026-11-01, updates: a real 0.0.1 bundle updated to a real 0.0.2 signed by `openssl` as the workflow
 does, relaunched with its window and passed `codesign --strict`. A tampered zip and a version the
 signature did not name were both refused.
+
+2026-11-05, a bundle built on Linux: the `bundle` job's zip, signed by rcodesign 0.29.0 on `ubuntu-latest`,
+passed `codesign --verify --strict` after `ditto -x -k`, with the hardened runtime on every Mach-O and the
+entitlements intact. `tools/Walk -- update` installed it over a bundle built here, with a throwaway key, and
+the relaunched app was running 23 seconds later. Not seen: a release built by the Linux workflow itself.
 
 2026-11-01, menu bar, on a real `Wilson.app` through macOS Accessibility: the close button and Cmd+W
 hid the window and left the app running, the icon's Open and the Dock icon brought it back, and the

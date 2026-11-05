@@ -3,7 +3,7 @@ using MaroonedSoftware.Wilson.Desktop.Core.Updates;
 
 namespace MaroonedSoftware.Wilson.Desktop.Mac;
 
-/// <summary>Unpacking with `ditto`, which is what packed the release, and swapping with a script that outlives the app.</summary>
+/// <summary>Unpacking with `ditto`, which reads the release's plain zip and the older ones `ditto` packed, and swapping with a script that outlives the app.</summary>
 public sealed class MacUpdateInstaller : IUpdateInstaller
 {
     public async Task<string?> PrepareAsync(string zip, string bundle, CancellationToken cancellationToken = default)
