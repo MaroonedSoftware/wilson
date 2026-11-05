@@ -476,6 +476,20 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         Dispatcher.UIThread.RunJobs();
     }
 
+    /// <summary>A control in a window of its own, for what is not a page of the shell.</summary>
+    public void ShotOf(Avalonia.Controls.Control control, string name, int width, int height)
+    {
+        var other = new Window { Width = width, Height = height, Content = control };
+        other.Show();
+        Dispatcher.UIThread.RunJobs();
+        Dispatcher.UIThread.RunJobs();
+        Dispatcher.UIThread.RunJobs();
+        using var frame = other.CaptureRenderedFrame();
+        frame?.Save(Path.Combine(into, $"{name}.png"), new PngBitmapEncoderOptions());
+        other.Close();
+        Console.WriteLine($"shot {name}");
+    }
+
     public void Shot(string name)
     {
         Dispatcher.UIThread.RunJobs();

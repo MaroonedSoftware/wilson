@@ -13,6 +13,7 @@ using MaroonedSoftware.Wilson.Desktop.Core.Chat;
 using MaroonedSoftware.Wilson.Desktop.Core.Settings;
 using MaroonedSoftware.Wilson.Desktop.Core.Runner;
 using MaroonedSoftware.Wilson.Desktop.ViewModels;
+using MaroonedSoftware.Wilson.Desktop.Views;
 using MaroonedSoftware.Wilson.Sdk.Models;
 
 namespace Walk;
@@ -20,6 +21,29 @@ namespace Walk;
 /// <summary>The flows, in the order a person would meet them.</summary>
 internal static class Steps
 {
+    /// <summary>The panel the menu bar icon opens, on spending written as stages would write it. The icon itself needs a real window.</summary>
+    private static async Task MenuBarAsync(Walker walk)
+    {
+        var panel = new MenuBarViewModel(walk.Shell, () => { }, () => { });
+        var view = new MenuBarView { DataContext = panel };
+        walk.ShotOf(view, "menubar-signed-out-or-empty", 300, 720);
+
+        var project = Walker.Query("select name from wilson.projects limit 1");
+        var card = Walker.Query($"select id from wilson.cards where project = '{project}' limit 1");
+        Walker.Sql(
+            "insert into wilson.card_events (project, card_id, stage, type, payload, created_at) "
+            + $"select '{project}', '{card}', 'implementing', case when day % 4 = 0 then 'stage.failed' else 'stage.passed' end, "
+            + "jsonb_build_object('usage', jsonb_build_object('inputTokens', 4000 + day * 900, 'cachedInputTokens', 20000 + day * 7000, 'outputTokens', 3000 + ((day * 7919) % 14) * 2600)), "
+            + "now() - make_interval(days => day) from generate_series(0, 12) as day");
+
+        panel.Shown();
+        await walk.UntilAsync("the panel's figures", () => panel.HasFigures && panel.Bars.Count == MenuBarViewModel.WindowDays);
+        await walk.UntilAsync("spending in the bars", () => panel.Bars.Any(bar => bar.Height > 0));
+        Console.WriteLine($"     menu bar: passed {panel.Passed.Value}, cached {panel.Cached.Value}, slots {panel.Slots.Value}");
+        walk.ShotOf(new MenuBarView { DataContext = panel }, "menubar-figures", 300, 720);
+        panel.Hidden();
+    }
+
     public static async Task RunAsync(Walker walk, string origin, string email, string password, string? only = null)
     {
         await walk.UntilAsync("the sign-in page, under no header", () => walk.Shell.Page is SignInViewModel && !walk.Shell.SignedIn);
@@ -74,6 +98,12 @@ internal static class Steps
         if (only == "apps")
         {
             await AppsAsync(walk);
+            return;
+        }
+
+        if (only == "menubar")
+        {
+            await MenuBarAsync(walk);
             return;
         }
 
