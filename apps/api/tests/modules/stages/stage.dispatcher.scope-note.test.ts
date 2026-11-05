@@ -169,7 +169,7 @@ describe('materializePlan folds other stages\' extraScope into an "Also in scope
             silentLogger as never,
         );
 
-        return { config, dispatcher, events };
+        return { board, config, dispatcher, events };
     };
 
     it("names another stage's extraScope, but not the dispatched stage's own", async () => {
@@ -279,5 +279,29 @@ describe('materializePlan folds other stages\' extraScope into an "Also in scope
         // what ScopeGuard actually allowed — `testing`'s own `apps/api/tests/**` was enforced but
         // never recorded here.
         expect(dispatched!.payload!.scope).toEqual(expect.arrayContaining(['src/x.ts', 'apps/api/tests/**']));
+    });
+
+    it('names no plan version on stage.dispatched for a card with no pin', async () => {
+        const { dispatcher, events } = await setUp(stagesYaml, 'testing');
+
+        await dispatcher.run('0001', 'testing');
+
+        const dispatched = events.append.mock.calls
+            .map(([event]) => event as { type: string; payload?: Record<string, unknown> })
+            .find(event => event.type === 'stage.dispatched');
+        expect(dispatched!.payload).not.toHaveProperty('planVersionId');
+    });
+
+    it('records the pinned plan version on stage.dispatched, so an eval fixture can find the plan this attempt read', async () => {
+        const { board, dispatcher, events } = await setUp(stagesYaml, 'testing');
+        const version = await board.write('0001', 'pin', current => current);
+        await board.write('0001', 'pin it', current => ({ ...current, frontmatter: { ...current.frontmatter, planVersionId: version } }));
+
+        await dispatcher.run('0001', 'testing');
+
+        const dispatched = events.append.mock.calls
+            .map(([event]) => event as { type: string; payload?: Record<string, unknown> })
+            .find(event => event.type === 'stage.dispatched');
+        expect(dispatched!.payload!.planVersionId).toBe(version);
     });
 });

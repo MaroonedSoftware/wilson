@@ -620,7 +620,7 @@ export class StageDispatcher {
             cardId,
             stage: stageName,
             type: 'stage.dispatched',
-            payload: { provider: stage.provider, model: stage.model, planPath, scope: scoped },
+            payload: { provider: stage.provider, model: stage.model, planPath, scope: scoped, ...(pinnedSha ? { planVersionId: pinnedSha } : {}) },
         });
 
         let outcome: StageOutcome;
