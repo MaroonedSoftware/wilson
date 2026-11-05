@@ -1,5 +1,12 @@
 # @wilson/desktop
 
+## 0.20.1
+
+### Patch Changes
+
+- 07ab1b0: Each engine account shows what it spent today and recently, under its name in the menu bar and beside its kind in Settings. This needs a server that serves account usage; an older one shows the accounts without it.
+- d4fedff: The menu bar lists the accounts engines sign in as, in rotation order, with the next one marked and any limit in words. A limit left on a sign-in no engine uses is no longer shown.
+
 ## 0.20.0
 
 ### Minor Changes
