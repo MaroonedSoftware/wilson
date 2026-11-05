@@ -1,0 +1,9 @@
+{
+    "kind": "defect",
+    "class": "data-exposure",
+    "file": "apps/api/src/modules/plan/plan.service.ts",
+    "lines": [90, 144],
+    "mentions": ["engineSessionId|engine session", "response|wire|contract|expos"],
+    "about": "turn returns the stored row, which carries the engine session id, so the wire response exposes what the contract does not declare.",
+    "fixedBy": "b9092d12a43e42f66aee74146dd8eadf45abb3c0"
+}

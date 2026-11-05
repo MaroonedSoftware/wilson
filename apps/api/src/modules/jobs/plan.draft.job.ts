@@ -96,8 +96,6 @@ export class PlanDraftJob extends Job<PlanDraftPayload> {
 
     /** The card now waits at a manual gate with a plan to read, so this is that moment. */
     private async notifyDrafted(cardId: string): Promise<void> {
-        if (!this.board.notifyWebhookUrl) return;
-
         const card = await this.boardRepo.read(cardId).catch(() => undefined);
         await new Notifier(this.board.notifyWebhookUrl, this.board.notifyBaseUrl).notify({
             project: this.board.project,

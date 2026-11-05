@@ -3,6 +3,7 @@ import { StaticBoardConfig } from '#modules/board/board.config.js';
 import type { BoardRepository } from '#modules/board/board.repository.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import { PlanDraftJob } from '#modules/jobs/plan.draft.job.js';
+import { registerNotificationChannel } from '#modules/notify/notifier.js';
 import type { PlanService } from '#modules/plan/plan.service.js';
 import { AUTO_SPLIT_ENABLED } from '#modules/settings/auto.split.setting.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
@@ -20,7 +21,7 @@ describe('PlanDraftJob', () => {
         return new PlanDraftJob(
             plans as unknown as PlanService,
             new StaticBoardConfig('test', '/tmp/code', '/tmp/wt', '/tmp/run'),
-            {} as BoardRepository,
+            { read: vi.fn(async () => ({ frontmatter: { title: 'a piece' } })) } as unknown as BoardRepository,
             events as unknown as EventLog,
             settings as unknown as SettingsStore,
             logger as never,
@@ -41,6 +42,18 @@ describe('PlanDraftJob', () => {
 
         expect(plans.autoDraft).toHaveBeenCalledWith('0002');
         expect(recorded()).toEqual([{ type: 'card.plan-drafted', reason: undefined }]);
+    });
+
+    it('reaches a registered channel when no webhook URL is configured', async () => {
+        const send = vi.fn(async () => undefined);
+        const remove = registerNotificationChannel({ name: 'test', send });
+        try {
+            await run();
+
+            expect(send).toHaveBeenCalledWith(expect.objectContaining({ moment: 'manual', cardId: '0002', title: 'a piece', stage: 'planning' }));
+        } finally {
+            remove();
+        }
     });
 
     it('records why autoDraft declined', async () => {

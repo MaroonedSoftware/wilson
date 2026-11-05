@@ -20,6 +20,10 @@ public sealed partial class BoardTile(CardSummary card, string? flag, string? bl
 
     public string? PlanCheck { get; } = BoardRules.PlanCheck(card.PlanCheck, card.PlanCheckReason);
 
+    public string? MergeStatus { get; } = BoardRules.MergeStatusLine(card.MergeStatus);
+
+    public bool MergeStatusWarns { get; } = BoardRules.MergeStatusWarns(card.MergeStatus);
+
     public string? Flag => flag;
 
     public string? Blocked => blocked;
@@ -197,6 +201,12 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
             Draw();
         }
     }
+
+    /// <summary>
+    /// A press ends with the page. A click that opens a card takes the view away before its release can
+    /// reach `LetGo`, and held past here the board would never draw again.
+    /// </summary>
+    protected override void OnHidden() => _held = false;
 
     /// <summary>Marks the column a card held over `over`, a column or a card, would go to.</summary>
     public void Hover(BoardTile tile, string? over)

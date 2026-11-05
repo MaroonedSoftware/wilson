@@ -1,0 +1,474 @@
+diff --git a/apps/api/src/modules/stages/scope.check.verifier.ts b/apps/api/src/modules/stages/scope.check.verifier.ts
+new file mode 100644
+index 00000000..a8b196bc
+--- /dev/null
++++ b/apps/api/src/modules/stages/scope.check.verifier.ts
+@@ -0,0 +1,108 @@
++import { Injectable } from 'injectkit';
++import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
++import { ScopeCheckResultSchema, type ScopeGroup } from './stage.result.js';
++import type { StageVerifier, VerificationInput, VerificationOutcome } from './stage.verifier.js';
++
++/**
++ * How many Tasks-section items doing "the same kind of thing" it takes before a plan is judged too
++ * broad for one pass.
++ *
++ * Calibrated against card 0105's measurement of the board (see its Goal/"What the board actually
++ * says" sections): card 0075 (eight near-identical write endpoints) and card 0078 (every CLI command
++ * ported to a new transport) both cleared this by a wide margin before being caught; card 0079 (21
++ * Tasks-section bullets, but three distinct things each done once) never approached it. Set well
++ * below eight and well above one, so an ordinary plan with an incidental pair or trio of similar
++ * tasks — unremarkable on a 76-card board where this fires for six of them — is not caught by a
++ * threshold tuned to the handful of cards that actually blew their step budget.
++ */
++export const BREADTH_THRESHOLD = 4;
++
++const largestGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g) => (g.tasks.length > max.tasks.length ? g : max));
++
++/**
++ * The scope-check stage's exit condition: does the plan fit in one pass.
++ *
++ * This lane judges, it does not split (card 0105's Goal) — merit (is the card actually too broad) is
++ * the model's business, the same division of labor `ReviewVerifier`'s doc comment draws for review
++ * findings. What this checks is provenance and internal consistency: does the reported verdict follow
++ * from the model's own reported evidence (`groups`), and — when refusing — is the division concrete
++ * (at least two pieces, each naming what it delivers alone, each built only from tasks the model
++ * itself reported). A model that says "pass" while its own `groups` show an eight-wide repeat, or
++ * says "refuse" while reporting none, has produced an inconsistent report regardless of which way it
++ * leans, and this stage's whole value is in not passing that through uncaught.
++ *
++ * Unlike `ReviewVerifier`, whose `passed` tracks report quality independently of the verdict
++ * (`shouldAdvance` resolves the routing from `verdict` afterwards), `passed` here *is* the routing
++ * decision: see the doc comment on `ScopeCheckResultSchema` for why that is this stage's exit
++ * condition rather than a shortcut around one.
++ */
++@Injectable()
++export class ScopeCheckVerifier implements StageVerifier {
++    constructor(private readonly worktrees: WorktreeManager) {}
++
++    async verify({ worktree, result }: VerificationInput): Promise<VerificationOutcome> {
++        const failures: string[] = [];
++
++        // `worktree: readonly` is this stage's own config, not something the write tool alone can be
++        // trusted to have enforced end to end (a command run through the bash tool could still have
++        // touched the tree) — the same reasoning `ReviewVerifier` applies to "a reviewer does not
++        // edit". Checked before the parse below so a stage that both wrote files and returned a
++        // malformed result gets both failures rather than only the first one found.
++        const written = await this.worktrees.uncommittedPaths(worktree);
++        if (written.length > 0) {
++            failures.push(`the scope-check stage changed files, which a read-only judge must not do: ${written.join(', ')}`);
++        }
++
++        const parsed = ScopeCheckResultSchema.safeParse(result);
++        if (!parsed.success) {
++            failures.push(`the reported result does not match the scope-check schema: ${parsed.error.message}`);
++            return { passed: false, failures, changedPaths: [] };
++        }
++
++        const { verdict, groups, division, reason } = parsed.data;
++
++        if (reason.trim().length === 0) {
++            failures.push('reason is empty: a verdict with no stated reason gives "planning" nothing to start from');
++        }
++
++        const widest = largestGroup(groups);
++        const tooBroad = widest.tasks.length >= BREADTH_THRESHOLD;
++
++        if (tooBroad && verdict !== 'refuse') {
++            failures.push(
++                `"${widest.title}" repeats across ${widest.tasks.length} tasks (>= ${BREADTH_THRESHOLD}), which is what this stage exists to catch, but the verdict is "pass"`,
++            );
++        }
++        if (!tooBroad && verdict === 'refuse') {
++            failures.push(
++                `verdict is "refuse" but no group repeats ${BREADTH_THRESHOLD} or more times (widest: "${widest.title}" x${widest.tasks.length}) — breadth is this stage's signal, and none was reported`,
++            );
++        }
++
++        if (verdict === 'refuse') {
++            // A division is only real if it is built from work the model actually reported seeing.
++            // Not full-coverage checked (a piece is free to leave shared plumbing ungrouped) — only
++            // that nothing it names is invented.
++            const namedTasks = new Set(groups.flatMap(g => g.tasks));
++            for (const piece of division) {
++                for (const task of piece.tasks) {
++                    if (!namedTasks.has(task)) {
++                        failures.push(`division piece "${piece.title}" cites task "${task}", which is not among the reported groups`);
++                    }
++                }
++                if (piece.delivers.trim().length === 0) {
++                    failures.push(`division piece "${piece.title}" does not say what it would deliver on its own`);
++                }
++            }
++        } else if (division.length > 0) {
++            failures.push('verdict is "pass" but a division was proposed; a pass should carry none');
++        }
++
++        // `passed` is the routing decision itself (see the class doc comment): only a well-formed,
++        // internally consistent "pass" clears this stage's exit condition. A well-formed "refuse" is
++        // this stage doing its job correctly, and still reports `failures: []` — but it is not a
++        // `passed` outcome, because passing here means "send the card to implementing", which a
++        // refusal must never do.
++        return { passed: verdict === 'pass' && failures.length === 0, failures, changedPaths: [] };
++    }
++}
+diff --git a/apps/api/src/modules/stages/stage.result.ts b/apps/api/src/modules/stages/stage.result.ts
+index 49051a43..903bc8a2 100644
+--- a/apps/api/src/modules/stages/stage.result.ts
++++ b/apps/api/src/modules/stages/stage.result.ts
+@@ -56,6 +56,74 @@ export type ReviewResult = z.infer<typeof ReviewResultSchema>;
+ 
+ export type ReviewFinding = z.infer<typeof ReviewFindingSchema>;
+ 
++/**
++ * A bucket of the plan's Tasks-section items the scope-check stage judges to be "the same kind of
++ * thing" — card 0105's calibration finding: breadth (how many times a plan repeats one kind of
++ * work), not file count or plan length, is what predicts a card too big for one pass. Every item in
++ * the Tasks section belongs to exactly one group: a plan doing three different things once each
++ * reports three groups of size one; a plan doing the same thing eight times reports one group of
++ * size eight (card 0075: eight near-identical endpoints) or one of any other size (card 0078: every
++ * CLI command ported). `title` names the kind, `tasks` are that group's members, quoted or numbered
++ * from the plan so a human can find them.
++ */
++export const ScopeGroupSchema = z.object({
++    title: z.string().describe('What kind of work this group is — the label under which its tasks repeat.'),
++    tasks: z.array(z.string()).min(1).describe("Which Tasks-section items belong to this group — quote or number them."),
++});
++
++/**
++ * One piece of a proposed division, reported only when the verdict is "refuse".
++ *
++ * Not itself a split — dividing a card is `planning`'s decision (card 0105's Goal) — but concrete
++ * enough that a human or `wilson card plan` has seams to start from instead of "this card is too
++ * large". `delivers` is what makes a piece a piece rather than an arbitrary file list: it must stand
++ * on its own.
++ */
++export const ScopeDivisionPieceSchema = z.object({
++    title: z.string().describe('A short name for this piece.'),
++    tasks: z.array(z.string()).min(1).describe('Which Tasks-section items this piece would carry.'),
++    delivers: z.string().describe('What this piece would deliver on its own, if built alone.'),
++});
++
++/**
++ * What the scope-check stage reports: every Tasks-section item bucketed by kind (`groups`, always
++ * present — the breadth evidence), a verdict, why in terms of repetition, and — only when refusing —
++ * a concrete division.
++ *
++ * `verdict` drives `ScopeCheckVerifier.passed` directly rather than following `ReviewResultSchema`'s
++ * pattern of a `passed`/`verdict` split resolved later by `shouldAdvance` (`kickback.ts`):
++ * `shouldAdvance` only special-cases the literal string `"revise"`, which is review's own routing
++ * signal, and `kickback.ts` is out of this card's scope to extend for a second one. Since this
++ * stage's `onPass`/`onFail` point to different destinations (`implementing` vs `planning`, unlike
++ * review's shared `onFail`), folding the verdict into `passed` is not a workaround here — it is
++ * this stage's actual exit condition: "is this card small enough for one pass", full stop.
++ */
++export const ScopeCheckResultSchema = z
++    .object({
++        summary: z.string(),
++        groups: z
++            .array(ScopeGroupSchema)
++            .min(1)
++            .describe(
++                'Every item in the plan’s Tasks section, bucketed by "the same kind of thing" — one entry per distinct kind of work, however many tasks share it.',
++            ),
++        verdict: z.enum(['pass', 'refuse']),
++        reason: z
++            .string()
++            .describe(
++                'Why, stated in terms of repetition: name the kind of work and how many times it repeats. Never file count or plan length — those do not predict it (card 0105).',
++            ),
++        division: z.array(ScopeDivisionPieceSchema).default([]),
++    })
++    .refine(result => result.verdict !== 'refuse' || result.division.length >= 2, {
++        message: 'a "refuse" verdict must propose a division of at least two pieces',
++        path: ['division'],
++    });
++
++export type ScopeGroup = z.infer<typeof ScopeGroupSchema>;
++export type ScopeDivisionPiece = z.infer<typeof ScopeDivisionPieceSchema>;
++export type ScopeCheckResult = z.infer<typeof ScopeCheckResultSchema>;
++
+ /**
+  * Stage name (or its `verifier` override) -> the schema its report tool enforces.
+  *
+diff --git a/apps/api/src/modules/stages/stages.module.ts b/apps/api/src/modules/stages/stages.module.ts
+index 656f5719..41f4d88d 100644
+--- a/apps/api/src/modules/stages/stages.module.ts
++++ b/apps/api/src/modules/stages/stages.module.ts
+@@ -3,9 +3,10 @@ import { AppConfig } from '@maroonedsoftware/appconfig';
+ import { ServerKitModule } from '@maroonedsoftware/koa';
+ import { ImplementingVerifier } from './implementing.verifier.js';
+ import { ReviewVerifier } from './review.verifier.js';
++import { ScopeCheckVerifier } from './scope.check.verifier.js';
+ import { StageDispatcher } from './stage.dispatcher.js';
+ import { StagesService } from './stages.service.js';
+-import { ImplementingResultSchema, ReviewResultSchema, StageResultSchemaMap } from './stage.result.js';
++import { ImplementingResultSchema, ReviewResultSchema, ScopeCheckResultSchema, StageResultSchemaMap } from './stage.result.js';
+ import { StageVerifierMap } from './stage.verifier.js';
+ import { TestingVerifier } from './testing.verifier.js';
+ 
+@@ -15,6 +16,7 @@ export const StagesModule: ServerKitModule = {
+         registry.register(ImplementingVerifier).useClass(ImplementingVerifier).asTransient();
+         registry.register(TestingVerifier).useClass(TestingVerifier).asTransient();
+         registry.register(ReviewVerifier).useClass(ReviewVerifier).asTransient();
++        registry.register(ScopeCheckVerifier).useClass(ScopeCheckVerifier).asTransient();
+         registry
+             .register(StageVerifierMap)
+             .useFactory(container => {
+@@ -22,6 +24,7 @@ export const StagesModule: ServerKitModule = {
+                 map.set('implementing', container.get(ImplementingVerifier));
+                 map.set('testing', container.get(TestingVerifier));
+                 map.set('review', container.get(ReviewVerifier));
++                map.set('scope-check', container.get(ScopeCheckVerifier));
+                 return map;
+             })
+             .asSingleton();
+@@ -32,6 +35,7 @@ export const StagesModule: ServerKitModule = {
+                 map.set('implementing', ImplementingResultSchema);
+                 map.set('testing', ImplementingResultSchema);
+                 map.set('review', ReviewResultSchema);
++                map.set('scope-check', ScopeCheckResultSchema);
+                 return map;
+             })
+             .asSingleton();
+diff --git a/apps/api/tests/modules/stages/scope.check.verifier.test.ts b/apps/api/tests/modules/stages/scope.check.verifier.test.ts
+new file mode 100644
+index 00000000..9e1ca634
+--- /dev/null
++++ b/apps/api/tests/modules/stages/scope.check.verifier.test.ts
+@@ -0,0 +1,235 @@
++import { execFile } from 'node:child_process';
++import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { promisify } from 'node:util';
++import { beforeEach, describe, expect, it } from 'vitest';
++import { StaticBoardConfig } from '#modules/board/board.config.js';
++import { BREADTH_THRESHOLD, ScopeCheckVerifier } from '#modules/stages/scope.check.verifier.js';
++import type { ScopeCheckResult } from '#modules/stages/stage.result.js';
++import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
++
++const exec = promisify(execFile);
++
++/**
++ * `ScopeCheckVerifier.verify` exercised against a real git worktree, the same way
++ * `review.verifier.test.ts` exercises `ReviewVerifier` — the "did the stage write anything" check is
++ * precisely what git reports, so a mock would only prove the test agrees with itself.
++ *
++ * The three calibration fixtures below (0075, 0078, 0079) are reconstructions, not the literal
++ * historical plan text: the board's plan documents live in a separate repo this code repo has no
++ * access to, and 0075's original plan was replaced by a smaller one when a human split it into 0075
++ * and 0080 (git history here only has the post-split version). Each fixture is built from what this
++ * codebase's own merged commits record those cards actually did — 34878eb / 476d723 ("the API write
++ * surface": create, edit, move, plus 0080's five transition mutations — eight endpoints in total),
++ * 360b8f6 ("0078: implementing", the eight CLI commands whose tests it repaired: ack, approve,
++ * board.init, board.ready, move, release, show, start), and a669b9b / 360b8f6's "Doctor" note (0079
++ * rewrote the board.ready health check and deleted the retired run command) — cross-referenced with
++ * card 0105's own stated bullet/character counts for each. They stand in for "given that card's plan
++ * text" in the sense that matters here: they are what a model correctly reading that plan would
++ * report.
++ */
++describe('ScopeCheckVerifier', () => {
++    let manager: WorktreeManager;
++    let verifier: ScopeCheckVerifier;
++
++    beforeEach(async () => {
++        const base = await mkdtemp(join(tmpdir(), 'scope-check-verifier-'));
++        const codeRoot = join(base, 'code');
++        await mkdir(codeRoot, { recursive: true });
++        await writeFile(join(codeRoot, 'README.md'), 'placeholder\n', 'utf8');
++        await exec('git', ['init', '-q', '-b', 'main'], { cwd: codeRoot });
++        await exec('git', ['config', 'user.email', 'test@example.com'], { cwd: codeRoot });
++        await exec('git', ['config', 'user.name', 'Test'], { cwd: codeRoot });
++        await exec('git', ['add', '-A'], { cwd: codeRoot });
++        await exec('git', ['commit', '-q', '-m', 'initial'], { cwd: codeRoot });
++
++        const config = new StaticBoardConfig('test', join(base, 'board'), codeRoot, join(base, 'worktrees'), join(base, 'run'));
++        const silentLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
++        manager = new WorktreeManager(config, silentLogger as never);
++        verifier = new ScopeCheckVerifier(manager);
++    });
++
++    const verify = async (result: unknown) => {
++        const worktree = await manager.create('0001', 'card/0001-thing');
++        return verifier.verify({ worktree, stage: {} as never, cardId: '0001', scope: {} as never, result });
++    };
++
++    /**
++     * Card 0075's original (pre-split) plan: eight tasks each adding one more write endpoint, plus
++     * one shared-plumbing task — nine bullets total, matching card 0105's own measurement
++     * ("9 bullets, 5,141 chars"). This is the case card 0105's Constraints singles out by name: the
++     * refusal must name the repetition, not the bullet count or the character count, which are
++     * unremarkable and would flag nothing on their own.
++     */
++    const card0075: ScopeCheckResult = {
++        summary: 'eight write endpoints, one shared contracts task',
++        groups: [
++            {
++                title: 'add a write endpoint',
++                tasks: [
++                    'create card endpoint',
++                    'edit card endpoint',
++                    'move card endpoint',
++                    'approve card endpoint',
++                    'release card endpoint',
++                    'depend card endpoint',
++                    'ack card endpoint',
++                    'start card endpoint',
++                ],
++            },
++            { title: 'shared request/response contracts', tasks: ['define named request/response contracts shared by every endpoint'] },
++        ],
++        verdict: 'refuse',
++        reason:
++            'eight of the nine tasks each add one more write endpoint — the same kind of thing done eight times over. ' +
++            'Nine bullets and roughly five thousand characters are unremarkable by themselves; the repetition is what does not fit one pass.',
++        division: [
++            {
++                title: 'card lifecycle writes',
++                tasks: ['create card endpoint', 'edit card endpoint', 'move card endpoint', 'depend card endpoint'],
++                delivers: 'create, edit, move and depend as an API write surface',
++            },
++            {
++                title: 'card lifecycle transitions',
++                tasks: ['approve card endpoint', 'release card endpoint', 'ack card endpoint', 'start card endpoint'],
++                delivers: 'approve, release, ack and start as an API write surface',
++            },
++        ],
++    };
++
++    /** Card 0078: every CLI command ported to the API-backed transport — eight of them, one bullet each. */
++    const card0078: ScopeCheckResult = {
++        summary: 'eight commands ported to the API transport',
++        groups: [
++            {
++                title: 'port a CLI command to the API transport',
++                tasks: ['port ack', 'port approve', 'port board.init', 'port board.ready', 'port move', 'port release', 'port show', 'port start'],
++            },
++            { title: 'remove now-dead CLI-side business logic', tasks: ['delete the container/pg-backed logic the SDK path supersedes'] },
++        ],
++        verdict: 'refuse',
++        reason:
++            'eight of the nine tasks port one more command to the new transport — the same kind of thing eight times over, ' +
++            'not the nine bullets or 6,350 characters this plan happens to run.',
++        division: [
++            {
++                title: 'read and setup commands',
++                tasks: ['port ack', 'port approve', 'port board.init', 'port board.ready'],
++                delivers: 'ack, approve, board.init and board.ready ported to the API transport',
++            },
++            {
++                title: 'lifecycle commands',
++                tasks: ['port move', 'port release', 'port show', 'port start'],
++                delivers: 'move, release, show and start ported to the API transport',
++            },
++        ],
++    };
++
++    /**
++     * Card 0079: the largest plan on the board by bullet count and character count (21 bullets,
++     * 12,036 chars) — three distinct things, each done once. This is the important negative case: a
++     * check that cannot tell this apart from 0075/0078 is measuring size, not breadth, and would be
++     * wrong in the expensive direction (refusing the one plan card 0105 explicitly requires to pass).
++     */
++    const card0079: ScopeCheckResult = {
++        summary: 'one health check rewritten, one command deleted, one set of comments fixed',
++        groups: [
++            { title: 'rewrite the board.ready health check to ask the API for the card count', tasks: ['rewrite board.ready'] },
++            { title: 'delete the retired run command', tasks: ['delete run.command.ts and its two tombstone tests'] },
++            { title: 'fix stale comments describing what still needs the CLI bootstrap', tasks: ['fix index.ts/plan.command.ts comments'] },
++        ],
++        verdict: 'pass',
++        reason:
++            'three different things, each done once — one health check rewritten, one command deleted, one set of comments fixed. ' +
++            'Twenty-one bullets and 12,036 characters come from how much each is spelled out, not from doing any of them more than once.',
++        division: [],
++    };
++
++    it('refuses card 0075, naming the repetition rather than the bullet or character count', async () => {
++        const outcome = await verify(card0075);
++
++        expect(outcome.passed).toBe(false);
++        expect(outcome.failures).toEqual([]);
++        expect(card0075.reason).toContain('eight');
++        expect(card0075.reason).toMatch(/repetition/);
++        expect(card0075.division.length).toBeGreaterThanOrEqual(2);
++        for (const piece of card0075.division) {
++            expect(piece.delivers.trim().length).toBeGreaterThan(0);
++        }
++    });
++
++    it('refuses card 0078', async () => {
++        const outcome = await verify(card0078);
++
++        expect(outcome.passed).toBe(false);
++        expect(outcome.failures).toEqual([]);
++    });
++
++    // The important case (see the fixture's own comment): 0079 is the largest plan on the board, and
++    // a breadth check that mistakes size for repetition would refuse it. It must pass.
++    it('passes card 0079 despite being the largest plan on the board', async () => {
++        const outcome = await verify(card0079);
++
++        expect(outcome.passed).toBe(true);
++        expect(outcome.failures).toEqual([]);
++    });
++
++    it('rejects a "pass" that contradicts its own reported breadth', async () => {
++        const outcome = await verify({ ...card0075, verdict: 'pass', division: [] });
++
++        expect(outcome.passed).toBe(false);
++        expect(outcome.failures).toHaveLength(1);
++        expect(outcome.failures[0]).toContain(`>= ${BREADTH_THRESHOLD}`);
++        expect(outcome.failures[0]).toContain('"pass"');
++    });
++
++    it('rejects a "refuse" backed by no reported breadth', async () => {
++        const division = [
++            { title: 'health', tasks: ['rewrite board.ready'], delivers: 'the rewritten health check alone' },
++            { title: 'cleanup', tasks: ['delete run.command.ts and its two tombstone tests'], delivers: 'the deletion alone' },
++        ];
++        const outcome = await verify({ ...card0079, verdict: 'refuse', division });
++
++        expect(outcome.passed).toBe(false);
++        expect(outcome.failures).toHaveLength(1);
++        expect(outcome.failures[0]).toContain('no group repeats');
++    });
++
++    it('rejects a refusal whose division cites a task no group reported', async () => {
++        const outcome = await verify({
++            ...card0075,
++            division: [
++                ...card0075.division.slice(1),
++                { title: 'invented piece', tasks: ['a task nobody reported'], delivers: 'nothing real' },
++            ],
++        });
++
++        expect(outcome.passed).toBe(false);
++        expect(outcome.failures.some(f => f.includes('a task nobody reported'))).toBe(true);
++    });
++
++    it('rejects a refusal proposing only one piece, at the schema level', async () => {
++        const outcome = await verify({ ...card0075, division: [card0075.division[0]] });
++
++        expect(outcome.passed).toBe(false);
++        expect(outcome.failures[0]).toContain('does not match the scope-check schema');
++    });
++
++    it('rejects a "pass" that still carries a division', async () => {
++        const outcome = await verify({ ...card0079, division: card0078.division });
++
++        expect(outcome.passed).toBe(false);
++        expect(outcome.failures).toContain('verdict is "pass" but a division was proposed; a pass should carry none');
++    });
++
++    it('fails a stage that wrote to its read-only worktree, independent of its reported verdict', async () => {
++        const worktree = await manager.create('0001', 'card/0001-thing');
++        await writeFile(join(worktree.path, 'README.md'), 'changed\n', 'utf8');
++
++        const outcome = await verifier.verify({ worktree, stage: {} as never, cardId: '0001', scope: {} as never, result: card0079 });
++
++        expect(outcome.passed).toBe(false);
++        expect(outcome.failures.some(f => f.includes('read-only judge must not do'))).toBe(true);
++    });
++});

@@ -7,7 +7,7 @@ import type { DB, Json, WilsonEvalFixtures } from '#modules/data/db.js';
 import type { AttemptEvent, EvalExpected } from './eval.attempt.js';
 
 /** The events an attempt can be found from. A stage writes tool events by the hundred; these it does not. */
-const ATTEMPT_EVENT_TYPES = ['stage.dispatched', 'stage.passed', 'stage.failed', 'worktree.created', 'work.committed'];
+const ATTEMPT_EVENT_TYPES = ['stage.dispatched', 'stage.passed', 'stage.failed', 'stage.blocked', 'worktree.created', 'work.committed'];
 
 /** One stored fixture: a past attempt's plan and starting tree. */
 export interface EvalFixtureRow {

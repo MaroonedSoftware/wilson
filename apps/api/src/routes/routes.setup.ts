@@ -40,6 +40,7 @@ import { LearningsRouter } from './learnings.router.js';
 import { OnboardingRouter } from './onboarding.router.js';
 import { ProjectsRouter } from './projects.router.js';
 import { ReviewRouter } from './review.router.js';
+import { RulesRouter } from './rules.router.js';
 import { SettingsRouter } from './settings.router.js';
 import { StagesRouter } from './stages.router.js';
 
@@ -355,6 +356,7 @@ export const routers = (signal?: AbortSignal) => [
     EngineTokensRouter,
     StagesRouter,
     LearningsRouter,
+    RulesRouter,
     ChatRouter,
     OnboardingRouter,
     AuthRouter,

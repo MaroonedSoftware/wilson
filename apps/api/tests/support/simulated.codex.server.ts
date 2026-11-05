@@ -78,7 +78,7 @@ export class SimulatedCodexServer extends EventEmitter {
     }
 
     /** One patch, the same way. */
-    async changeFiles(id: string, changes: { path: string; kind?: unknown }[]): Promise<string> {
+    async changeFiles(id: string, changes: { path: string; kind?: unknown; diff?: string }[]): Promise<string> {
         const item = { type: 'fileChange', id, changes: changes.map(change => ({ kind: { type: 'update', move_path: null }, diff: '', ...change })) };
         this.notify('item/started', { item: { ...item, status: 'inProgress' } });
         const answer = await this.ask('item/fileChange/requestApproval', { itemId: id });

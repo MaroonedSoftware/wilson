@@ -83,6 +83,22 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
+describe('board tile merge status', () => {
+    it('shows a conflict on a ready tile before anyone presses Merge, and the paths on hover', async () => {
+        vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue({ stages: ['ready'], nonStages: [] });
+        vi.spyOn(BoardClient.prototype, 'listCards').mockResolvedValue([
+            { ...card('0009', 'ready'), mergeStatus: { state: 'conflict', target: 'main', conflicts: ['a.ts'], movedUnder: ['a.ts'] } },
+        ]);
+
+        renderApp('/projects/demo');
+
+        const title = await screen.findByText('card 0009');
+        const tile = title.closest('.mantine-Paper-root') as HTMLElement;
+        const badge = within(tile).getByText('merge conflict');
+        expect(badge.closest('[title]')?.getAttribute('title')).toBe('Conflicts with main: a.ts');
+    });
+});
+
 describe('board tile state iconography', () => {
     it('shows the needs-human face on a flagged tile', async () => {
         vi.spyOn(BoardClient.prototype, 'listBoardColumns').mockResolvedValue(columns);

@@ -12,6 +12,7 @@ options {
         AutoSplitSettingService: "#modules/settings/auto.split.setting.service.js"
         GitHubAppSettingService: "#modules/settings/github.app.setting.service.js"
         ChatEngineSettingService: "#modules/chat/chat.engine.setting.service.js"
+        RuleJudgeSettingService: "#modules/rules/rule.judge.setting.service.js"
     }
     security: {
         policy: wilson.manage
@@ -393,6 +394,44 @@ operation /api/settings/auto-split: {
         }
         response: {
             200: { application/json: AutoSplitSetting }
+        }
+    }
+}
+
+# Which engine and model judge a project's checked rules. Separate from every lane's routing so a review
+# lane on any engine still has judges, since a judge needs only a one-shot model call. Behind step-up
+# for the reason `rules.ck`'s writes are: who judges a rule is as much the gate as what it says.
+contract RuleJudgeSetting: {
+    engine: enum(api, cli)
+    provider: enum(anthropic, openai, xai)
+    model: string
+}
+
+operation /api/settings/rule-judge: {
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: Get rule judge setting
+        service: RuleJudgeSettingService.get
+        response: {
+            200: { application/json: RuleJudgeSetting }
+        }
+    }
+    put: {
+        name: Set rule judge setting
+        mcp: exclude # Human-write-only machinery (PROJECT.md decision 8)
+        service: RuleJudgeSettingService.set
+        security: {
+            policy: wilson.step.up
+        }
+        request: {
+            application/json: RuleJudgeSetting
+        }
+        response: {
+            200: { application/json: RuleJudgeSetting }
+            # An empty model, carried via `details.reason` like every other refusal here.
+            400:
         }
     }
 }

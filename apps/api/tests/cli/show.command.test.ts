@@ -67,6 +67,27 @@ describe('wilson card show', () => {
         expect(logger.info).toHaveBeenCalledWith('  src/a.ts');
     });
 
+    it('shows what Merge would do on a ready card, in text and in --json', async () => {
+        const mergeStatus = { state: 'rereview', target: 'main', conflicts: ['a.ts'], movedUnder: ['a.ts'] };
+        fetchMock.mockResolvedValueOnce(jsonResponse(detail({ stage: 'ready', mergeStatus })));
+        fetchMock.mockResolvedValueOnce(jsonResponse([]));
+        fetchMock.mockResolvedValueOnce(noUsage());
+        const text = buildCtx();
+
+        await run(text.ctx, '0001');
+
+        expect(text.logger.info).toHaveBeenCalledWith('merge:    would go back to review: main moved under a.ts; also conflicts: a.ts');
+
+        fetchMock.mockResolvedValueOnce(jsonResponse(detail({ stage: 'ready', mergeStatus })));
+        fetchMock.mockResolvedValueOnce(jsonResponse([]));
+        fetchMock.mockResolvedValueOnce(noUsage());
+        const json = buildCtx();
+
+        await run(json.ctx, '0001', { json: true });
+
+        expect(JSON.parse(json.logger.info.mock.calls[0]![0] as string).mergeStatus).toEqual(mergeStatus);
+    });
+
     it('shows a split origin, its pieces, and how many have merged', async () => {
         fetchMock.mockResolvedValueOnce(
             jsonResponse(
@@ -264,6 +285,8 @@ describe('wilson card show', () => {
             secondsInStage: null,
             needsHuman: false,
             needsHumanReason: null,
+            mergeStatus: null,
+            blocked: null,
             splitFrom: null,
             pieces: [],
         });

@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import type { Logger } from '@maroonedsoftware/logger';
 import { budgetedInputTokens } from '#modules/agent/budget.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
@@ -7,16 +8,18 @@ import { StageHeldError, StageInterruptedError, type InterruptedAttempt } from '
 import { REPORT_TOOL, type ToolContext } from '#modules/agent/tools/index.js';
 import type { Card } from '#modules/board/card.js';
 import type { EventLog } from '#modules/events/event.log.js';
+import { ruleFinding, withRuleFindings } from '#modules/rules/rule.findings.js';
+import type { RuleVerdict } from '#modules/rules/rule.judge.js';
 import { snapshotDrift, worktreeHost, type Worktree, type WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { withinCardBudget, withinInterruptedBudget } from './card.budget.js';
 import type { ProjectStages, StageConfig } from './stage.config.js';
-import type { StageResultSchemaMap, StageOutcome } from './stage.result.js';
+import { failureClassOf, ReviewResultSchema, type StageResultSchemaMap, type StageOutcome } from './stage.result.js';
 import type { StageVerifierMap } from './stage.verifier.js';
 
 /** What running and judging a stage needs, whoever is asking: a card's dispatch or an eval. */
 export interface StageExecutionDeps {
     project: string;
-    worktrees: Pick<WorktreeManager, 'uncommittedSnapshot'>;
+    worktrees: Pick<WorktreeManager, 'uncommittedPaths' | 'uncommittedSnapshot'>;
     agents: StageAgentMap;
     verifiers: StageVerifierMap;
     resultSchemas: StageResultSchemaMap;
@@ -38,7 +41,32 @@ export interface StageExecutionInput {
     port?: number;
     /** The attempt whose tree this run reopened, to continue from where it stopped. */
     interrupted?: InterruptedAttempt;
+    /** What the rule judges said, when any rule matched this review's diff. */
+    ruleVerdicts?: RuleVerdict[];
 }
+
+/**
+ * A review's report with the rules' failures in it, once what they cite has been checked against the
+ * tree. A report that does not parse has nothing to add to: the stage is sent again for that anyway,
+ * and the verdicts are kept, so the rules cost nothing the second time.
+ */
+const withRuleFailures = async (result: unknown, verdicts: readonly RuleVerdict[], worktree: Worktree): Promise<unknown> => {
+    const failed = verdicts.filter(verdict => verdict.verdict === 'fail');
+    const parsed = ReviewResultSchema.safeParse(result);
+    if (failed.length === 0 || !parsed.success) return result;
+
+    const host = worktreeHost(worktree);
+    const paths = new Set(failed.flatMap(verdict => [...verdict.paths, ...(verdict.file ? [verdict.file] : [])]));
+    const lines = new Map<string, number>();
+    for (const path of paths) {
+        const text = await host.readFile(join(worktree.path, path)).catch(() => undefined);
+        if (text !== undefined) lines.set(path, text.split('\n').length);
+    }
+    return withRuleFindings(
+        parsed.data,
+        failed.flatMap(verdict => ruleFinding(verdict, lines) ?? []),
+    );
+};
 
 /**
  * Run a stage's agent on a prepared tree and judge what came back, without recording an outcome or
@@ -50,7 +78,7 @@ export interface StageExecutionInput {
  * nothing about the work.
  */
 export const executeStage = async (deps: StageExecutionDeps, input: StageExecutionInput): Promise<StageOutcome> => {
-    const { card, stage, worktree, scope, planPath, learningsPath, stages, port, interrupted } = input;
+    const { card, stage, worktree, scope, planPath, learningsPath, stages, port, interrupted, ruleVerdicts } = input;
 
     const context: ToolContext = {
         project: deps.project,
@@ -84,7 +112,7 @@ export const executeStage = async (deps: StageExecutionDeps, input: StageExecuti
 
     // Read again rather than passed down from `run`'s own check: nothing here has spent anything
     // since, and `run` reaches this through three separate call sites.
-    const spent = stage.maxCardInputTokens === undefined ? 0 : await deps.events.totalInputTokens(deps.project, card.frontmatter.id);
+    const spent = stage.maxCardInputTokens === undefined ? 0 : await deps.events.budgetedInputTokens(deps.project, card.frontmatter.id);
 
     const budgeted = withinCardBudget(stage, spent);
     const run = await adapter.run({
@@ -103,6 +131,7 @@ export const executeStage = async (deps: StageExecutionDeps, input: StageExecuti
             baseSha: worktree.baseSha,
             ...(worktree.placement && { host: worktree.placement.hostName }),
             ...(sessionId && { sessionId }),
+            ...(stage.depth && { depth: stage.depth }),
             spent: {
                 wallClockMs: (interrupted?.spent?.wallClockMs ?? 0) + wallClockMs,
                 steps: (interrupted?.spent?.steps ?? 0) + steps,
@@ -115,13 +144,45 @@ export const executeStage = async (deps: StageExecutionDeps, input: StageExecuti
         throw new StageInterruptedError(card.frontmatter.id, stage.name, run.usage, attempt);
     }
 
+    // A question ends the run with nothing to verify: the stage said it could not finish, and why.
+    if (run.blocked) {
+        return {
+            passed: false,
+            failures: [],
+            blocked: run.blocked,
+            changedPaths: await deps.worktrees.uncommittedPaths(worktree),
+            scopeGrants: scope.grants(),
+            usage: run.usage,
+            trace: run.trace,
+        };
+    }
+
+    // A loop stop skips the verifier too. The run never said it had finished, so the outcome is the
+    // same whatever a verifier finds, and testing's would run the whole suite to say so. Unjudged,
+    // so it retries here in a fresh session, and charged like any other failure, so the retries are
+    // bounded. Never `StageInterruptedError`, which charges nothing and could repeat without limit.
+    if (run.loopFailure) {
+        return {
+            passed: false,
+            failures: [run.loopFailure],
+            unjudged: true,
+            loopStopped: true,
+            failureClass: 'loop',
+            changedPaths: await deps.worktrees.uncommittedPaths(worktree),
+            scopeGrants: scope.grants(),
+            result: run.result,
+            usage: run.usage,
+            trace: run.trace,
+        };
+    }
+
     const verifier = deps.verifiers.get(stage.verifier ?? stage.name);
     if (!verifier) {
         throw new Error(
             `stage "${stage.name}" names verifier "${stage.verifier ?? stage.name}", which is not registered (have: ${[...deps.verifiers.keys()].join(', ')})`,
         );
     }
-    const reported = run.result;
+    const reported = ruleVerdicts ? await withRuleFailures(run.result, ruleVerdicts, worktree) : run.result;
     const verification = await verifier.verify({ worktree, scope, stage, cardId: card.frontmatter.id, card, result: reported });
     const verifiedTree = await deps.worktrees.uncommittedSnapshot(worktree);
     const failures = [...verification.failures];
@@ -207,7 +268,19 @@ export const executeStage = async (deps: StageExecutionDeps, input: StageExecuti
         trace: run.trace,
         ...(run.truncated && { truncated: true }),
         ...(verification.reportRejected && { reportRejected: true }),
+        ...(failures.length > 0 && {
+            failureClass: failureClassOf({
+                engineFailure: run.engineFailure,
+                budgetFailure: run.budgetFailure,
+                truncated: run.truncated,
+                resultDropped: run.resultDropped,
+                noReport: reported === undefined,
+                schemaInvalid,
+                reportRejected: verification.reportRejected,
+            }),
+        }),
         ...(supportedRefusal && { supportedRefusal }),
+        ...(verification.needsHumanReason && { needsHumanReason: verification.needsHumanReason }),
     };
 };
 

@@ -4,6 +4,8 @@ import com.maroonedsoftware.wilson.sdk.models.BoardColumns
 import com.maroonedsoftware.wilson.sdk.models.CardSummary
 import com.maroonedsoftware.wilson.sdk.models.CardSummaryDoneReason
 import com.maroonedsoftware.wilson.sdk.models.CardSummaryPlanCheck
+import com.maroonedsoftware.wilson.sdk.models.MergeStatus
+import com.maroonedsoftware.wilson.sdk.models.MergeStatusState
 
 const val PARKING_LOT = "parking-lot"
 
@@ -17,6 +19,27 @@ fun planCheckLine(check: CardSummaryPlanCheck?, reason: String?): String? =
         CardSummaryPlanCheck.REFUSED -> "Scope check refused: $reason"
         else -> null
     }
+
+/** What Merge would do on a `ready` card, in the web app's words, conflicting paths included. */
+fun mergeStatusLine(status: MergeStatus): String {
+    val target = status.target ?: "the target"
+    val conflicts = status.conflicts.joinToString(", ")
+    val moved = status.movedUnder.joinToString(", ")
+    return when (status.state) {
+        MergeStatusState.CLEAN -> "Merges cleanly into $target."
+        MergeStatusState.CONFLICT -> if (conflicts.isEmpty()) "Conflicts with $target." else "Conflicts with $target: $conflicts"
+        MergeStatusState.REREVIEW -> {
+            val line = "Merge would send this back to review: $target moved under $moved."
+            if (conflicts.isEmpty()) line else "$line It also conflicts: $conflicts"
+        }
+        MergeStatusState.CAPPED -> "Merge would stop and flag this for a human: $target moved under $moved, and it has used up its re-reviews."
+        MergeStatusState.UNKNOWN, MergeStatusState.UNKNOWN2 -> "Could not check the merge: ${status.reason ?: "no reason recorded"}"
+    }
+}
+
+/** Whether Merge would fail to land this: the line reads as a warning then. */
+fun mergeStatusWarns(status: MergeStatus): Boolean = 
+    status.state == MergeStatusState.CONFLICT || status.state == MergeStatusState.REREVIEW || status.state == MergeStatusState.CAPPED
 
 /** The same rule as the web board's `cardState`. A card that matches none has no icon. */
 fun cardState(needsHuman: Boolean, stage: String, doneReason: CardSummaryDoneReason? = null): CardState? =

@@ -1,0 +1,20 @@
+{
+    "id": "0001",
+    "title": "Set the brand colour",
+    "stage": "implementing",
+    "branch": "card/0001-set-the-brand-colour",
+    "dependsOn": [],
+    "needsHuman": true,
+    "needsHumanReason": "What is the brand colour hex value (or name) that src/colour.ts should export as `colour`?",
+    "blocked": {
+        "stage": "implementing",
+        "tried": "Read the plan (it says the brand colour is not in the repo and cannot be derived by running anything). Read src/colour.ts, which currently holds `export const colour = \"unset\";` with no hint of the value. The plan forbids guessing.",
+        "askedAt": "2026-11-04T13:53:54.611Z",
+        "category": "decision",
+        "question": "What is the brand colour hex value (or name) that src/colour.ts should export as `colour`?",
+        "options": ["#c0392b", "#2980b9"]
+    },
+    "body": "Body",
+    "resolvedBranch": "card/0001-set-the-brand-colour",
+    "sections": {}
+}

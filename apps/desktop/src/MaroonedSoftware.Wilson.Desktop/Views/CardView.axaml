@@ -18,6 +18,26 @@
         <SelectableTextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding Card.Branch}" IsVisible="{Binding Card.Branch, Converter={x:Static ObjectConverters.IsNotNull}}" />
         <TextBlock DockPanel.Dock="Top" Classes="quiet" Text="{Binding RanOn}" ToolTip.Tip="The registered host this card's most recent stage ran on" IsVisible="{Binding RanOn, Converter={x:Static ObjectConverters.IsNotNull}}" />
         <TextBlock DockPanel.Dock="Top" Classes="error" Margin="0,4,0,0" Text="{Binding FlagReason}" IsVisible="{Binding FlagReason, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <TextBlock DockPanel.Dock="Top" Classes.error="{Binding MergeStatusWarns}" Margin="0,4,0,0" TextWrapping="Wrap" Text="{Binding MergeStatus}" IsVisible="{Binding MergeStatus, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <Border DockPanel.Dock="Top" Background="{DynamicResource Panel}" CornerRadius="4" Padding="10,8" Margin="0,8,0,0" IsVisible="{Binding Question, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <StackPanel Spacing="6">
+                <TextBlock Classes="quiet" Text="{Binding QuestionFrom}" />
+                <SelectableTextBlock FontWeight="SemiBold" Text="{Binding Question.Question, FallbackValue={x:Null}}" TextWrapping="Wrap" />
+                <SelectableTextBlock Classes="quiet" Text="{Binding QuestionTried}" TextWrapping="Wrap" />
+                <ItemsControl ItemsSource="{Binding Question.Options, FallbackValue={x:Null}}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="sys:String">
+                            <Button Content="{Binding}" Margin="0,0,6,6" Command="{Binding $parent[UserControl].((vm:CardViewModel)DataContext).UseOptionCommand}" CommandParameter="{Binding}" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBox Text="{Binding Answer}" PlaceholderText="Your answer" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="160" />
+                <Button Content="Send answer" Command="{Binding SendAnswerCommand}" IsEnabled="{Binding Idle}" />
+            </StackPanel>
+        </Border>
         <WrapPanel DockPanel.Dock="Top" Margin="0,10,0,4" IsEnabled="{Binding Idle}">
             <WrapPanel.Styles>
                 <Style Selector="Button, ComboBox"><Setter Property="Margin" Value="0,0,6,6" /></Style>

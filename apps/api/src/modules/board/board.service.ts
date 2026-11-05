@@ -17,14 +17,17 @@ import type {
     CardUsage,
     CardVersion,
     ListQuery,
+    ProjectGateStats,
     ProjectStats,
     ProjectStatsQuery,
     SplitPieceSummary,
 } from '../../generated/board.js';
 import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
+import { MergeStatusReader } from './merge.status.reader.js';
+import { RE_REVIEW_RETRY_KEY } from './re.review.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
-import { acceptanceCriteria, authoredText, PLAN_SECTIONS, sectionKey, type Card } from './card.js';
+import { acceptanceCriteria, PLAN_SECTIONS, sectionKey, type Card } from './card.js';
 
 /** `limit` when a caller omits it. */
 const DEFAULT_HISTORY_LIMIT = 50;
@@ -65,6 +68,7 @@ export const toCardSummary = (card: Card): CardSummary => ({
     dependsOn: card.frontmatter.dependsOn,
     needsHuman: card.frontmatter.needsHuman ?? false,
     needsHumanReason: card.frontmatter.needsHumanReason,
+    blocked: card.frontmatter.blocked && { ...card.frontmatter.blocked, askedAt: DateTime.fromISO(card.frontmatter.blocked.askedAt) },
     position: card.frontmatter.position,
     splitFrom: card.frontmatter.splitFrom,
 });
@@ -93,6 +97,8 @@ export class BoardService {
         private readonly eventLog: EventLog,
         private readonly boardConfig: BoardConfig,
         private readonly worktrees: WorktreeManager,
+        // Optional so a test can build the service without one; unset, no card reports a merge status.
+        private readonly mergeStatus?: MergeStatusReader,
     ) {}
 
     /**
@@ -124,6 +130,15 @@ export class BoardService {
         return { ...summary, stageEnteredAt: stageEnteredAt(events, { fullHistory }) };
     }
 
+    /** Adds `mergeStatus` to a card in `ready`, the one stage Merge acts on. */
+    private async withMergeStatus<T extends CardSummary>(card: Card, summary: T): Promise<T> {
+        if (!this.mergeStatus || card.frontmatter.stage !== 'ready') return summary;
+        return {
+            ...summary,
+            mergeStatus: await this.mergeStatus.read(this.worktrees.resolveBranch(card), card.frontmatter.retries[RE_REVIEW_RETRY_KEY]),
+        };
+    }
+
     /** The cards split out of `id`, lowest id first; empty for a card that was never split. */
     private async piecesOf(id: string): Promise<SplitPieceSummary[]> {
         const cards = await this.boardRepository.list();
@@ -140,13 +155,17 @@ export class BoardService {
 
     async list(): Promise<CardSummary[]> {
         const cards = await this.boardRepository.list();
-        return Promise.all(cards.map(card => this.withStageEnteredAt(card, this.withResolvedBranch(card, toCardSummary(card)))));
+        return Promise.all(
+            cards.map(async card =>
+                this.withMergeStatus(card, await this.withStageEnteredAt(card, this.withResolvedBranch(card, toCardSummary(card)))),
+            ),
+        );
     }
 
     async getById(id: string): Promise<CardDetail> {
         try {
             const card = await this.boardRepository.read(id);
-            const detail = await this.withStageEnteredAt(card, this.withResolvedBranch(card, toCardDetail(card)));
+            const detail = await this.withMergeStatus(card, await this.withStageEnteredAt(card, this.withResolvedBranch(card, toCardDetail(card))));
             return { ...detail, pieces: await this.piecesOf(id) };
         } catch (err) {
             if (err instanceof CardNotFoundError) throw httpError(404);
@@ -187,7 +206,7 @@ export class BoardService {
         const sectionLengths: Record<string, number> = {};
         for (const section of PLAN_SECTIONS) {
             const text = card.sections[section];
-            if (text !== undefined) sectionLengths[sectionKey(section)] = authoredText(text).length;
+            if (text !== undefined) sectionLengths[sectionKey(section)] = text.length;
         }
         const text = query.section ? card.sections[PLAN_SECTIONS.find(section => sectionKey(section) === query.section)!] : undefined;
 
@@ -198,7 +217,7 @@ export class BoardService {
             pinnedVersion,
             differsFromPin: pinned !== undefined && pinned.body !== head.body,
             sectionLengths,
-            text: text === undefined ? undefined : authoredText(text),
+            text,
             criteria: acceptanceCriteria(card),
         };
     }
@@ -242,14 +261,24 @@ export class BoardService {
      * server's midnight, the same one the daily ceiling counts from.
      */
     async stats(query: ProjectStatsQuery): Promise<ProjectStats> {
+        const { since, until } = this.statsWindow(query);
+        return this.eventLog.projectStats(this.boardConfig.project, since, until);
+    }
+
+    /** What the gates caught and how often a person was pulled in, over the same window as {@link stats}. */
+    async gateStats(query: ProjectStatsQuery): Promise<ProjectGateStats> {
+        const { since, until } = this.statsWindow(query);
+        return this.eventLog.gateStats(this.boardConfig.project, since, until);
+    }
+
+    private statsWindow(query: ProjectStatsQuery): { since: DateTime; until: DateTime } {
         const days = Math.max(1, Math.min(query.days ?? DEFAULT_STATS_DAYS, MAX_STATS_DAYS));
         const now = DateTime.now();
-        return this.eventLog.projectStats(
-            this.boardConfig.project,
-            now.startOf('day').minus({ days: days - 1 }),
+        return {
+            since: now.startOf('day').minus({ days: days - 1 }),
             // Past the current instant, so an event written in the same millisecond is not left out.
-            now.plus({ seconds: 1 }),
-        );
+            until: now.plus({ seconds: 1 }),
+        };
     }
 
     /**

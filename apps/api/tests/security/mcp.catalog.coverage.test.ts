@@ -52,6 +52,15 @@ describe('the operation catalog', () => {
         expect(stepUp).toContain('PATCH /api/stages/lanes/{name}');
         expect(stepUp).toEqual(
             expect.arrayContaining([
+                'POST /api/rules',
+                'PATCH /api/rules/{id}',
+                'DELETE /api/rules/{id}',
+                'PUT /api/settings/rule-judge',
+                'POST /api/rules/proposals/{id}/accept',
+            ]),
+        );
+        expect(stepUp).toEqual(
+            expect.arrayContaining([
                 'POST /api/hosts',
                 'PUT /api/hosts/{name}/ssh-target',
                 'POST /api/hosts/{name}/worker-token',

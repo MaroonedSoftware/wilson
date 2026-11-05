@@ -29,5 +29,11 @@ class PushMessageTest {
     }
 
     @Test
+    fun aQuestionAsksForYouWithoutSayingWhatItIs() {
+        assertEquals(PushChannel.NEEDS_YOU, message("needs-answer").channel)
+        assertEquals("Card 0050 has a question for you", message("needs-answer").headline())
+    }
+
+    @Test
     fun theHeadlineNamesTheCardWithoutItsTitle() = assertEquals("Card 0050 needs you", message("needs-human").headline())
 }

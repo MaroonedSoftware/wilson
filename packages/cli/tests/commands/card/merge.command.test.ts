@@ -36,21 +36,45 @@ const buildCtx = () => {
 
 const run = (ctx: unknown, cardId: string) => (command.run as unknown as Handler)({}, ctx, [cardId]);
 
+/** The read the command makes first, for the merge status. */
+const card = (overrides: Record<string, unknown> = {}) =>
+    jsonResponse({ id: '0090', title: 'do the thing', stage: 'ready', dependsOn: [], needsHuman: false, body: '', sections: {}, ...overrides });
+
 describe('wilson card merge', () => {
     it('posts to the merge endpoint and reports the landed commit, exiting 0 (AC7)', async () => {
+        fetchMock.mockResolvedValueOnce(card());
         fetchMock.mockResolvedValueOnce(jsonResponse({ merged: true, commit: 'abc123def' }));
         const { ctx, logger } = buildCtx();
 
         const result = await run(ctx, '0090');
 
         expect(result).toBe(0);
-        const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+        const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
         expect(url).toContain('/api/cards/0090/merge');
         expect(init.method).toBe('POST');
-        expect(logger.info).toHaveBeenCalledWith('0090: merged as abc123def');
+        expect(logger.info.mock.calls.map(call => call[0])).toEqual(['0090: merged as abc123def']);
+    });
+
+    it('says what to expect before the attempt, and still makes the attempt', async () => {
+        const mergeStatus = { state: 'conflict', target: 'main', conflicts: ['a.ts', 'b.ts'], movedUnder: [] };
+        fetchMock.mockResolvedValueOnce(card({ mergeStatus }));
+        fetchMock.mockResolvedValueOnce(jsonResponse({ merged: false, reason: 'card/0090 conflicts with main: a.ts, b.ts' }));
+        const { ctx, logger } = buildCtx();
+
+        const result = await run(ctx, '0090');
+
+        expect(result).toBe(1);
+        const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
+        expect(url).toContain('/api/cards/0090/merge');
+        expect(init.method).toBe('POST');
+        expect(logger.info.mock.calls.map(call => call[0])).toEqual([
+            '0090: conflicts with main: a.ts, b.ts',
+            '0090: not merged — card/0090 conflicts with main: a.ts, b.ts',
+        ]);
     });
 
     it('reports the reason and exits 1 when merged is false, without treating it as a request failure (AC7)', async () => {
+        fetchMock.mockResolvedValueOnce(card());
         fetchMock.mockResolvedValueOnce(
             jsonResponse({
                 merged: false,

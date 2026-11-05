@@ -28,7 +28,7 @@ describe('poisonCard notifies (card 0050)', () => {
         new StaticBoardConfig('test', '/tmp/code', '/tmp/worktrees', '/tmp/run', notifyWebhookUrl, notifyBaseUrl);
 
     // `write`'s mock invokes the real mutate callback, the way `PostgresBoardRepository.write` does,
-    // so `poisonCard`'s title-capture and already-poisoned guard (both read off the card the mutate
+    // so `poisonCard`'s title-capture and already-ended guard (both read off the card the mutate
     // callback receives) see real values instead of whatever a blind mock would leave untouched.
     const repoOver = (existing: Card) => ({
         write: vi.fn(async (_id: string, _msg: string, mutate: (c: Card) => Card | Promise<Card>) => {
@@ -88,6 +88,31 @@ describe('poisonCard notifies (card 0050)', () => {
             { project: 'test', cardId: '0001', stageName: 'implementing', reason: 'boom again' },
         );
 
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('leaves a merged card merged, and records the late job as stale rather than poisoned', async () => {
+        const fetchMock = vi.fn<typeof fetch>(async () => new Response(null, { status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
+        const merged = card('done');
+        merged.frontmatter.doneReason = 'merged';
+        let written: Card | undefined;
+        const boardRepo = {
+            write: vi.fn(async (_id: string, _msg: string, mutate: (c: Card) => Card | Promise<Card>) => {
+                written = await mutate(merged);
+                return 'sha';
+            }),
+        };
+        const log = events();
+
+        await poisonCard(
+            { boardRepo: boardRepo as unknown as BoardRepository, events: log, board: boardWith('https://hooks.example/notify') },
+            { project: 'test', cardId: '0001', stageName: 'scope-check', reason: 'no stage named "scope-check"' },
+        );
+
+        expect(written?.frontmatter).toMatchObject({ stage: 'done', doneReason: 'merged' });
+        const appended = (log.append as ReturnType<typeof vi.fn>).mock.calls.map(([event]) => event);
+        expect(appended).toEqual([expect.objectContaining({ type: 'stage.stale', payload: { wantedStage: 'scope-check', actualStage: 'done' } })]);
         expect(fetchMock).not.toHaveBeenCalled();
     });
 

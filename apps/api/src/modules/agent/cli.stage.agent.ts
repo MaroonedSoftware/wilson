@@ -15,11 +15,13 @@ import {
 import { z } from 'zod';
 import type { EngineAccount, ExecutionHost } from '#modules/host/execution.host.js';
 import { UsageLimitWatch, type UsageLimit } from './usage.limit.js';
+import { RepeatedCallWatch, describeRepeatedCall } from './repeated.call.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { CLAUDE_CONFIG_DIR } from '#modules/settings/claude.config.dir.setting.js';
 import { EngineAccountsService, LOCAL_ACCOUNT } from '#modules/host/engine.accounts.service.js';
 import { PASSED_THROUGH } from '#modules/stages/run.command.js';
 import { modelOf } from '#modules/stages/stage.config.js';
+import { BlockedReportSchema, type BlockedReport } from './blocked.report.js';
 import { buildRunTrace } from './run.trace.js';
 import { budgetedInputTokens, contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
 import { REPORT_RESULT_PATH, SCRATCH_PREFIX } from './scope.guard.js';
@@ -27,6 +29,7 @@ import { StageInterrupt } from './stage.interrupt.js';
 import type { RunTrace } from './run.trace.js';
 import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
+import { BLOCKED_TOOL, BLOCKED_TOOL_DESCRIPTION, blockedGuidance } from './tools/blocked.tool.js';
 import { deleteFile } from './tools/delete.tool.js';
 import { requestScope } from './tools/scope.tool.js';
 import { toolHost, type ToolContext } from './tools/index.js';
@@ -115,6 +118,18 @@ export const subscriptionEnv = (
 };
 
 /**
+ * The engine's two cache figures as a stage's `usage` holds them: `cachedInputTokens` is reads plus
+ * writes, so whatever reads it as "how many tokens were cached" stays right, and
+ * `cacheWriteInputTokens` says how many of them were writes, which cost far more than reads.
+ */
+const cacheTokens = (
+    usage: { cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null } | undefined,
+): { cachedInputTokens: number; cacheWriteInputTokens: number } => {
+    const written = usage?.cache_creation_input_tokens ?? 0;
+    return { cachedInputTokens: (usage?.cache_read_input_tokens ?? 0) + written, cacheWriteInputTokens: written };
+};
+
+/**
  * The `query()` options that start the engine on `host` rather than here: the binary named plainly so
  * the SDK passes its flags straight through (it treats anything not ending in `.js` as a native
  * binary), and the host's own spawn. Nothing for a host without `spawnClaude`.
@@ -141,6 +156,7 @@ const REPORT_TOOL = 'report_result';
 const REQUEST_SCOPE_TOOL = 'request_scope';
 const DELETE_TOOL = 'delete';
 const qualifiedReportTool = (): string => `mcp__${REPORT_SERVER}__${REPORT_TOOL}`;
+const qualifiedBlockedTool = (): string => `mcp__${REPORT_SERVER}__${BLOCKED_TOOL}`;
 const qualifiedRequestScopeTool = (): string => `mcp__${REPORT_SERVER}__${REQUEST_SCOPE_TOOL}`;
 // Exported so a test can assert the prompt names this tool by a value derived from the same
 // constant the MCP server below registers it under, rather than a literal the two could drift
@@ -337,9 +353,32 @@ export class CliStageAgent extends StageAgent {
         // the delete-tool guidance carries the "don't leave an it.skip behind" warning: that
         // consequence is only real where such a check actually runs.
         const checksTestCounts = stage.testReportPath !== undefined;
+        // Not for a step: an answer resumes the lane's own run, so the step would be lost.
+        const canAsk = !stage.step;
+        let blocked: BlockedReport | undefined;
         const reportServer = createSdkMcpServer({
             name: REPORT_SERVER,
             tools: [
+                ...(canAsk
+                    ? [
+                          tool(BLOCKED_TOOL, BLOCKED_TOOL_DESCRIPTION, BlockedReportSchema.shape, async (input: BlockedReport) => {
+                              // A run that has reported said it was finished, and one that has already
+                              // stopped for something else cannot start waiting for an answer.
+                              if (reported !== undefined) {
+                                  return { content: [{ type: 'text' as const, text: 'error: you have already reported your result' }] };
+                              }
+                              if (stoppedBecause) return { content: [{ type: 'text' as const, text: 'error: this stage has already stopped' }] };
+
+                              // The engine would keep working after a tool call, so the stage ends here:
+                              // the read loop stops waiting now, and its `finally` tears the engine down.
+                              // No abort from inside this handler, so the reply below is not racing it.
+                              blocked = input;
+                              stoppedBecause = 'blocked';
+                              stop();
+                              return { content: [{ type: 'text' as const, text: 'asked' }] };
+                          }),
+                      ]
+                    : []),
                 tool(
                     REPORT_TOOL,
                     `Report the work you have completed and end the stage. Call this exactly once, only after you have made every change the plan asks for and the build passes. Write the finished result to ${REPORT_RESULT_PATH} — that file, and only that file, is how the result is delivered — then call this with its path, or with no path since that is the default.`,
@@ -448,7 +487,7 @@ export class CliStageAgent extends StageAgent {
         // on a dead pipe cannot be asked to wake up, so the only reliable move is to stop waiting
         // for it. `abort()` still fires, for the engine's benefit when there is an engine left to
         // hear it, but nothing depends on it any more.
-        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | 'interrupted' | undefined;
+        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | 'interrupted' | 'blocked' | 'loop' | undefined;
         // Set alongside `stoppedBecause === 'context'`, naming the cap and the usage the engine
         // reported at the moment it crossed — the one piece of information the generic
         // `stoppedBecause` tag cannot carry on its own, same reason `overBudget`'s message names
@@ -456,6 +495,11 @@ export class CliStageAgent extends StageAgent {
         let contextFailure: string | undefined;
         // The same, for `stoppedBecause === 'input-tokens'`.
         let inputTokenFailure: string | undefined;
+        // Fed from the stream rather than the guard, which the engine does not always consult (card
+        // 0248). `writeCalls` holds the writes still waiting on a `tool_result`, which is what says
+        // whether they succeeded.
+        const repeats = new RepeatedCallWatch();
+        const writeCalls = new Map<string, { tool: string; input: unknown }>();
         let stop!: () => void;
         const stopped = new Promise<typeof STOPPED>(resolve => {
             stop = () => resolve(STOPPED);
@@ -614,6 +658,7 @@ export class CliStageAgent extends StageAgent {
                       'that path, so no argument is needed unless you wrote the result somewhere else.',
                       'Work first, report last: that call ends the stage, and a result describing work you did',
                       'not do fails it, because the runner checks the diff and not your summary.',
+                      ...(canAsk ? ['', ...blockedGuidance(qualifiedBlockedTool())] : []),
                   ].join('\n'),
             options: {
                 cwd: context.worktreeRoot,
@@ -638,7 +683,10 @@ export class CliStageAgent extends StageAgent {
                 // through both is only credited/recorded once (see `createToolGuard`).
                 hooks: { PreToolUse: [{ hooks: [toolGuardHook(toolGuard)] }] },
                 canUseTool: toolGuard,
-                env: subscriptionEnv(configDir, hostAccount ? undefined : account?.token, account?.variable),
+                env: {
+                    ...subscriptionEnv(configDir, hostAccount ? undefined : account?.token, account?.variable),
+                    ...(stage.autoCompactWindow !== undefined && { CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(stage.autoCompactWindow) }),
+                },
                 // A worktree on another machine needs the engine there too: its built-in tools read
                 // and write the tree directly. The host starts `claude` from its own PATH, and the
                 // SDK's callbacks above still run here, over the same stdio. A host with no
@@ -698,7 +746,7 @@ export class CliStageAgent extends StageAgent {
         // A stage that has already reported is left to finish: its work is done, and stopping it here
         // would throw that away for the sake of a restart.
         const interrupt = (): void => {
-            if (reported !== undefined) return;
+            if (reported !== undefined || blocked) return;
             stoppedBecause ??= 'interrupted';
             abortController.abort();
             stop();
@@ -711,7 +759,10 @@ export class CliStageAgent extends StageAgent {
         // Input tokens per API message, by id: the engine emits one assistant message per content
         // block, each repeating its API message's `usage`, so counting messages would charge a turn
         // once per block. Summed, these match the `result` message's own totals.
-        const inputTokensByMessage = new Map<string, { inputTokens: number; outputTokens: number; cachedInputTokens: number }>();
+        const inputTokensByMessage = new Map<
+            string,
+            { inputTokens: number; outputTokens: number; cachedInputTokens: number; cacheWriteInputTokens: number }
+        >();
 
         // `reported` still undefined at the point a result is built, despite the report tool having
         // been seen on the stream: the call was made but never reached the callback above (or
@@ -731,8 +782,9 @@ export class CliStageAgent extends StageAgent {
                     inputTokens: total.inputTokens + tokens.inputTokens,
                     outputTokens: total.outputTokens + tokens.outputTokens,
                     cachedInputTokens: total.cachedInputTokens + tokens.cachedInputTokens,
+                    cacheWriteInputTokens: total.cacheWriteInputTokens + tokens.cacheWriteInputTokens,
                 }),
-                { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 },
+                { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0 },
             );
 
         // The session last written to the event log, so one is recorded once rather than per message.
@@ -747,6 +799,23 @@ export class CliStageAgent extends StageAgent {
                 ...traceField(),
             };
         };
+
+        const blockedOutput = (report: BlockedReport): AgentRunOutput => ({
+            blocked: report,
+            usage: usage ?? spentSoFar(),
+            truncated: false,
+            ...traceField(),
+        });
+
+        // Named here and not left to the branches below, whose last resort blames the wall clock.
+        const loopOutput = (): AgentRunOutput => ({
+            result: reported ?? (summary ? { summary } : undefined),
+            usage: usage ?? spentSoFar(),
+            truncated: true,
+            loopFailure: repeats.loop && describeRepeatedCall(repeats.loop),
+            ...droppedField(),
+            ...traceField(),
+        });
 
         // Only ever for a run with nothing reported: one that has reported has finished its work,
         // whatever state its account is left in. A failed write costs the next engine start a refusal.
@@ -772,6 +841,9 @@ export class CliStageAgent extends StageAgent {
             const messages = stream[Symbol.asyncIterator]();
             for (;;) {
                 const next = await Promise.race([messages.next(), stopped]);
+                // Whichever side of that race won, and whatever the engine sent as it went down.
+                if (blocked) return blockedOutput(blocked);
+                if (stoppedBecause === 'loop') return loopOutput();
                 // The losing `messages.next()` is abandoned deliberately: it stays pending on a pipe
                 // that will never deliver, which is precisely the state being escaped.
                 if (next === STOPPED) {
@@ -828,6 +900,19 @@ export class CliStageAgent extends StageAgent {
                         .catch((error: unknown) => this.logger.warn(`could not record engine session for ${context.cardId}: ${String(error)}`));
                 }
 
+                if (message.type === 'system' && message.subtype === 'compact_boundary') {
+                    const { trigger, pre_tokens: preTokens, post_tokens: postTokens } = message.compact_metadata;
+                    await context.events
+                        .append({
+                            project: context.project,
+                            cardId: context.cardId,
+                            stage: context.stage,
+                            type: 'stage.compacted',
+                            payload: { trigger, preTokens, ...(postTokens !== undefined && { postTokens }) },
+                        })
+                        .catch((error: unknown) => this.logger.warn(`could not record compaction for ${context.cardId}: ${String(error)}`));
+                }
+
                 if (message.type === 'assistant') {
                     const text = message.message.content.map(part => (part.type === 'text' ? part.text : '')).join('');
                     if (text.trim()) summary = text.trim();
@@ -845,6 +930,14 @@ export class CliStageAgent extends StageAgent {
                     // whose id `canUseTool` was never asked about can be named at the end of the run.
                     for (const part of message.message.content) {
                         if (part.type !== 'tool_use') continue;
+                        // Reporting and asking end the stage, so neither can be what it is stuck on.
+                        if (part.name !== qualifiedReportTool() && part.name !== qualifiedBlockedTool()) {
+                            const called = repeatedCallInput(part.name, part.input);
+                            repeats.observe(part.name, called);
+                            if (WRITE_TOOLS.includes(part.name) || part.name === qualifiedDeleteTool()) {
+                                writeCalls.set(part.id, { tool: part.name, input: called });
+                            }
+                        }
                         if (READ_TOOLS.includes(part.name)) {
                             const input = (part.input ?? {}) as { file_path?: string; path?: string };
                             reads.push(input.file_path ?? input.path);
@@ -877,7 +970,7 @@ export class CliStageAgent extends StageAgent {
                         inputTokensByMessage.set(message.message.id, {
                             inputTokens: turn.input_tokens,
                             outputTokens: turn.output_tokens,
-                            cachedInputTokens: (turn.cache_read_input_tokens ?? 0) + (turn.cache_creation_input_tokens ?? 0),
+                            ...cacheTokens(turn),
                         });
                         const spent = spentSoFar();
                         const failure = overBudget(budgetedInputTokens(spent), stage.maxInputTokens);
@@ -890,6 +983,15 @@ export class CliStageAgent extends StageAgent {
                             stop();
                         }
                     }
+
+                    // After the usage above, so the turn that tripped this is charged. Not for a stage
+                    // that has reported or asked, which has already finished whatever it was repeating.
+                    if (repeats.loop && reported === undefined && !reportToolSeen && !blocked && !stoppedBecause) {
+                        stoppedBecause = 'loop';
+                        this.logger.warn(`cli stage stopped: ${describeRepeatedCall(repeats.loop)}`);
+                        abortController.abort();
+                        stop();
+                    }
                 }
                 if (message.type === 'user') {
                     // Card 0248: a `tool_result` here is the SDK's own evidence that the `tool_use`
@@ -900,7 +1002,10 @@ export class CliStageAgent extends StageAgent {
                     const content = message.message.content;
                     if (Array.isArray(content)) {
                         for (const part of content) {
-                            if (part.type === 'tool_result') completedToolUseIds.add(part.tool_use_id);
+                            if (part.type !== 'tool_result') continue;
+                            completedToolUseIds.add(part.tool_use_id);
+                            const write = writeCalls.get(part.tool_use_id);
+                            if (write && !part.is_error) repeats.wrote(write.tool, write.input);
                         }
                     }
                 }
@@ -908,7 +1013,7 @@ export class CliStageAgent extends StageAgent {
                     usage = {
                         inputTokens: message.usage?.input_tokens,
                         outputTokens: message.usage?.output_tokens,
-                        cachedInputTokens: (message.usage?.cache_read_input_tokens ?? 0) + (message.usage?.cache_creation_input_tokens ?? 0),
+                        ...cacheTokens(message.usage),
                     };
                     if (usageWatch.limit && reported === undefined) return await limitedOutput(usageWatch.limit);
                     // The engine reports its own truncation; treat anything but a clean end as cut off.
@@ -988,6 +1093,8 @@ export class CliStageAgent extends StageAgent {
             // attribution at all — exactly how a run turned into `stage.failed {"error":"Claude Code
             // process aborted by user"}` with nothing else to go on. `stoppedBecause` already knows
             // which of the runner's own controls fired, if any, independent of what the error says.
+            if (blocked) return blockedOutput(blocked);
+            if (stoppedBecause === 'loop') return loopOutput();
             if (stoppedBecause === 'steps') {
                 return {
                     result: reported ?? (summary ? { summary } : undefined),
@@ -1214,6 +1321,16 @@ const parseReportedResult = (text: string, resultSchema: z.ZodTypeAny): { ok: tr
     return { ok: true, value: validated.data };
 };
 
+/**
+ * A call's input as `RepeatedCallWatch` should compare it. Bash's `description` is the model's prose
+ * about the command, free to change wording while the command it runs stays the same.
+ */
+const repeatedCallInput = (tool: string, input: unknown): unknown => {
+    if (!EXEC_TOOLS.includes(tool)) return input;
+    const { description: _description, ...rest } = (input ?? {}) as Record<string, unknown>;
+    return rest;
+};
+
 /** `2` -> `'2nd'`, `11` -> `'11th'`, `23` -> `'23rd'`. Used only to phrase the repeat count below. */
 const ordinal = (n: number): string => {
     if (n % 100 >= 11 && n % 100 <= 13) return `${n}th`;
@@ -1363,6 +1480,12 @@ export const createToolGuard = (
         // callback, and containment/denial for that read is `checkRead`'s job inside the tool's own
         // handler above, not this guard's.
         if (toolName === qualifiedReportTool()) {
+            return { behavior: 'allow' };
+        }
+
+        // This adapter's own question tool, present on the MCP server only for a stage that can ask.
+        // It writes nothing, and the read-only stages can ask as well as any other.
+        if (toolName === qualifiedBlockedTool()) {
             return { behavior: 'allow' };
         }
 

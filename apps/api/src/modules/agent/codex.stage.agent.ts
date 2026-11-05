@@ -6,13 +6,16 @@ import { EngineAccountsService } from '#modules/host/engine.accounts.service.js'
 import { PASSED_THROUGH } from '#modules/stages/run.command.js';
 import { modelOf } from '#modules/stages/stage.config.js';
 import { budgetedInputTokens, contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from './budget.js';
+import { BlockedReportSchema, type BlockedReport } from './blocked.report.js';
 import { createToolGuard, ENGINE_PASSED_THROUGH } from './cli.stage.agent.js';
 import { CodexConnection, type CodexExit, type CodexNotification, type CodexServerRequest } from './codex.connection.js';
 import { buildRunTrace, type RunTrace } from './run.trace.js';
 import { CodexLimitWatch, type UsageLimit } from './usage.limit.js';
+import { RepeatedCallWatch, describeRepeatedCall } from './repeated.call.js';
 import { REPORT_RESULT_PATH, SCRATCH_PREFIX } from './scope.guard.js';
 import { StageInterrupt } from './stage.interrupt.js';
 import { StageAgent, type AgentRunInput, type AgentRunOutput } from './stage.agent.js';
+import { BLOCKED_TOOL, BLOCKED_TOOL_DESCRIPTION, blockedGuidance } from './tools/blocked.tool.js';
 import { requestScope } from './tools/scope.tool.js';
 import { toolHost, type ToolContext } from './tools/index.js';
 
@@ -37,7 +40,7 @@ const codexEnv = (): NodeJS.ProcessEnv => {
 export const unwrapShell = (command: string): string => /^(?:\S*\/)?(?:ba|z)?sh -l?c '([^']*)'$/.exec(command.trim())?.[1] ?? command;
 
 /** The engine's own tool items, which a stage's guards are meant to see before they run. */
-const TOOL_ITEMS = new Set([
+export const TOOL_ITEMS = new Set([
     'commandExecution',
     'fileChange',
     'dynamicToolCall',
@@ -56,6 +59,13 @@ interface FileChange {
 }
 
 /** Every path a file change touches, including where an update moves a file to. */
+/** What makes one of this engine's tool items the same call as another, for `RepeatedCallWatch`. */
+const repeatedCallInput = (item: Record<string, unknown>): unknown => {
+    if (item.type === 'commandExecution') return { command: item.command, cwd: item.cwd };
+    if (item.type === 'fileChange') return item.changes;
+    return { tool: item.tool, arguments: item.arguments };
+};
+
 const changedPaths = (changes: FileChange[]): string[] => changes.flatMap(({ path, kind }) => (kind?.move_path ? [path, kind.move_path] : [path]));
 
 /** What only a command that writes or runs something else would say, whatever the engine parsed it as. */
@@ -105,6 +115,8 @@ interface Turn {
  *
  * **Refusals.** An approval answer carries only a decision, so the reason would never reach the
  * model. It follows as `turn/steer`, in the running turn, so a model is told what to do differently.
+ *
+ * `report_blocked` is another, for a stage that needs a person's answer, and ends the stage the same way.
  *
  * **Ending.** A stage ends the moment `report_result` is accepted, rather than when the turn does:
  * an edit made after the result was reported is what `checkBeforeCommit` exists to catch, and this
@@ -167,6 +179,9 @@ export class CodexStageAgent extends StageAgent {
 
         const schema = resultSchema as z.ZodTypeAny;
         const canWrite = stage.worktree === 'rw';
+        // Not for a step: an answer resumes the lane's own run, so the step would be lost.
+        const canAsk = !stage.step;
+        let blocked: BlockedReport | undefined;
         let reported: unknown;
         let reportSeen = false;
         let anyToolSeen = false;
@@ -182,7 +197,9 @@ export class CodexStageAgent extends StageAgent {
         const recordedUnasked = new Set<string>();
         const recording: Promise<unknown>[] = [];
 
-        let stoppedBecause: 'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | 'interrupted' | 'reported' | 'unasked' | undefined;
+        let stoppedBecause:
+            'wall-clock' | 'silent' | 'steps' | 'context' | 'input-tokens' | 'interrupted' | 'reported' | 'blocked' | 'unasked' | 'loop' | undefined;
+        const repeats = new RepeatedCallWatch();
         let budgetFailure: string | undefined;
         // What `request_scope` threw under the `kickback` policy, for this method to throw in turn.
         let thrown: unknown;
@@ -309,6 +326,14 @@ export class CodexStageAgent extends StageAgent {
                 stopFor('reported');
                 return toolReply('reported', true);
             }
+            if (params.tool === BLOCKED_TOOL && canAsk) {
+                const validated = BlockedReportSchema.safeParse(args);
+                if (!validated.success) return toolReply(`error: ${validated.error.message}`, false);
+                if (stoppedBecause) return toolReply('error: this stage has already stopped', false);
+                blocked = validated.data;
+                stopFor('blocked');
+                return toolReply('asked', true);
+            }
             if (params.tool === REQUEST_SCOPE_TOOL && canWrite) {
                 return toolReply(await requestScope(context, String(args.path ?? ''), String(args.reason ?? '')), true);
             }
@@ -357,19 +382,26 @@ export class CodexStageAgent extends StageAgent {
                 ranUnasked(item, { tool: String(item.type) }, true);
                 return;
             }
-            // Reporting ends the stage, so a stage on its last step can still do it.
-            if (item.type === 'dynamicToolCall' && item.tool === REPORT_TOOL) return;
+            // Reporting or asking ends the stage, so a stage on its last step can still do either.
+            if (item.type === 'dynamicToolCall' && (item.tool === REPORT_TOOL || (item.tool === BLOCKED_TOOL && canAsk))) return;
             steps += 1;
             // Refused calls are not charged, up to a limit, as in `CliStageAgent`.
             if (steps >= stage.maxSteps + Math.min(denied, stage.maxSteps)) {
                 this.logger.warn(`codex stage reached its step budget of ${stage.maxSteps} (${denied} refused calls not charged)`);
                 stopFor('steps', stepsExceeded(stage.maxSteps, denied));
             }
+            // At the start, not on asking: a command this engine takes to be read-only may never ask.
+            repeats.observe(String(item.type), repeatedCallInput(item));
+            if (repeats.loop && !reportSeen) {
+                this.logger.warn(`codex stage stopped: ${describeRepeatedCall(repeats.loop)}`);
+                stopFor('loop', describeRepeatedCall(repeats.loop));
+            }
         };
 
         const itemCompleted = (item: Record<string, unknown>): void => {
             if (item.type === 'agentMessage' && typeof item.text === 'string' && item.text.trim()) summary = item.text.trim();
             if (!TOOL_ITEMS.has(String(item.type)) || item.type === 'dynamicToolCall' || item.status === 'declined') return;
+            if (item.type === 'fileChange' && item.status === 'completed') repeats.wrote(String(item.type), repeatedCallInput(item));
             // A patch can still change after it is approved, so what it ended up touching is compared too.
             const approved = approvedPaths.get(String(item.id));
             if (approved) {
@@ -396,6 +428,7 @@ export class CodexStageAgent extends StageAgent {
             };
             if (total) {
                 // This engine's `inputTokens` includes what was cached; a stage's figures keep them apart.
+                // It reports cache reads only, so there is no `cacheWriteInputTokens` to record.
                 usage = {
                     inputTokens: Math.max(0, total.inputTokens - total.cachedInputTokens),
                     outputTokens: total.outputTokens,
@@ -516,7 +549,7 @@ export class CodexStageAgent extends StageAgent {
                     const started = await connection.request<{ thread: { id: string } }>('thread/start', {
                         ...thread,
                         ephemeral: false,
-                        dynamicTools: dynamicTools(schema, canWrite),
+                        dynamicTools: dynamicTools(schema, canWrite, canAsk),
                     });
                     threadId = started.thread.id;
                 }
@@ -562,6 +595,7 @@ export class CodexStageAgent extends StageAgent {
                     ...trace(),
                 };
             }
+            if (stoppedBecause === 'blocked') return { blocked, usage, truncated: false, ...trace() };
             if (stoppedBecause === 'interrupted') return interrupted();
             if (stoppedBecause === 'silent' && limitWatch.limit) return await limited(limitWatch.limit);
             if (stoppedBecause) {
@@ -573,7 +607,9 @@ export class CodexStageAgent extends StageAgent {
                         ? { engineFailure: `${engineSilent(stage.maxIdleMs)}${lastError ? ` — its last error: ${lastError}` : ''}` }
                         : stoppedBecause === 'unasked'
                           ? { engineFailure: budgetFailure }
-                          : { budgetFailure }),
+                          : stoppedBecause === 'loop'
+                            ? { loopFailure: budgetFailure }
+                            : { budgetFailure }),
                     ...dropped(),
                     ...trace(),
                 };
@@ -642,7 +678,7 @@ const inputSchema = (schema: z.ZodTypeAny): unknown => {
     return json;
 };
 
-const dynamicTools = (schema: z.ZodTypeAny, canWrite: boolean): unknown[] => [
+const dynamicTools = (schema: z.ZodTypeAny, canWrite: boolean, canAsk: boolean): unknown[] => [
     {
         type: 'function',
         name: REPORT_TOOL,
@@ -650,6 +686,9 @@ const dynamicTools = (schema: z.ZodTypeAny, canWrite: boolean): unknown[] => [
             'Report the work you have completed and end the stage. Call this exactly once, only after every change is made and the build passes.',
         inputSchema: inputSchema(schema),
     },
+    ...(canAsk
+        ? [{ type: 'function', name: BLOCKED_TOOL, description: BLOCKED_TOOL_DESCRIPTION, inputSchema: inputSchema(BlockedReportSchema) }]
+        : []),
     ...(canWrite
         ? [
               {
@@ -745,4 +784,5 @@ const prompt = ({
         '',
         'Work first, report last: that call ends the stage at once, and a result describing work you did',
         'not do fails it, because the runner checks the diff and not your summary.',
+        ...(!stage.step ? ['', ...blockedGuidance(BLOCKED_TOOL)] : []),
     ].join('\n');

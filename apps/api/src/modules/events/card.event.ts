@@ -17,12 +17,20 @@ export type CardEventType =
     // adapter first sees it and again if the engine moves to a new one, so the latest of these after
     // a `stage.dispatched` is what that attempt could resume from.
     | 'stage.engine-session'
+    // Carries `trigger` (`auto` or `manual`), `preTokens` and, when the engine reports it, `postTokens`:
+    // the `cli` engine summarized its conversation part way through a run. Not a failure. A count of
+    // these beside a run's spend is how to tell whether a lane's `autoCompactWindow` is doing anything.
+    | 'stage.compacted'
     // Carries `usage`: a daemon shutdown stopped the stage, which says nothing about the card, so
     // this is neither a pass nor a failure. The stage is sent again without spending a retry. Also
     // carries `usageLimit` and `heldUntil` when it was the account's usage limit that stopped it
     // instead, and the stage is sent again at `heldUntil`.
     | 'stage.interrupted'
     | 'stage.passed'
+    // Carries `blocked`, the question the stage stopped to ask, with `usage`, `changedPaths` and
+    // `patchPath` as a `stage.failed` would. Neither a pass nor a failure: no retry is spent, and the
+    // card waits for an answer.
+    | 'stage.blocked'
     // Carries `patchPath` (card 0089): the deterministic path — `WorktreeManager.failedAttemptPatchPath`,
     // `<runRoot>/cards/<id>/last-failed-attempt.patch` — where `reclaim` preserves this attempt's
     // uncommitted work, including files it created but never tracked, the next time the card's
@@ -40,6 +48,9 @@ export type CardEventType =
     // `describeEngineStop`). Never present on `stage.passed`. A dead engine process is a different
     // signal entirely, carried on its own `errorClass`/`exitCode`/`signal` shape by `engine.failed`
     // below, not by this field.
+    //
+    // Also carries `failureClass` (`stage.result.ts`) and `reason`, the failure it leads with, cut to
+    // `REASON_LIMIT`. Rows from before those were added have neither: `gate.stats.ts` matches their text.
     | 'stage.failed'
     | 'stage.poisoned'
     | 'stage.dead'
@@ -166,8 +177,13 @@ export type CardEventType =
     | 'scope.collateral'
     | 'worktree.created'
     | 'worktree.prepared'
+    // What `computeReviewEvidence` found before a review started: counts and any failure, not the text.
+    | 'review.evidence'
     | 'work.committed'
     | 'worktree.reclaimed'
+    // Carries `from`, `to` and `by`. A runner transition that sent a card back also carries
+    // `failureClass`, which is `revise` for a review that asked for changes, and `reason`. So does one
+    // that flagged a card, whose `reason` is the flag's. Rows from before those were added have neither.
     | 'transition.written'
     // A person approved a card's branch at one commit (`ReviewService.approve`). Carries `head`. A record
     // of the judgment and nothing more: it moves no stage and merging does not read it.
@@ -177,6 +193,8 @@ export type CardEventType =
     | 'chain.stopped'
     | 'card.flagged'
     | 'card.acked'
+    // A person answered the question a stage stopped to ask. Carries `stage`, `question` and `answer`.
+    | 'card.answered'
     /** `BoardWriteService.repin` moved the approved plan to a newer version. Payload: `from`, `to`, `by`. */
     | 'plan.repinned'
     // An image was added to a card, or removed from one. Each carries `attachmentId`, its sniffed
@@ -184,6 +202,16 @@ export type CardEventType =
     // adds or removes one through the API whatever stage the card is in.
     | 'attachment.added'
     | 'attachment.removed'
+    /**
+     * The rule judges looked at this card's diff before a review. Payload: `verdicts`, and `usage` when
+     * a call was made, which counts against the card's budget. Absent when no rule matched.
+     */
+    | 'rule.verdicts'
+    /**
+     * `RuleProposalJob` looked at a kickback's blockers for a rule. Payload: `proposal` when it drafted
+     * one, which waits on a person, `reason` when it did not, and `usage`.
+     */
+    | 'rule.proposed'
     /** `AutoSplitter` split this card on a supported refusal. Payload: `pieces` and the refusal's `reason`. */
     | 'card.auto-split'
     /** `AutoSplitter` declined a supported refusal, which then routed as usual. Payload: `reason`. */

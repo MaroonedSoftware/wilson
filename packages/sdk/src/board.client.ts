@@ -1,6 +1,7 @@
 import type {
     ActivityEvent,
     ActivityQuery,
+    AnswerCardRequest,
     BoardColumns,
     CardDetail,
     CardDiff,
@@ -25,6 +26,7 @@ import type {
     PlanSession,
     PlanTurn,
     PlanTurnRequest,
+    ProjectGateStats,
     ProjectStats,
     ProjectStatsQuery,
     RecordFindingsRequest,
@@ -45,6 +47,7 @@ import {
     reviveMergeResult,
     revivePlanComment,
     revivePlanTurn,
+    reviveProjectGateStats,
     reviveProjectStats,
     reviveReleaseResult,
     reviveSplitResult,
@@ -174,6 +177,16 @@ export class BoardClient {
     /** @name Acknowledge a flagged card */
     async acknowledgeAFlaggedCard(id: string): Promise<CardDetail> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/ack`, { method: 'POST' });
+        return reviveCardDetail(await parseJson<CardDetail>(result));
+    }
+
+    /** @name Answer a blocked card */
+    async answerABlockedCard(id: string, body: AnswerCardRequest): Promise<CardDetail> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/answer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
         return reviveCardDetail(await parseJson<CardDetail>(result));
     }
 
@@ -454,6 +467,19 @@ export class BoardClient {
             method: 'GET',
         });
         return reviveProjectStats(await parseJson<ProjectStats>(result));
+    }
+
+    /**
+     * @name Get project gate stats
+     * @description What the gates caught and how often a person was pulled in. Separate from `/api/stats` because it reads
+     * different events, from the same window in the same time zone.
+     */
+    async getProjectGateStats(query?: ProjectStatsQuery): Promise<ProjectGateStats> {
+        const qs = buildQueryString(query);
+        const result = await this.fetch(`/api/stats/gates${qs}`, {
+            method: 'GET',
+        });
+        return reviveProjectGateStats(await parseJson<ProjectGateStats>(result));
     }
 
     /**

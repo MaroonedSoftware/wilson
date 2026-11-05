@@ -1,3 +1,4 @@
+import type { BlockedReport } from '#modules/agent/blocked.report.js';
 import type { TreeSnapshot } from '#modules/worktree/worktree.manager.js';
 import { z } from 'zod';
 import type { RunTrace } from '#modules/agent/run.trace.js';
@@ -230,7 +231,55 @@ export interface SupportedRefusal {
     division: z.infer<typeof ScopeDivisionPieceSchema>[];
 }
 
+/**
+ * Why a stage failed, as a word to count by. `verifier` is the one judgment about the work. Every other
+ * class says the stage did not finish or its report could not be used, so it says nothing about the code.
+ */
+export type FailureClass =
+    /** A verifier's own check failed: the work, not the run. */
+    | 'verifier'
+    /** A review or challenge was rejected only for a fault in its own report. */
+    | 'reportRejected'
+    /** The result did not parse against the stage's own schema. */
+    | 'schemaInvalid'
+    /** The stage ended without calling its report tool. */
+    | 'noReport'
+    /** The stage called its report tool and the result never arrived. */
+    | 'resultDropped'
+    /** A step, wall-clock, token or context cap cut the run off. */
+    | 'budget'
+    /** The engine stopped responding, or never started. */
+    | 'engine'
+    /** The run was stopped for repeating the same tool call. */
+    | 'loop'
+    /** The stage threw before it reached an outcome. */
+    | 'error';
+
+/** The longest `reason` an event carries. The whole text stays in `failures`, or on the card. */
+export const REASON_LIMIT = 500;
+
+/** What a failed run knew about itself, in the order the failures it writes lead with. */
+export const failureClassOf = (signals: {
+    engineFailure?: string;
+    budgetFailure?: string;
+    truncated?: boolean;
+    resultDropped?: boolean;
+    noReport: boolean;
+    schemaInvalid: boolean;
+    reportRejected?: boolean;
+}): FailureClass => {
+    if (signals.engineFailure) return 'engine';
+    if (signals.budgetFailure || signals.truncated) return 'budget';
+    if (signals.resultDropped) return 'resultDropped';
+    if (signals.noReport) return 'noReport';
+    if (signals.schemaInvalid) return 'schemaInvalid';
+    if (signals.reportRejected) return 'reportRejected';
+    return 'verifier';
+};
+
 export interface StageOutcome {
+    /** The question the stage stopped to ask. Not a failure: nothing was judged, and no retry is spent. */
+    blocked?: BlockedReport;
     /** A step of the lane the card stays in to run next, with `transitionedTo` naming that lane. */
     nextStep?: string;
     passed: boolean;
@@ -241,7 +290,7 @@ export interface StageOutcome {
     /** What was uncommitted when the verifier finished, which is what its verdict is about. */
     verifiedTree?: TreeSnapshot;
     result?: unknown;
-    usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number };
+    usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; cacheWriteInputTokens?: number };
     /**
      * `VerificationOutcome.supportedRefusal`, carried only when the run itself added no failure of
      * its own: a truncated or budget-cut run's report is not one to act on, whatever it said.
@@ -249,6 +298,8 @@ export interface StageOutcome {
     supportedRefusal?: SupportedRefusal;
     /** The pieces this stage's automatic split created, for `CardStageJob` to have drafted. */
     splitInto?: string[];
+    /** Blockers a challenge upheld and that sent the card back, for `CardStageJob` to have looked at for a rule. */
+    upheldBlockers?: ReviewFinding[];
     /** Where the runner moved the card after this stage, when it moved it at all. */
     transitionedTo?: string;
     /** The run was cut off rather than finishing. Absent otherwise. */
@@ -257,6 +308,8 @@ export interface StageOutcome {
     reportRejected?: boolean;
     /** Whether this transition flagged the card for a human. `decideChain` checks this before re-enqueuing. */
     needsHuman?: boolean;
+    /** The verifier's `needsHumanReason`: flag the card with this, whatever retries it has left. */
+    needsHumanReason?: string;
     /**
      * Set on a failing outcome when the failure says nothing about the code: a step, wall-clock or
      * token budget cutoff, an engine that stopped responding, a run that never called the report
@@ -279,6 +332,14 @@ export interface StageOutcome {
      * can ever set it.
      */
     resultDropped?: boolean;
+    /**
+     * Set on a failing, `unjudged` outcome when the run was stopped for repeating the same tool call
+     * (`AgentRunOutput.loopFailure`). The one unjudged failure that writes an attempt bullet: the next
+     * attempt starts in a fresh session, and left unwarned it would be free to walk into the same loop.
+     */
+    loopStopped?: boolean;
+    /** Why a failing outcome failed. Absent on a pass and on a question. */
+    failureClass?: FailureClass;
     /**
      * The engine's own account of why its last message ended, carried straight from
      * `AgentRunOutput.engineStopReason` (`stage.agent.ts`) — see that field's doc comment for exactly

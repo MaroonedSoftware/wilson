@@ -1,3 +1,4 @@
+import type { BlockedReport } from './blocked.report.js';
 import type { RunTrace } from './run.trace.js';
 import type { UsageLimit } from './usage.limit.js';
 import type { ToolContext } from './tools/index.js';
@@ -40,8 +41,12 @@ export interface AgentRunInput {
 export interface AgentRunOutput {
     /** What the agent reported, or undefined when it never reported finishing. */
     result?: unknown;
-    /** Cumulative usage, as far as the adapter can report it. */
-    usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number };
+    /**
+     * Cumulative usage, as far as the adapter can report it. `inputTokens` leaves out what the cache
+     * served or stored; `cachedInputTokens` is that, reads plus writes; `cacheWriteInputTokens` is how
+     * many of those were writes, absent where the engine reports only reads (`codex`).
+     */
+    usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; cacheWriteInputTokens?: number };
     /** True when the loop was cut off rather than ending because the agent finished. */
     truncated: boolean;
     /**
@@ -55,6 +60,12 @@ export interface AgentRunOutput {
      * that was never the problem, and so the caller does not also blame the step budget.
      */
     engineFailure?: string;
+    /**
+     * Set when the run was stopped for repeating the same tool call (`RepeatedCallWatch`), naming the
+     * call. Neither a budget nor the engine was at fault, so an operator has no cap to raise, and the
+     * run never reported, so the dispatcher has nothing to verify.
+     */
+    loopFailure?: string;
     /**
      * Set when the run ended because its account hit a usage limit, which says nothing about the card.
      * Comes with `interrupted`, which says where to pick up, and `heldUntil`, which says when.
@@ -74,6 +85,11 @@ export interface AgentRunOutput {
      * (card 0092: out of scope).
      */
     resultDropped?: boolean;
+    /**
+     * Set when the stage stopped to ask a person a question (`report_blocked`). The run ended there,
+     * so there is nothing to verify: the dispatcher parks the card until someone answers.
+     */
+    blocked?: BlockedReport;
     /** Set when `StageInterrupt` stopped the run, which says nothing about the stage itself. */
     interrupted?: { sessionId?: string; wallClockMs: number; steps: number };
     /** The engine could not continue `AgentRunInput.resume`'s session. Never leaves `CliStageAgent`. */

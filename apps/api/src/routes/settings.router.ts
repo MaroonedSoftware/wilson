@@ -11,6 +11,7 @@ import { LocalStageSlotsSettingService } from '#modules/settings/local.stage.slo
 import { NotifyWebhookSettingService } from '#modules/settings/notify.webhook.setting.service.js';
 import { PollerIntervalSettingService } from '#modules/settings/poller.interval.setting.service.js';
 import { PollerSettingService } from '#modules/settings/poller.setting.service.js';
+import { RuleJudgeSettingService } from '#modules/rules/rule.judge.setting.service.js';
 import {
     AutoSplitSetting,
     CardStageConcurrency,
@@ -24,6 +25,7 @@ import {
     NotifyWebhookSetting,
     PollerInterval,
     PollerSetting,
+    RuleJudgeSetting,
     SetAutoSplitSettingRequest,
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
@@ -271,6 +273,32 @@ SettingsRouter.put('/api/settings/auto-split', requirePolicy({ policy: 'wilson.m
 
     const service = ctx.container.get(AutoSplitSettingService);
     const result: AutoSplitSetting = await service.set(body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/rule-judge`
+ */
+SettingsRouter.get('/api/settings/rule-judge', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const service = ctx.container.get(RuleJudgeSettingService);
+    const result: RuleJudgeSetting = await service.get();
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/rule-judge`
+ */
+SettingsRouter.put('/api/settings/rule-judge', requirePolicy({ policy: 'wilson.step.up' }), bodyParserMiddleware(['json']), async ctx => {
+    const body = await parseAndValidate(ctx.parsedBody, RuleJudgeSetting);
+
+    const service = ctx.container.get(RuleJudgeSettingService);
+    const result: RuleJudgeSetting = await service.set(body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

@@ -39,6 +39,8 @@ const makeStage = (overrides: Partial<StageConfig> = {}): StageConfig => ({
     worktreeFrom: 'branch',
     extraScope: [],
     baselineCheck: false,
+    // Fixtures here write `expect(1).toBe(1)` as filler; testing.verifier.assertions.test.ts covers this check.
+    assertionCheck: false,
     maxSteps: 60,
     maxOutputTokens: 16000,
     onPass: 'review',

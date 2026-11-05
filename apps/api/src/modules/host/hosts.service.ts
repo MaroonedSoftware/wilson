@@ -177,6 +177,8 @@ const RUN_OUTCOMES: Record<string, HostRun['outcome']> = {
     'stage.dead': 'failed',
     'stage.host-lost': 'lost',
     'stage.interrupted': 'interrupted',
+    // Stopped short of a verdict, as an interrupted run does, though it is a person it waits for.
+    'stage.blocked': 'interrupted',
     'stage.stale': 'abandoned',
 };
 

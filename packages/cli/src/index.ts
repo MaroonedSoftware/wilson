@@ -19,6 +19,7 @@ import authTokenCommand from './commands/auth/token.command.js';
 import boardInitCommand from './commands/board/init.command.js';
 import cardListCommand from './commands/card/list.command.js';
 import cardAckCommand from './commands/card/ack.command.js';
+import cardAnswerCommand from './commands/card/answer.command.js';
 import cardApproveCommand from './commands/card/approve.command.js';
 import cardCreateCommand from './commands/card/create.command.js';
 import cardDependCommand from './commands/card/depend.command.js';
@@ -71,6 +72,15 @@ import learningsShowCommand from './commands/learnings/show.command.js';
 import learningsEditCommand from './commands/learnings/edit.command.js';
 import learningsSetCommand from './commands/learnings/set.command.js';
 import learningsVersionsCommand from './commands/learnings/versions.command.js';
+import rulesListCommand from './commands/rules/list.command.js';
+import rulesAddCommand from './commands/rules/add.command.js';
+import rulesEditCommand from './commands/rules/edit.command.js';
+import rulesRmCommand from './commands/rules/rm.command.js';
+import rulesCheckCommand from './commands/rules/check.command.js';
+import rulesRouteCommand from './commands/rules/route.command.js';
+import rulesProposalsCommand from './commands/rules/proposals.command.js';
+import rulesAcceptCommand from './commands/rules/accept.command.js';
+import rulesDeclineCommand from './commands/rules/decline.command.js';
 
 import { apiSignedIn } from './checks/api.signed.in.js';
 import { boardReady } from './checks/board.ready.js';
@@ -104,6 +114,7 @@ const app = await createCliApp({
         reg(['board', 'init'], boardInitCommand),
         reg(['card', 'list'], cardListCommand),
         reg(['card', 'ack'], cardAckCommand),
+        reg(['card', 'answer'], cardAnswerCommand),
         reg(['card', 'approve'], cardApproveCommand),
         reg(['card', 'create'], cardCreateCommand),
         reg(['card', 'depend'], cardDependCommand),
@@ -156,6 +167,15 @@ const app = await createCliApp({
         reg(['learnings', 'edit'], learningsEditCommand),
         reg(['learnings', 'set'], learningsSetCommand),
         reg(['learnings', 'versions'], learningsVersionsCommand),
+        reg(['rules', 'list'], rulesListCommand),
+        reg(['rules', 'add'], rulesAddCommand),
+        reg(['rules', 'edit'], rulesEditCommand),
+        reg(['rules', 'rm'], rulesRmCommand),
+        reg(['rules', 'check'], rulesCheckCommand),
+        reg(['rules', 'route'], rulesRouteCommand),
+        reg(['rules', 'proposals'], rulesProposalsCommand),
+        reg(['rules', 'accept'], rulesAcceptCommand),
+        reg(['rules', 'decline'], rulesDeclineCommand),
     ],
     checks: [
         nodeVersion({ min: 22 }),

@@ -9,6 +9,7 @@ import { StagesService } from '#modules/stages/stages.service.js';
 import {
     ActivityEvent,
     ActivityQuery,
+    AnswerCardRequest,
     BoardColumns,
     CardDetail,
     CardDiff,
@@ -33,6 +34,7 @@ import {
     PlanSession,
     PlanTurn,
     PlanTurnRequest,
+    ProjectGateStats,
     ProjectStats,
     ProjectStatsQuery,
     RecordFindingsRequest,
@@ -245,6 +247,27 @@ BoardRouter.post('/api/cards/:id/ack', requirePolicy({ policy: 'wilson.manage' }
 
     const service = ctx.container.get(BoardWriteService);
     const result: CardDetail = await service.ack(id);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [board.ck](../../data/contracts/board.ck) `POST /api/cards/{id}/answer`
+ */
+BoardRouter.post('/api/cards/:id/answer', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, AnswerCardRequest);
+
+    const service = ctx.container.get(BoardWriteService);
+    const result: CardDetail = await service.answer(id, body);
 
     ctx.status = 200;
     ctx.type = 'application/json';
@@ -741,6 +764,22 @@ BoardRouter.get('/api/stats', requirePolicy({ policy: 'wilson.view' }), async ct
 
     const service = ctx.container.get(BoardService);
     const result: ProjectStats = await service.stats(query);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * What the gates caught and how often a person was pulled in. Separate from `/api/stats` because it reads
+ * different events, from the same window in the same time zone.
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/stats/gates`
+ */
+BoardRouter.get('/api/stats/gates', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const query = await parseAndValidate(ctx.query, ProjectStatsQuery.strict());
+
+    const service = ctx.container.get(BoardService);
+    const result: ProjectGateStats = await service.gateStats(query);
 
     ctx.status = 200;
     ctx.type = 'application/json';

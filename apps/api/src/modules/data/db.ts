@@ -141,6 +141,7 @@ export interface WilsonCardJobs {
 }
 
 export interface WilsonCards {
+  blocked: Json | null;
   body: string;
   branch: string | null;
   createdAt: Generated<DateTime>;
@@ -484,6 +485,58 @@ export interface WilsonLanes {
   worktree: string;
 }
 
+export interface WilsonRuleVerdicts {
+  cardId: string | null;
+  createdAt: Generated<DateTime>;
+  diffHash: string;
+  engine: string | null;
+  evidence: string;
+  file: string | null;
+  id: Generated<bigint>;
+  line: number | null;
+  model: string | null;
+  project: string;
+  rule: string;
+  ruleRevisionId: bigint;
+  updatedAt: Generated<DateTime>;
+  usage: Json | null;
+  verdict: string;
+}
+
+export interface WilsonRuleProposals {
+  cardId: string;
+  createdAt: Generated<DateTime>;
+  decidedAt: DateTime | null;
+  expiresAt: DateTime;
+  id: Generated<bigint>;
+  paths: string[] | null;
+  project: string;
+  reason: string | null;
+  rule: string | null;
+  statement: string | null;
+  status: string;
+}
+
+export interface WilsonRuleRevisions {
+  createdAt: Generated<DateTime>;
+  id: Generated<bigint>;
+  message: string;
+  project: string;
+  rule: string;
+  snapshot: Json | null;
+}
+
+export interface WilsonRules {
+  createdAt: Generated<DateTime>;
+  id: string;
+  paths: string[];
+  project: string;
+  revisionId: bigint;
+  severity: string;
+  statement: string;
+  updatedAt: Generated<DateTime>;
+}
+
 export interface WilsonProjectLaneSettings {
   alwaysAllowed: Generated<string[]>;
   deny: Generated<string[]>;
@@ -563,6 +616,10 @@ export interface DB {
   "wilson.laneRevisions": WilsonLaneRevisions;
   "wilson.lanes": WilsonLanes;
   "wilson.projectLaneSettings": WilsonProjectLaneSettings;
+  "wilson.ruleProposals": WilsonRuleProposals;
+  "wilson.ruleRevisions": WilsonRuleRevisions;
+  "wilson.ruleVerdicts": WilsonRuleVerdicts;
+  "wilson.rules": WilsonRules;
   "wilson.stageConfigs": WilsonStageConfigs;
   "wilson.stageRouting": WilsonStageRouting;
 }

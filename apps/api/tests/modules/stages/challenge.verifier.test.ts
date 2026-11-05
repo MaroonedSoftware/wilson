@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { DateTime } from 'luxon';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { withFindings } from '#modules/board/append.findings.js';
 import { ChallengeVerifier } from '#modules/stages/challenge.verifier.js';
 import { ReviewVerifier } from '#modules/stages/review.verifier.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
@@ -186,6 +187,23 @@ describe('ChallengeVerifier', () => {
 
         expect(outcome.passed).toBe(true);
         expect(outcome.failures).toEqual([]);
+    });
+
+    // The plan shows a finding on one line, and the challenger can only quote what the plan shows.
+    it('matches a blocker that ran over several lines to the one line its plan showed', async () => {
+        const worktree = await manager.create(cardId, 'card/0001-thing');
+        await makeDiff(worktree);
+        const incoming = blocker('The loop bound\n\nis off by one');
+        const verifier = buildVerifier([reviewPassedEvent([incoming])]);
+        const shown = /: (.+) — /.exec(withFindings('', [incoming as ReviewFinding]))![1]!;
+
+        const result = { summary: 'challenged', verdict: 'pass', findings: [], refuted: [{ problem: shown, reason: 'not actually a bug' }] };
+
+        const outcome = await verifier.verify(verifyInput(worktree, result));
+
+        expect(shown).toBe('The loop bound is off by one');
+        expect(outcome.failures).toEqual([]);
+        expect(outcome.passed).toBe(true);
     });
 
     // AC2

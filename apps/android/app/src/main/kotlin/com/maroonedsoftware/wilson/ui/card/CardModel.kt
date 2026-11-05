@@ -8,6 +8,7 @@ import com.maroonedsoftware.wilson.auth.liveStream
 import com.maroonedsoftware.wilson.net.HttpClients
 import com.maroonedsoftware.wilson.net.Patience
 import com.maroonedsoftware.wilson.sdk.WilsonSdk
+import com.maroonedsoftware.wilson.sdk.models.AnswerCardRequest
 import com.maroonedsoftware.wilson.sdk.models.CardDetail
 import com.maroonedsoftware.wilson.sdk.models.CardDiff
 import com.maroonedsoftware.wilson.sdk.models.CardEvent
@@ -114,6 +115,9 @@ class CardModel(private val app: WilsonApp, private val project: String, private
     }
 
     fun acknowledge() = act("ack", "Acknowledged.") { it.board.acknowledgeAFlaggedCard(id) }
+
+    /** The stage runs again in a fresh session, with the answer in its plan, when next dispatched. */
+    fun answer(answer: String) = act("answer", "Answered. It runs again when next dispatched.") { it.board.answerABlockedCard(id, AnswerCardRequest(answer)) }
 
     fun approve() = act("approve", "Plan approved. Checking its scope.") { it.board.approveCardPlan(id) }
 

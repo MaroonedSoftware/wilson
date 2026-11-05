@@ -3,23 +3,35 @@ import { join, posix } from 'node:path';
 import type { Logger } from '@maroonedsoftware/logger';
 import { collateralPaths } from '#modules/agent/collateral.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
+import { withFindings } from '#modules/board/append.findings.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import { serializeCard } from '#modules/board/card.parser.js';
 import { filesInScope, type Card } from '#modules/board/card.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { RemotePlacement } from '#modules/host/placement.js';
 import type { LearningsStore } from '#modules/learnings/learnings.store.js';
+import { withRulesGuidance } from '#modules/rules/rule.guidance.js';
+import { ruleVerdictsMarkdown } from '#modules/rules/rule.findings.js';
+import type { RuleJudge, RuleVerdict } from '#modules/rules/rule.judge.js';
+import type { RuleStore } from '#modules/rules/rule.store.js';
 import { worktreeHost, type Worktree, type WorktreeManager } from '#modules/worktree/worktree.manager.js';
+import { incomingReview } from './challenge.verifier.js';
+import { computeReviewEvidence, REVIEW_PREPARATION_DEADLINE_MS, reviewEvidenceApplies } from './review.evidence.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
 import type { ProjectStages, StageConfig } from './stage.config.js';
 
-/** What preparing a stage's tree needs, whoever is asking: a card's dispatch or an eval. */
+/**
+ * What preparing a stage's tree needs, whoever is asking: a card's dispatch or an eval. Left without
+ * `rules` and `ruleJudge`, a stage is prepared as if the project had no rules.
+ */
 export interface StagePreparationDeps {
     config: BoardConfig;
-    worktrees: Pick<WorktreeManager, 'failedAttemptPatchPath'>;
+    worktrees: Parameters<typeof computeReviewEvidence>[0]['worktrees'] & Pick<WorktreeManager, 'failedAttemptPatchPath'>;
     events: EventLog;
     logger: Logger;
     learnings?: Pick<LearningsStore, 'load'>;
+    rules?: RuleStore;
+    ruleJudge?: RuleJudge;
 }
 
 export interface StagePreparationInput {
@@ -43,6 +55,8 @@ export interface PreparedStage {
     learningsPath?: string;
     scoped: string[];
     scope: ScopeGuard;
+    /** What the rule judges said, when any rule matched this review's diff. */
+    ruleVerdicts?: RuleVerdict[];
 }
 
 /**
@@ -111,6 +125,12 @@ const otherStagesScopeNote = (stages: ProjectStages, currentStageName: string): 
     ].join('\n');
 };
 
+/** What a stage's plan file holds: the card, then the scope notes, then any evidence. */
+export const planMaterial = (card: Card, stages: ProjectStages, stage: StageConfig, evidence?: string): string => {
+    const notes = [ownScopeNote(stage), otherStagesScopeNote(stages, stage.name), evidence ?? ''].filter(note => note.length > 0);
+    return notes.length > 0 ? `${serializeCard(card).trimEnd()}\n\n${notes.join('\n\n')}\n` : serializeCard(card);
+};
+
 /**
  * Write the plan where the agent can read it — outside the worktree.
  *
@@ -119,7 +139,8 @@ const otherStagesScopeNote = (stages: ProjectStages, currentStageName: string): 
  *
  * Appends `ownScopeNote` and `otherStagesScopeNote` after the card's own body — the one place
  * every stage's agent, review included, actually reads (card 0139). `stages` is the same config
- * `run` already loaded for this dispatch, not a second load.
+ * `run` already loaded for this dispatch, not a second load. `evidence` goes after them, for a
+ * stage that was given some.
  */
 const materializePlan = async (
     deps: StagePreparationDeps,
@@ -127,13 +148,12 @@ const materializePlan = async (
     sha: string | undefined,
     stages: ProjectStages,
     stage: StageConfig,
+    evidence?: string,
 ): Promise<string> => {
     const dir = join(deps.config.runRoot, 'cards', card.frontmatter.id);
     await mkdir(dir, { recursive: true });
     const path = join(dir, 'plan.md');
-    const notes = [ownScopeNote(stage), otherStagesScopeNote(stages, stage.name)].filter(note => note.length > 0);
-    const material = notes.length > 0 ? `${serializeCard(card).trimEnd()}\n\n${notes.join('\n\n')}\n` : serializeCard(card);
-    await writeFile(path, material, 'utf8');
+    await writeFile(path, planMaterial(card, stages, stage, evidence), 'utf8');
     deps.logger.info(`plan for ${card.frontmatter.id} materialized at ${path}${sha ? ` (${sha.slice(0, 8)})` : ''}`);
     return path;
 };
@@ -193,9 +213,59 @@ const mirrorPatches = async (deps: StagePreparationDeps, placement: RemotePlacem
 };
 
 /**
- * Make a cut worktree ready for its agent: run the setup command, write the plan and learnings where
- * the agent can read them, and build the guard that says what it may touch. Nothing here reaches the
- * board, so a card's dispatch and an eval prepare a tree identically. Throws when setup fails.
+ * Have the judges look at this card's diff, and record what they said and what it cost, which is
+ * how it reaches the card's budget. Nothing here stops the stage: with no rule matching there is no
+ * trace of this at all, and whatever goes wrong leaves it as if there were no rules.
+ */
+const judgeRules = async (
+    deps: StagePreparationDeps,
+    cardId: string,
+    stageName: string,
+    card: Card,
+    worktree: Worktree,
+): Promise<RuleVerdict[] | undefined> => {
+    if (!deps.rules || !deps.ruleJudge) return undefined;
+    try {
+        const { verdicts, usage } = await deps.ruleJudge.judge({
+            rules: await deps.rules.list(),
+            host: worktreeHost(worktree),
+            cwd: worktree.path,
+            range: [worktree.baseSha],
+            plan: serializeCard(card),
+            cardId,
+            deadlineMs: REVIEW_PREPARATION_DEADLINE_MS,
+        });
+        if (verdicts.length === 0) return undefined;
+        await deps.events.append({
+            project: deps.config.project,
+            cardId,
+            stage: stageName,
+            type: 'rule.verdicts',
+            payload: { verdicts, ...(usage ? { usage } : {}) },
+        });
+        return verdicts;
+    } catch (err) {
+        deps.logger.warn(`could not judge ${cardId}'s rules: ${(err as Error).message}`);
+        return undefined;
+    }
+};
+
+/**
+ * The card as a challenge step reads it: with what it is challenging under `## Review findings`,
+ * where its instructions say to look. A `revise` waiting on its step is written nowhere else but the
+ * event log until the step has spoken, so this goes on the plan and not on the card.
+ */
+const withIncomingReview = async (deps: StagePreparationDeps, card: Card, stage: StageConfig): Promise<Card> => {
+    if (!stage.step || stage.verifier !== 'challenge') return card;
+    const incoming = await incomingReview(deps.events, deps.config.project, card.frontmatter.id);
+    return incoming ? { ...card, body: withFindings(card.body, incoming.findings, incoming.criteria) } : card;
+};
+
+/**
+ * Make a cut worktree ready for its agent: run the setup command, gather a review's evidence, write
+ * the plan and learnings where the agent can read them, and build the guard that says what it may
+ * touch. Nothing here reaches the board, so a card's dispatch and an eval prepare a tree identically.
+ * Throws when setup fails.
  */
 export const prepareStage = async (deps: StagePreparationDeps, input: StagePreparationInput): Promise<PreparedStage> => {
     const { cardId, stageName, stages, stage, card, pinnedSha, worktree, placement, port, boardCards } = input;
@@ -250,7 +320,29 @@ export const prepareStage = async (deps: StagePreparationDeps, input: StagePrepa
         deps.logger.info(`worktree prepared with \`${setupCommand}\``);
     }
 
-    const localPlanPath = await materializePlan(deps, card, pinnedSha, stages, stage);
+    // Here because evidence needs what setup installed and both need the rebased `baseSha`, and the
+    // plan is how they reach the agent. Side by side, since neither reads what the other writes and
+    // every minute here comes out of the job's margin.
+    const prepares = reviewEvidenceApplies(stage);
+    const [evidence, ruleVerdicts] = await Promise.all([
+        prepares
+            ? computeReviewEvidence({ worktrees: deps.worktrees, logger: deps.logger, runRoot: deps.config.runRoot }, { cardId, worktree, stage })
+            : undefined,
+        prepares ? judgeRules(deps, cardId, stageName, card, worktree) : undefined,
+    ]);
+    if (evidence) {
+        await deps.events.append({ project: deps.config.project, cardId, stage: stageName, type: 'review.evidence', payload: evidence.summary });
+    }
+
+    const notes = [evidence?.markdown, ruleVerdictsMarkdown(ruleVerdicts ?? [])];
+    const localPlanPath = await materializePlan(
+        deps,
+        await withIncomingReview(deps, card, stage),
+        pinnedSha,
+        stages,
+        stage,
+        notes.filter(Boolean).join('\n\n'),
+    );
     // The agent reads the plan where its worktree is. A placed stage gets a copy on the host,
     // under the host's run root, outside its worktree for the same reason the local one is.
     const planPath = placement ? await mirrorToHost(deps, placement, cardId, localPlanPath, true) : localPlanPath;
@@ -261,7 +353,12 @@ export const prepareStage = async (deps: StagePreparationDeps, input: StagePrepa
     // PROJECT.md decision 8) or `deps.learnings` altogether unset (see the constructor's own
     // comment) both mean no file is written and no path reaches the adapter at all — an empty
     // document means "no learnings", not an empty file to hand the agent.
-    const learningsMarkdown = (await deps.learnings?.load()) ?? '';
+    //
+    // The rules go with them where work gets written, so it can meet them before review judges it.
+    const learningsMarkdown = withRulesGuidance(
+        (await deps.learnings?.load()) ?? '',
+        (stage.verifier ?? stage.name) === 'implementing' ? ((await deps.rules?.list()) ?? []) : [],
+    );
     const localLearningsPath = learningsMarkdown.trim().length > 0 ? await materializeLearnings(deps, cardId, learningsMarkdown) : undefined;
     const learningsPath = placement && localLearningsPath ? await mirrorToHost(deps, placement, cardId, localLearningsPath) : localLearningsPath;
 
@@ -301,5 +398,5 @@ export const prepareStage = async (deps: StagePreparationDeps, input: StagePrepa
         host: worktreeHost(worktree),
     });
 
-    return { planPath, learningsPath, scoped, scope };
+    return { planPath, learningsPath, scoped, scope, ...(ruleVerdicts && { ruleVerdicts }) };
 };

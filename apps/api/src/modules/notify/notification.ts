@@ -16,8 +16,12 @@
  *
  * `auto-split` says a refusal retired a card in favour of pieces that now wait in `planning`: nothing
  * failed and nothing is flagged, but nothing moves until a person plans them.
+ *
+ * `needs-answer` says a stage stopped to ask one question, and resumes once someone answers it. Its
+ * `reason` is the question. Apart from `needs-human` because the reader's response differs: an answer,
+ * not an investigation.
  */
-export type NotifyMoment = 'manual' | 'needs-human' | 'poisoned' | 'source-closed' | 'auto-split';
+export type NotifyMoment = 'manual' | 'needs-human' | 'needs-answer' | 'poisoned' | 'source-closed' | 'auto-split';
 
 /**
  * Everything a notification says, independent of the channel that carries it.

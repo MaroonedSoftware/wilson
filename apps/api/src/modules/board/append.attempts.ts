@@ -1,3 +1,5 @@
+import { oneLine } from './card.js';
+
 const HEADING = '## Previous attempts';
 
 /** Longest a single failure's first line keeps before being cut, so one verbose failure cannot crowd out the rest of the bullet. */
@@ -48,9 +50,9 @@ const shorten = (failure: string): string => {
 
 /** One attempt as a single bullet: which stage, which attempt out of how many, and why it failed. */
 const bullet = (attempt: Attempt): string => {
-    const summary = attempt.summary && attempt.summary.trim().length > 0 ? attempt.summary.trim() : 'No summary reported.';
+    const summary = attempt.summary && attempt.summary.trim().length > 0 ? oneLine(attempt.summary) : 'No summary reported.';
     const failures = attempt.failures.slice(0, MAX_FAILURES_PER_BULLET).map(shorten).join('; ');
-    const engine = attempt.engineStopReason ? ` Engine stopped: ${attempt.engineStopReason}.` : '';
+    const engine = attempt.engineStopReason ? ` Engine stopped: ${oneLine(attempt.engineStopReason)}.` : '';
     const patch = attempt.patchPath ? ` Uncommitted work preserved at \`${attempt.patchPath}\`.` : '';
     return (
         `- **${attempt.stage}** attempt ${attempt.attempt} of ${attempt.maxKickbacks} (${attempt.date}): ${summary} ` +

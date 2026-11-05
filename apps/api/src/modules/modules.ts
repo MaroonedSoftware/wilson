@@ -17,6 +17,7 @@ import { NotifyModule } from './notify/notify.module.js';
 import { PolicyModule } from './policy/policy.module.js';
 import { ReviewModule } from './review/review.module.js';
 import { EvalsModule } from './evals/evals.module.js';
+import { RulesModule } from './rules/rules.module.js';
 import { LearningsModule } from './learnings/learnings.module.js';
 import { McpModule } from './mcp/mcp.module.js';
 import { SettingsModule } from './settings/settings.module.js';
@@ -77,6 +78,7 @@ export const modules: ServerKitModule[] = [
     StagesModule,
     LearningsModule,
     EvalsModule,
+    RulesModule,
     CodeModule,
     ReviewModule,
     NotifyModule,

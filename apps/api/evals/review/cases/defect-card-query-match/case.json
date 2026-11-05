@@ -1,0 +1,5 @@
+{
+    "base": "9ef70525f57a5a862a15fc9e512d55b71de5e330",
+    "source": "ad94ab97760844557527376001c97c5aeee8247f",
+    "title": "Make the card mutations reach route-scoped queries"
+}

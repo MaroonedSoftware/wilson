@@ -15,7 +15,7 @@ export interface ResolvedAttempt {
     headSha: string;
 }
 
-const ENDINGS = new Set(['stage.passed', 'stage.failed']);
+const ENDINGS = new Set(['stage.passed', 'stage.failed', 'stage.blocked']);
 
 const lastOf = (events: readonly AttemptEvent[], matches: (event: AttemptEvent) => boolean): AttemptEvent | undefined =>
     [...events].reverse().find(matches);

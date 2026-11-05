@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { CodexStageAgent, readOnlyCommand, unwrapShell } from '#modules/agent/codex.stage.agent.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
+import { REPEATED_CALL_LIMIT } from '#modules/agent/repeated.call.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { StageInterrupt } from '#modules/agent/stage.interrupt.js';
 import { localHost } from '#modules/host/local.execution.host.js';
@@ -180,7 +181,7 @@ describe('CodexStageAgent', () => {
 
             expect(startOf(server, 'turn/start').sandboxPolicy).toEqual({ type: 'readOnly', networkAccess: false });
             const tools = startOf(server, 'thread/start').dynamicTools as { name: string }[];
-            expect(tools.map(tool => tool.name)).toEqual(['report_result']);
+            expect(tools.map(tool => tool.name)).toEqual(['report_result', 'report_blocked']);
         });
 
         it('turns the network on only when the stage says so', async () => {
@@ -392,6 +393,68 @@ describe('CodexStageAgent', () => {
         });
     });
 
+    describe('a run repeating one call', () => {
+        /** A command the engine took to be read-only, so it never asks: all there is to see is its start. */
+        const started = (server: SimulatedCodexServer, id: string, command: string) =>
+            server.notify('item/started', { item: { type: 'commandExecution', id, command, status: 'inProgress' } });
+
+        it('stops at the limit and names the call, on commands that never ask', async () => {
+            const { output } = await run(
+                new SimulatedCodexServer(async server => {
+                    for (let call = 0; call < REPEATED_CALL_LIMIT; call++) started(server, `c${call}`, 'git status');
+                }),
+            );
+
+            expect(output.loopFailure).toContain(`same commandExecution call ${REPEATED_CALL_LIMIT} times`);
+            expect(output.loopFailure).toContain('git status');
+            expect(output.truncated).toBe(true);
+            expect(output.budgetFailure).toBeUndefined();
+            expect(output.engineFailure).toBeUndefined();
+        });
+
+        it('leaves re-running the tests after each accepted change alone', async () => {
+            const { output } = await run(
+                new SimulatedCodexServer(async server => {
+                    for (let round = 0; round < REPEATED_CALL_LIMIT * 2; round++) {
+                        await server.runCommand(`c${round}`, 'pnpm test');
+                        await server.changeFiles(`f${round}`, [{ path: join(root, 'src/a.ts'), diff: String(round) }]);
+                    }
+                    await report(server);
+                }),
+                { stageOver: { maxSteps: 500 } },
+            );
+
+            expect(output.loopFailure).toBeUndefined();
+            expect(output.result).toEqual({ summary: 'done' });
+        });
+
+        it('does not take a declined change for a write', async () => {
+            const { output } = await run(
+                new SimulatedCodexServer(async server => {
+                    for (let round = 0; round < REPEATED_CALL_LIMIT; round++) {
+                        await server.changeFiles(`f${round}`, [{ path: '/elsewhere/a.ts', diff: String(round) }]);
+                        await server.runCommand(`c${round}`, 'pnpm test');
+                    }
+                }),
+                { stageOver: { maxSteps: 500 } },
+            );
+
+            expect(output.loopFailure).toContain('pnpm test');
+        });
+
+        it('does not count the report tool', async () => {
+            const { output } = await run(
+                new SimulatedCodexServer(async server => {
+                    for (let call = 0; call < REPEATED_CALL_LIMIT - 1; call++) started(server, `c${call}`, 'git status');
+                    await report(server);
+                }),
+            );
+
+            expect(output.loopFailure).toBeUndefined();
+            expect(output.result).toEqual({ summary: 'done' });
+        });
+    });
+
     describe('calls the guard never saw', () => {
         const completed = (item: Record<string, unknown>) => async (server: SimulatedCodexServer) => {
             server.notify('item/completed', { item });
@@ -540,6 +603,63 @@ describe('CodexStageAgent', () => {
         });
     });
 
+    describe('report_blocked', () => {
+        const question = { category: 'decision', tried: 'read it', question: 'Red or blue?' };
+
+        it('ends the stage the moment a valid question is asked', async () => {
+            let reply: { text?: string; success?: boolean } | undefined;
+            const server = new SimulatedCodexServer(async s => {
+                reply = await s.callTool('report_blocked', question);
+            });
+
+            const { output } = await run(server);
+
+            expect(reply).toMatchObject({ text: 'asked', success: true });
+            expect(output).toMatchObject({ blocked: question, truncated: false });
+            expect(output.result).toBeUndefined();
+            expect(server.killed).toBe(true);
+        });
+
+        it('refuses a question missing its fields, and lets the model try again', async () => {
+            let first: { text?: string; success?: boolean } | undefined;
+            const { output } = await run(
+                new SimulatedCodexServer(async server => {
+                    first = await server.callTool('report_blocked', { question: 'Red or blue?' });
+                    await server.callTool('report_blocked', question);
+                }),
+            );
+
+            expect(first?.success).toBe(false);
+            expect(output.blocked).toEqual(question);
+        });
+
+        it('is not offered to a step, and refuses one that calls it anyway', async () => {
+            let reply: { text?: string; success?: boolean } | undefined;
+            const server = new SimulatedCodexServer(async s => {
+                reply = await s.callTool('report_blocked', question);
+                await report(s);
+            });
+
+            const { output } = await run(server, { stageOver: { step: 'challenge' } });
+
+            const tools = startOf(server, 'thread/start').dynamicTools as { name: string }[];
+            expect(tools.map(tool => tool.name)).not.toContain('report_blocked');
+            expect(reply?.success).toBe(false);
+            expect(output.blocked).toBeUndefined();
+        });
+
+        it('says when to use it, in the prompt, only where it is offered', async () => {
+            const asked = new SimulatedCodexServer(report);
+            await run(asked);
+            const step = new SimulatedCodexServer(report);
+            await run(step, { stageOver: { step: 'challenge' } });
+
+            const textOf = (server: SimulatedCodexServer) => JSON.stringify(startOf(server, 'turn/start').input);
+            expect(textOf(asked)).toContain('report_blocked');
+            expect(textOf(step)).not.toContain('report_blocked');
+        });
+    });
+
     describe('request_scope', () => {
         it('widens scope for a later change', async () => {
             let decision: string | undefined;
@@ -604,7 +724,7 @@ describe('CodexStageAgent', () => {
             expect(output.budgetFailure).toBeUndefined();
         });
 
-        it('stops at its input token budget, counting what was cached', async () => {
+        it('stops at its input token budget, counting what was cached as reads', async () => {
             const { output } = await run(
                 new SimulatedCodexServer(async server => {
                     server.notify('thread/tokenUsage/updated', {
@@ -615,11 +735,11 @@ describe('CodexStageAgent', () => {
                         },
                     });
                 }),
-                { stageOver: { maxInputTokens: 900 } },
+                { stageOver: { maxInputTokens: 180 } },
             );
 
             expect(output.usage).toEqual({ inputTokens: 100, cachedInputTokens: 800, outputTokens: 5 });
-            expect(output.budgetFailure).toMatch(/900/);
+            expect(output.budgetFailure).toMatch(/used 180 cost-weighted, cap 180/);
         });
 
         it('stops when the context window is nearly full', async () => {

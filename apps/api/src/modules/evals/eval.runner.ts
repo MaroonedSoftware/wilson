@@ -11,6 +11,7 @@ import { HostPlacer, NoHostAvailable } from '#modules/host/host.placer.js';
 import type { RemotePlacement } from '#modules/host/placement.js';
 import { DRAIN_ENABLED } from '#modules/settings/drain.enabled.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
+import { scalesWithDiff, withDepth } from '#modules/stages/lane.depth.js';
 import { findStage, validateStages, type ProjectStages, type StageConfig } from '#modules/stages/stage.config.js';
 import { checkFinishedTree, executeStage } from '#modules/stages/stage.execution.js';
 import { prepareStage } from '#modules/stages/stage.preparation.js';
@@ -32,9 +33,6 @@ export type EvalStep = { kind: 'next' } | { kind: 'wait' } | { kind: 'done' };
 
 /** A lane document frozen on a batch, as the stages it describes. */
 const stagesFrom = (lanes: unknown, batchId: string): ProjectStages => validateStages(lanes, `eval batch ${batchId}`);
-
-/** The arm's stage, always on a host: a batch's whole point is that every run lands on the same machine. */
-const stageFor = (stages: ProjectStages, name: string): StageConfig => ({ ...findStage(stages, name), placement: 'remote' });
 
 const planFor = (fixture: EvalFixtureRow, id: string): Card => ({ ...fixture.plan, frontmatter: { ...fixture.plan.frontmatter, id } });
 
@@ -93,7 +91,7 @@ export class EvalRunner {
         let stages: ProjectStages;
         try {
             stages = stagesFrom(run.arm === 'candidate' ? batch.candidateLanes : batch.currentLanes, batch.id);
-            stage = stageFor(stages, fixture.stage);
+            stage = await this.stageFor(stages, fixture);
         } catch (err) {
             await this.runs.finishRun(run.id, { status: 'errored', error: (err as Error).message });
             return { kind: 'next' };
@@ -116,6 +114,21 @@ export class EvalRunner {
             return { kind: 'done' };
         }
         return { kind: 'next' };
+    }
+
+    /**
+     * The arm's stage, as deep as a card's stage would run on this diff, and always on a host: a
+     * batch's whole point is that every run lands on the same machine.
+     */
+    private async stageFor(stages: ProjectStages, fixture: EvalFixtureRow): Promise<StageConfig> {
+        const lane = findStage(stages, fixture.stage);
+        const diffstat = scalesWithDiff(lane)
+            ? await this.worktrees.numstatSince(fixture.baseSha, fixture.headSha).catch((err: Error) => {
+                  this.logger.warn(`could not measure fixture ${fixture.id}'s diff, so it runs as written: ${err.message}`);
+                  return undefined;
+              })
+            : undefined;
+        return { ...(diffstat ? withDepth(lane, diffstat) : lane), placement: 'remote' };
     }
 
     private async execute(
@@ -181,7 +194,8 @@ export class EvalRunner {
     private judged(outcome: StageOutcome, started: number): EvalRunEnding {
         return {
             status: outcome.passed ? 'passed' : 'failed',
-            failures: outcome.failures,
+            // Nobody is there to answer, so a stage that stops to ask did not finish.
+            failures: outcome.blocked ? [`stopped to ask: ${outcome.blocked.question}`] : outcome.failures,
             unjudged: Boolean(outcome.unjudged),
             reportRejected: Boolean(outcome.reportRejected),
             truncated: Boolean(outcome.truncated),

@@ -7,32 +7,67 @@
  * whichever engine ran.
  */
 
-/** Cumulative input tokens across a run's steps, as far as usage was reported. */
-export const sumInputTokens = (steps: readonly { usage?: { inputTokens?: number } }[]): number =>
-    steps.reduce((total, step) => total + (step.usage?.inputTokens ?? 0), 0);
+/** What the two kinds of cached input cost beside fresh input, which counts as 1. These mirror API pricing. */
+export const CACHE_READ_WEIGHT = 0.1;
+export const CACHE_WRITE_WEIGHT = 1.25;
 
 /**
- * An AI SDK `stopWhen` condition: true once the run's cumulative input tokens meet `cap`.
+ * What a run's usage counts as against an input budget: its cost in fresh-input terms, rounded.
+ *
+ * Fresh input counts in full, a cache read at 0.1 and a cache write at 1.25. Adding them 1:1 measured
+ * how long a conversation was rather than what it cost, because every turn resends all of it from the
+ * cache. This is the only place the weights apply: a cap on a run or a card goes through here, and
+ * stats keep showing raw tokens. A usage with no `cacheWriteInputTokens` counts everything cached as
+ * reads, which covers both `codex` and every event recorded before writes were split out.
+ *
+ * The `cli` engine's `input_tokens` leaves caching out. On a real run it reported 2 per turn beside
+ * 65,000 cached, so a cap on that figure alone could never be reached. `undefined` when no usage was
+ * reported at all, which `overBudget` treats as nothing to judge.
+ */
+export const budgetedInputTokens = (
+    usage: { inputTokens?: number; cachedInputTokens?: number; cacheWriteInputTokens?: number } | undefined,
+): number | undefined => {
+    if (usage?.inputTokens === undefined && usage?.cachedInputTokens === undefined) return undefined;
+    const cached = usage.cachedInputTokens ?? 0;
+    const written = usage.cacheWriteInputTokens ?? 0;
+    return Math.round((usage.inputTokens ?? 0) + Math.max(0, cached - written) * CACHE_READ_WEIGHT + written * CACHE_WRITE_WEIGHT);
+};
+
+/**
+ * The AI SDK's usage as a stage's `usage` holds it. Its `inputTokens` is everything sent, cached or
+ * not, with the split in `inputTokenDetails`, where a stage's `inputTokens` leaves the cache out. The
+ * sum stays the same. `undefined` input means the provider reported none, which stays unreported.
+ */
+export const stageUsageOf = (
+    usage: { inputTokens?: number; outputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number; cacheWriteTokens?: number } } | undefined,
+): { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; cacheWriteInputTokens?: number } => {
+    if (usage?.inputTokens === undefined) return { inputTokens: undefined, outputTokens: usage?.outputTokens };
+    const read = usage.inputTokenDetails?.cacheReadTokens ?? 0;
+    const written = usage.inputTokenDetails?.cacheWriteTokens ?? 0;
+    return {
+        inputTokens: Math.max(0, usage.inputTokens - read - written),
+        outputTokens: usage.outputTokens,
+        cachedInputTokens: read + written,
+        cacheWriteInputTokens: written,
+    };
+};
+
+type ApiStepUsage = Parameters<typeof stageUsageOf>[0];
+
+/** A run's steps as an input budget counts them, as far as usage was reported. */
+export const budgetedStepTokens = (steps: readonly { usage?: ApiStepUsage }[]): number =>
+    steps.reduce((total, step) => total + (budgetedInputTokens(stageUsageOf(step.usage)) ?? 0), 0);
+
+/**
+ * An AI SDK `stopWhen` condition: true once the run's budgeted input tokens meet `cap`.
  *
  * Sits in the same `stopWhen` array as `stepCountIs`, so a budget stage stops the loop the same way
  * running out of steps does.
  */
 export const tokenBudgetExceeded =
     (cap: number) =>
-    ({ steps }: { steps: readonly { usage?: { inputTokens?: number } }[] }): boolean =>
-        sumInputTokens(steps) >= cap;
-
-/**
- * What a run's usage counts as against an input budget: everything the model was sent, cached or not.
- *
- * The `cli` engine's `input_tokens` leaves caching out. On a real run it reported 2 per turn beside
- * 65,000 cached, so a cap on that figure alone could never be reached. `undefined` when no usage was
- * reported at all, which `overBudget` treats as nothing to judge.
- */
-export const budgetedInputTokens = (usage: { inputTokens?: number; cachedInputTokens?: number } | undefined): number | undefined =>
-    usage?.inputTokens === undefined && usage?.cachedInputTokens === undefined
-        ? undefined
-        : (usage.inputTokens ?? 0) + (usage.cachedInputTokens ?? 0);
+    ({ steps }: { steps: readonly { usage?: ApiStepUsage }[] }): boolean =>
+        budgetedStepTokens(steps) >= cap;
 
 /**
  * A failure string naming both the cap and what was actually spent, or `undefined` when `used` is
@@ -43,15 +78,15 @@ export const budgetedInputTokens = (usage: { inputTokens?: number; cachedInputTo
  */
 export const overBudget = (used: number | undefined, cap: number): string | undefined => {
     if (used === undefined || used < cap) return undefined;
-    return `input token budget exceeded: used ${used}, cap ${cap}`;
+    return `input token budget exceeded: used ${used} cost-weighted, cap ${cap}`;
 };
 
 /**
  * A failure string naming the configured context-window fraction and the usage the engine
  * reported, or `undefined` when `percentage` is still under `capFraction`.
  *
- * Differs from `overBudget` in what it bounds. `overBudget` sums input tokens a run has already
- * spent across every turn so far; this reads a single live number — `Query.getContextUsage()`'s
+ * Differs from `overBudget` in what it bounds. `overBudget` sums the cost-weighted input tokens a run has
+ * already spent across every turn so far; this reads a single live number — `Query.getContextUsage()`'s
  * `percentage` — which already accounts for the whole conversation the *next* turn's prompt would
  * carry, tools and memory files included. A run can be comfortably under `maxInputTokens` and
  * still be one turn away from overflowing the window, because that cap only ever sees what has
@@ -80,6 +115,9 @@ export const wallClockExceeded = (capMs: number): string => `wall-clock budget e
  * refused fifty times has a different problem from one that simply had too much to do, and the
  * operator cannot tell them apart from "used all its steps" alone.
  */
+/** Whether `text` is one of the budget cutoffs below or above, for events that kept only the text. */
+export const isOverBudgetMessage = (text: string): boolean => /^(input token|context window|wall-clock|step) budget exceeded/.test(text);
+
 /**
  * A run abandoned because the engine stopped producing anything.
  *

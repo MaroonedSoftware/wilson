@@ -1,0 +1,195 @@
+diff --git a/apps/api/src/modules/board/board.repository.ts b/apps/api/src/modules/board/board.repository.ts
+index 01460b1b..42f4b704 100644
+--- a/apps/api/src/modules/board/board.repository.ts
++++ b/apps/api/src/modules/board/board.repository.ts
+@@ -178,8 +178,19 @@ export abstract class BoardRepository {
+      * folded in) has no other way to learn it, since `currentVersion` read from inside `mutate`
+      * still answers with the version *before* this one — the off-by-one `board.write.service.ts:136`
+      * explains and `BoardWriteService.approve` relies on deliberately.
++     *
++     * `repinIf` is asked once `mutate` has run, and a yes pins the card to this new version in the
++     * same transaction. A transition that rewrites the plan needs that: a pin advanced in a second
++     * write could fail after the card had already moved, leaving a job that can neither finish nor
++     * retry.
+      */
+-    abstract writeWithEvent(id: string, message: string, mutate: (card: Card) => Card | Promise<Card>, event: AppendableCardEvent): Promise<string>;
++    abstract writeWithEvent(
++        id: string,
++        message: string,
++        mutate: (card: Card) => Card | Promise<Card>,
++        event: AppendableCardEvent,
++        options?: { repinIf?: () => boolean },
++    ): Promise<string>;
+ 
+     /** Create a card that does not exist yet. Fails if the id is taken. */
+     abstract create(card: Card, message: string): Promise<string>;
+diff --git a/apps/api/src/modules/board/postgres.board.repository.ts b/apps/api/src/modules/board/postgres.board.repository.ts
+index e4011e42..c1e310b5 100644
+--- a/apps/api/src/modules/board/postgres.board.repository.ts
++++ b/apps/api/src/modules/board/postgres.board.repository.ts
+@@ -107,11 +107,25 @@ export class PostgresBoardRepository extends BoardRepository {
+         return this.db.transaction().execute(trx => this.writeIn(trx, id, message, mutate));
+     }
+ 
+-    async writeWithEvent(id: string, message: string, mutate: (card: Card) => Card | Promise<Card>, event: AppendableCardEvent): Promise<string> {
++    async writeWithEvent(
++        id: string,
++        message: string,
++        mutate: (card: Card) => Card | Promise<Card>,
++        event: AppendableCardEvent,
++        options?: { repinIf?: () => boolean },
++    ): Promise<string> {
+         return this.db.transaction().execute(async trx => {
+             // `version` is this write's new version id — see `BoardRepository.writeWithEvent`'s doc
+             // comment for why a caller (card 0129) needs it back.
+             const version = await this.writeIn(trx, id, message, mutate);
++            if (options?.repinIf?.()) {
++                await trx
++                    .updateTable('wilson.cards')
++                    .set({ pinnedVersionId: BigInt(version) })
++                    .where('project', '=', this.config.project)
++                    .where('id', '=', id)
++                    .execute();
++            }
+             await this.events.append(event, trx);
+             return version;
+         });
+diff --git a/apps/api/src/modules/stages/stage.dispatcher.ts b/apps/api/src/modules/stages/stage.dispatcher.ts
+index 6fce5d8f..8ce9da4b 100644
+--- a/apps/api/src/modules/stages/stage.dispatcher.ts
++++ b/apps/api/src/modules/stages/stage.dispatcher.ts
+@@ -780,15 +780,16 @@ export class StageDispatcher {
+               }
+             : undefined;
+ 
+-        // Tracked across the mutate below so the pin-advance check further down compares the body
+-        // this transition actually wrote against the body it actually read, not against `head`'s
+-        // snapshot from before the write — `writeIn` locks the row and reads `current` fresh inside
+-        // the same transaction, so `current.body` is the one true "body it read".
+-        let bodyChanged = false;
++        // A body this transition rewrote is the plan contract, not just runner state, and the runner
++        // rewriting its own contract is the one case where a pin moves. Left where it was, it would
++        // name a version from before the very findings or attempt bullet the next run has to read
++        // (card 0091: three implementing passes reading a plan with no findings section). Decided
++        // inside the mutate, from `current`: a card with no pin coming in gets none out, and a human
++        // editing the body between runs must not move it.
++        let advancesPin = false;
+ 
+-        let writtenVersionId: string;
+         try {
+-            writtenVersionId = await this.board.writeWithEvent(
++            await this.board.writeWithEvent(
+                 cardId,
+                 `${cardId}: ${stageName} -> ${decision.target}`,
+                 current => {
+@@ -803,7 +804,7 @@ export class StageDispatcher {
+                     // leaves the section exactly as it stands.
+                     const body = outcome.passed ? withoutAttempts(current.body) : attempt ? withAttempt(current.body, attempt) : current.body;
+                     const nextBody = findings ? withFindings(body, findings, criteria) : body;
+-                    bodyChanged = nextBody !== current.body;
++                    advancesPin = nextBody !== current.body && Boolean(head.frontmatter.planVersionId && current.frontmatter.planVersionId);
+                     return {
+                         ...current,
+                         frontmatter: {
+@@ -828,6 +829,7 @@ export class StageDispatcher {
+                         ...(needsHuman ? { needsHuman: true } : {}),
+                     },
+                 },
++                { repinIf: () => advancesPin },
+             );
+         } catch (err) {
+             if (!(err instanceof CardMovedDuringRunError)) throw err;
+@@ -844,31 +846,6 @@ export class StageDispatcher {
+             return { needsHuman: false };
+         }
+ 
+-        // The write above just rewrote the plan contract, not just runner state: `bodyChanged` means
+-        // `withFindings`, `withAttempt` or `withoutAttempts` actually changed the body of the version
+-        // `writtenVersionId` now names — findings folded in, an attempt bullet added, or the section
+-        // shed on a pass. A pinned card's `planVersionId` otherwise holds still against everything
+-        // that lands on the board — that is the whole point of pinning (see the "Two reads" comment
+-        // at the top of `run`, above) — and a human editing the card body must keep not moving it. But
+-        // the runner rewriting its own contract is the one case where the pin legitimately advances:
+-        // left where it was, the pin would keep pointing at a version that predates the very findings
+-        // this stage was kicked back to fix, which is card 0091's bug — three implementing passes
+-        // reading a plan with no findings section because the pin still named the version from before
+-        // the kickback wrote them. This card generalizes that same fix to the attempts section: a
+-        // retried stage reading the pinned plan must see the bullet this failure just added, not a
+-        // version from before it existed. Gated on `head.frontmatter.planVersionId`, not `current`'s:
+-        // a card with no pin coming in gets none out (117 of 128 cards read live `head` today and must
+-        // keep doing so), and the inner check against `current.frontmatter.planVersionId` mirrors the
+-        // branch-recording guard above — `write`'s re-read inside its own transaction is what actually
+-        // guards the race, this is only the common-case short-circuit.
+-        if (bodyChanged && head.frontmatter.planVersionId) {
+-            await this.board.write(cardId, `${cardId}: advance plan pin past ${stageName}`, current =>
+-                current.frontmatter.planVersionId
+-                    ? { ...current, frontmatter: { ...current.frontmatter, planVersionId: writtenVersionId } }
+-                    : current,
+-            );
+-        }
+-
+         // The card's life has ended; the transition above already stands. `reclaimIfTerminal` is the
+         // one place "the card is done" turns into "the worktree goes away" — shared with a human's
+         // `wilson card move` so the two paths cannot drift into two definitions of done. It already
+diff --git a/apps/api/tests/modules/stages/stage.dispatcher.plan-pin-advance.test.ts b/apps/api/tests/modules/stages/stage.dispatcher.plan-pin-advance.test.ts
+index 54f9ce8c..f1c1dcc3 100644
+--- a/apps/api/tests/modules/stages/stage.dispatcher.plan-pin-advance.test.ts
++++ b/apps/api/tests/modules/stages/stage.dispatcher.plan-pin-advance.test.ts
+@@ -214,7 +214,7 @@ describe("StageDispatcher advances a pinned card's planVersionId past the findin
+      * every assertion above already leans on. Nothing about advancing the pin for findings can be
+      * allowed to make one write ever describe more than the version it produced.
+      */
+-    it('advances the pin by exactly one further version beyond the transition write, not two', async () => {
++    it('advances the pin in the transition write itself, adding no version of its own', async () => {
+         await setUp();
+         const created = await board.create(baseCard, 'initial');
+         await board.write('0001', 'approve', c => ({ ...c, frontmatter: { ...c.frontmatter, planVersionId: created } }));
+@@ -226,8 +226,21 @@ describe("StageDispatcher advances a pinned card's planVersionId past the findin
+         await writeTransition(makeStage(), head, revisionOutcome());
+ 
+         const after = await board.versions('0001', 50);
+-        // The transition write (findings folded in) plus the pin-advancing write — no more, no less.
+-        expect(after).toHaveLength(4);
++        expect(after).toHaveLength(3);
++    });
++
++    it('leaves neither the move nor the pin behind when the transition cannot commit', async () => {
++        const { events } = await setUp();
++        const created = await board.create(baseCard, 'initial');
++        await board.write('0001', 'approve', c => ({ ...c, frontmatter: { ...c.frontmatter, planVersionId: created } }));
++        const head = await board.read('0001');
++        events.append.mockRejectedValueOnce(new Error('connection lost'));
++
++        await expect(writeTransition(makeStage(), head, revisionOutcome())).rejects.toThrow('connection lost');
++
++        const stored = await board.read('0001');
++        expect(stored.frontmatter.stage).toBe('review');
++        expect(stored.frontmatter.planVersionId).toBe(created);
+     });
+ });
+ 
+@@ -304,12 +317,7 @@ stages:
+         return { config, board, events, worktrees, created };
+     };
+ 
+-    const buildDispatcher = (
+-        config: StaticBoardConfig,
+-        board: BoardRepository,
+-        events: { append: ReturnType<typeof vi.fn> },
+-        worktrees: unknown,
+-    ) => {
++    const buildDispatcher = (config: StaticBoardConfig, board: BoardRepository, events: { append: ReturnType<typeof vi.fn> }, worktrees: unknown) => {
+         const agents = new StageAgentMap();
+         agents.set('api', {
+             run: async (input: { stage: StageConfig }): Promise<AgentRunOutput> => {
+@@ -318,9 +326,7 @@ stages:
+                         result: {
+                             verdict: 'revise',
+                             summary: 'found a bug',
+-                            findings: [
+-                                { severity: 'blocker', file: 'src/x.ts', line: 1, problem: 'off by one', suggestion: 'fix the index' },
+-                            ],
++                            findings: [{ severity: 'blocker', file: 'src/x.ts', line: 1, problem: 'off by one', suggestion: 'fix the index' }],
+                         },
+                         usage: { inputTokens: 10 },
+                         truncated: false,

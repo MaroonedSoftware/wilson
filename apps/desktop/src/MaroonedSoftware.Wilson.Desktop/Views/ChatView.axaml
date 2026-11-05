@@ -3,6 +3,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
     xmlns:views="using:MaroonedSoftware.Wilson.Desktop.Views"
+    xmlns:core="using:MaroonedSoftware.Wilson.Desktop.Core.Chat"
     x:Class="MaroonedSoftware.Wilson.Desktop.Views.ChatView"
     x:DataType="vm:ChatViewModel">
     <UserControl.DataTemplates>
@@ -45,11 +46,45 @@
                             <TextBlock Classes="quiet" Text="{Binding Detail}" TextWrapping="Wrap" />
                         </StackPanel>
                     </DockPanel>
-                    <Border Classes="codeblock"><SelectableTextBlock Classes="mono" Text="{Binding Arguments}" /></Border>
-                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" IsVisible="{Binding Awaiting}">
-                        <Button Classes="ghost" Content="Decline" Command="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).DeclineCommand}" CommandParameter="{Binding}" />
-                        <Button Classes="primary" Content="Confirm" Command="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).ConfirmCommand}" CommandParameter="{Binding}" />
-                    </StackPanel>
+                    <ItemsControl ItemsSource="{Binding Fields}" IsVisible="{Binding !#RawArguments.IsChecked}" Grid.IsSharedSizeScope="True">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="core:ChatActionField">
+                                <Panel Margin="0,0,0,8">
+                                    <Grid IsVisible="{Binding IsLine}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" SharedSizeGroup="ActionFieldLabel" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Classes="quiet" Text="{Binding Label}" Margin="0,0,12,0" />
+                                        <SelectableTextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" />
+                                    </Grid>
+                                    <StackPanel Spacing="4" IsVisible="{Binding !IsLine}">
+                                        <TextBlock Classes="quiet" Text="{Binding Label}" />
+                                        <!-- A long body scrolls in its own box, so Confirm stays near the summary. -->
+                                        <Border Classes="codeblock" IsVisible="{Binding IsProse}">
+                                            <ScrollViewer MaxHeight="280" HorizontalScrollBarVisibility="Disabled">
+                                                <views:MarkdownView Text="{Binding Value}" />
+                                            </ScrollViewer>
+                                        </Border>
+                                        <Border Classes="codeblock" IsVisible="{Binding IsJson}"><SelectableTextBlock Classes="mono" Text="{Binding Value}" /></Border>
+                                    </StackPanel>
+                                </Panel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <!-- Rendered Markdown can hide a link's address, so what will really be sent stays one press away. -->
+                    <Border Classes="codeblock" IsVisible="{Binding #RawArguments.IsChecked}">
+                        <ScrollViewer MaxHeight="280" HorizontalScrollBarVisibility="Disabled">
+                            <SelectableTextBlock Classes="mono" Text="{Binding Arguments}" />
+                        </ScrollViewer>
+                    </Border>
+                    <DockPanel>
+                        <ToggleButton x:Name="RawArguments" DockPanel.Dock="Left" Content="Raw JSON" FontSize="12" IsVisible="{Binding HasFields}" />
+                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" IsVisible="{Binding Awaiting}">
+                            <Button Classes="ghost" Content="Decline" Command="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).DeclineCommand}" CommandParameter="{Binding}" />
+                            <Button Classes="primary" Content="Confirm" Command="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).ConfirmCommand}" CommandParameter="{Binding}" />
+                        </StackPanel>
+                    </DockPanel>
                     <SelectableTextBlock Classes="error" FontSize="12" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
                 </StackPanel>
             </Border>

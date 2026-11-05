@@ -92,7 +92,7 @@ describe('CliStageAgent budget wiring', () => {
             const output = await new CliStageAgent(silentLogger).run(runInput(makeStage({ maxInputTokens: 1000 })) as never);
 
             expect(output.truncated).toBe(true);
-            expect(output.budgetFailure).toBe('input token budget exceeded: used 1500, cap 1000');
+            expect(output.budgetFailure).toBe('input token budget exceeded: used 1500 cost-weighted, cap 1000');
             expect(output.usage?.inputTokens).toBe(1500);
         });
 
@@ -111,7 +111,7 @@ describe('CliStageAgent budget wiring', () => {
             expect(output.trace).toEqual({ reads: 2, readPaths: ['src/a.ts'], finalMessage: 'working' });
         });
 
-        it('counts cached tokens, which is nearly all of what a real turn sends', async () => {
+        it('weights cached tokens, which are nearly all of what a real turn sends', async () => {
             const cached = (id: string) => ({
                 type: 'assistant',
                 message: {
@@ -122,10 +122,11 @@ describe('CliStageAgent budget wiring', () => {
             });
             queryMock.mockReturnValue(streamOf([cached('msg_1'), cached('msg_2'), cached('msg_3')]));
 
-            const output = await new CliStageAgent(silentLogger).run(runInput(makeStage({ maxInputTokens: 100_000 })) as never);
+            const output = await new CliStageAgent(silentLogger).run(runInput(makeStage({ maxInputTokens: 20_000 })) as never);
 
-            expect(output.budgetFailure).toBe('input token budget exceeded: used 130004, cap 100000');
-            expect(output.usage).toEqual({ inputTokens: 4, outputTokens: 2, cachedInputTokens: 130_000 });
+            // Two turns: 4 fresh, 120,000 read at 0.1, 10,000 written at 1.25.
+            expect(output.budgetFailure).toBe('input token budget exceeded: used 24504 cost-weighted, cap 20000');
+            expect(output.usage).toEqual({ inputTokens: 4, outputTokens: 2, cachedInputTokens: 130_000, cacheWriteInputTokens: 10_000 });
         });
 
         it('charges an API message once, however many content blocks repeat its usage', async () => {
@@ -201,7 +202,7 @@ describe('CliStageAgent budget wiring', () => {
 
         const output = (await agent.run(runInput(makeStage({ maxInputTokens: 1000 })) as never)) as { budgetFailure?: string };
 
-        expect(output.budgetFailure).toContain('used 1000, cap 1000');
+        expect(output.budgetFailure).toContain('used 1000 cost-weighted, cap 1000');
     });
 
     it('leaves budgetFailure undefined while the reported input tokens stay under the cap', async () => {

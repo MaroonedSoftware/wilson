@@ -206,7 +206,7 @@ describe('EvalRunner', () => {
         expect((await runs.batch(batch.id))?.status).toBe('finished');
 
         expect(await events.outputTokensSince(project, since)).toBe(0);
-        expect(await events.totalInputTokens(project, evalRunId(run!.id))).toBe(0);
+        expect(await events.budgetedInputTokens(project, evalRunId(run!.id))).toBe(0);
         const cards = await db.selectFrom('wilson.cards').select('id').where('project', '=', project).execute();
         expect(cards).toEqual([]);
     });
@@ -290,6 +290,31 @@ describe('EvalRunner', () => {
         await drain(batch.id);
 
         expect(seen).toEqual(['review it', 'review it harder']);
+    });
+
+    it('counts a stage that stops to ask as not finishing, with the question as the reason', async () => {
+        agent = async () => ({ truncated: false, blocked: { question: 'which one?' } as never });
+        const batch = await startBatch();
+
+        await drain(batch.id);
+
+        expect((await runs.runs(batch.id))[0]).toMatchObject({ status: 'failed', failures: ['stopped to ask: which one?'] });
+    });
+
+    it('never runs rule judges, whose spend the daily ceiling reads', async () => {
+        const batch = await startBatch();
+        const since = DateTime.now().minus({ minutes: 1 });
+
+        await drain(batch.id);
+
+        const judged = await db
+            .selectFrom('wilson.cardEvents')
+            .select('id')
+            .where('project', '=', project)
+            .where('type', '=', 'rule.verdicts')
+            .execute();
+        expect(judged).toEqual([]);
+        expect(await events.outputTokensSince(project, since)).toBe(0);
     });
 
     it('records a verifier’s failures as the run’s, and goes on', async () => {

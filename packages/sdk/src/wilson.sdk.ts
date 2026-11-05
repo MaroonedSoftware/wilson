@@ -16,6 +16,7 @@ import { LearningsClient } from './learnings.client.js';
 import { OnboardingClient } from './onboarding.client.js';
 import { ProjectsClient } from './projects.client.js';
 import { ReviewClient } from './review.client.js';
+import { RulesClient } from './rules.client.js';
 import { SettingsClient } from './settings.client.js';
 import { StagesClient } from './stages.client.js';
 
@@ -36,6 +37,7 @@ export class WilsonSdk {
     readonly onboarding: OnboardingClient;
     readonly projects: ProjectsClient;
     readonly review: ReviewClient;
+    readonly rules: RulesClient;
     readonly settings: SettingsClient;
     readonly stages: StagesClient;
 
@@ -57,6 +59,7 @@ export class WilsonSdk {
         this.onboarding = new OnboardingClient(sdkFetch);
         this.projects = new ProjectsClient(sdkFetch);
         this.review = new ReviewClient(sdkFetch);
+        this.rules = new RulesClient(sdkFetch);
         this.settings = new SettingsClient(sdkFetch);
         this.stages = new StagesClient(sdkFetch);
     }

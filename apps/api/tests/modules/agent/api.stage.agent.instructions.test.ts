@@ -117,4 +117,77 @@ describe('ApiStageAgent instructions wiring', () => {
 
         expect(instructionsFromCall()).not.toContain('it.skip');
     });
+
+    describe('report_blocked', () => {
+        const question = { category: 'decision', tried: 'read it', question: 'Red or blue?' };
+        const generated = (toolCalls: { toolName: string; input: unknown }[]) => ({
+            usage: { inputTokens: 5, outputTokens: 1 },
+            text: '',
+            steps: [{ toolCalls }],
+        });
+        const promptOf = (): string => (generateMock.mock.calls[0]![0] as { prompt: string }).prompt;
+
+        it('hands back the question from the step that asked it', async () => {
+            generateMock.mockResolvedValue(generated([{ toolName: 'report_blocked', input: question }]));
+
+            const output = await new ApiStageAgent(fakeModels).run(runInput(makeStage()));
+
+            expect(output.blocked).toEqual(question);
+            expect(output.result).toBeUndefined();
+            expect(output.usage).toMatchObject({ inputTokens: 5 });
+        });
+
+        it('leaves a run that reported as reported', async () => {
+            generateMock.mockResolvedValue(
+                generated([
+                    { toolName: 'report_blocked', input: question },
+                    { toolName: 'report_result', input: { summary: 'done' } },
+                ]),
+            );
+
+            const output = await new ApiStageAgent(fakeModels).run(runInput(makeStage()));
+
+            expect(output.blocked).toBeUndefined();
+            expect(output.result).toEqual({ summary: 'done' });
+        });
+
+        it('ignores a question that does not parse, which then reads as a run that never reported', async () => {
+            generateMock.mockResolvedValue(generated([{ toolName: 'report_blocked', input: { question: 'Red or blue?' } }]));
+
+            const output = await new ApiStageAgent(fakeModels).run(runInput(makeStage()));
+
+            expect(output.blocked).toBeUndefined();
+            expect(output.result).toBeUndefined();
+        });
+
+        it('stops the loop on the call', async () => {
+            generateMock.mockResolvedValue(generated([]));
+            await new ApiStageAgent(fakeModels).run(runInput(makeStage()));
+
+            const stopWhen = capturedOptions.current?.stopWhen as ((arg: { steps: unknown[] }) => boolean)[];
+            const steps = [{ toolCalls: [{ toolName: 'report_blocked', input: question }], usage: {} }];
+            const stops = await Promise.all(stopWhen.map(condition => condition({ steps })));
+            expect(stops).toContain(true);
+        });
+
+        it('is offered to a lane whatever its tools narrow to, and in the prompt', async () => {
+            generateMock.mockResolvedValue(generated([]));
+
+            await new ApiStageAgent(fakeModels).run(runInput(makeStage({ tools: ['read'] })));
+
+            expect(capturedOptions.current?.tools).toHaveProperty('report_blocked');
+            expect(capturedOptions.current?.activeTools).toEqual(['read', 'report_blocked']);
+            expect(promptOf()).toContain('report_blocked');
+        });
+
+        it('is not offered to a step', async () => {
+            generateMock.mockResolvedValue(generated([]));
+
+            await new ApiStageAgent(fakeModels).run(runInput(makeStage({ step: 'challenge', tools: ['read'] })));
+
+            expect(capturedOptions.current?.tools).not.toHaveProperty('report_blocked');
+            expect(capturedOptions.current?.activeTools).toEqual(['read']);
+            expect(promptOf()).not.toContain('report_blocked');
+        });
+    });
 });

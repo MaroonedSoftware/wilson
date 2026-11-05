@@ -1,0 +1,217 @@
+diff --git a/apps/api/src/modules/board/board.module.ts b/apps/api/src/modules/board/board.module.ts
+index 756c8b32..ca043031 100644
+--- a/apps/api/src/modules/board/board.module.ts
++++ b/apps/api/src/modules/board/board.module.ts
+@@ -5,8 +5,9 @@ import { Kysely, PostgresDialect } from 'kysely';
+ import { AppConfig } from '@maroonedsoftware/appconfig';
+ import { ServerKitModule } from '@maroonedsoftware/koa';
+ import { ConsoleLogger, Logger } from '@maroonedsoftware/logger';
+-import { KyselyDefaultPlugins, KyselyPgTypeOverrides, KyselyPool } from '@maroonedsoftware/kysely';
++import { KyselyPgTypeOverrides, KyselyPool } from '@maroonedsoftware/kysely';
+ import type { DB } from '#modules/data/db.js';
++import { WilsonKyselyPlugins } from '#modules/data/kysely.plugins.js';
+ import { BoardConfig, ProjectScopedBoardConfig } from './board.config.js';
+ import { BoardRepository } from './board.repository.js';
+ import { PostgresBoardRepository } from './postgres.board.repository.js';
+@@ -50,7 +51,7 @@ const resolveProjectRow = async (config: AppConfig, name: string, fromEnv: Omit<
+     // before `serverBuilder.setup` has run.
+     pool.on('error', err => new ConsoleLogger().error(err));
+ 
+-    const db = new Kysely<DB>({ dialect: new PostgresDialect({ pool }), plugins: [...KyselyDefaultPlugins] });
++    const db = new Kysely<DB>({ dialect: new PostgresDialect({ pool }), plugins: WilsonKyselyPlugins });
+     try {
+         const repo = new ProjectRepository(db);
+         const existing = await repo.find(name);
+diff --git a/apps/api/src/modules/data/data.module.ts b/apps/api/src/modules/data/data.module.ts
+index a296c3ee..3612f1ce 100644
+--- a/apps/api/src/modules/data/data.module.ts
++++ b/apps/api/src/modules/data/data.module.ts
+@@ -3,8 +3,9 @@ import { Kysely, PostgresDialect, type LogEvent } from 'kysely';
+ import { AppConfig } from '@maroonedsoftware/appconfig';
+ import { ServerKitModule } from '@maroonedsoftware/koa';
+ import { Logger } from '@maroonedsoftware/logger';
+-import { KyselyDefaultPlugins, KyselyPgTypeOverrides, KyselyPool } from '@maroonedsoftware/kysely';
++import { KyselyPgTypeOverrides, KyselyPool } from '@maroonedsoftware/kysely';
+ import type { DB } from './db.js';
++import { WilsonKyselyPlugins } from './kysely.plugins.js';
+ import { configNumber, requireConfigString } from '#shared/require.config.js';
+ 
+ /**
+@@ -46,7 +47,7 @@ export const DataModule: ServerKitModule = {
+                 const logger = container.get(Logger);
+                 return new Kysely<DB>({
+                     dialect: new PostgresDialect({ pool: container.get(KyselyPool) }),
+-                    plugins: [...KyselyDefaultPlugins],
++                    plugins: WilsonKyselyPlugins,
+                     log: (event: LogEvent) => {
+                         if (event.level === 'error') {
+                             logger.error(event.error);
+diff --git a/apps/api/src/modules/data/kysely.plugins.ts b/apps/api/src/modules/data/kysely.plugins.ts
+new file mode 100644
+index 00000000..24cbb959
+--- /dev/null
++++ b/apps/api/src/modules/data/kysely.plugins.ts
+@@ -0,0 +1,51 @@
++import {
++    OperationNodeTransformer,
++    type KyselyPlugin,
++    type PluginTransformQueryArgs,
++    type PluginTransformResultArgs,
++    type PrimitiveValueListNode,
++    type QueryResult,
++    type RootOperationNode,
++    type UnknownRow,
++    type ValueNode,
++} from 'kysely';
++import { DateTime } from 'luxon';
++import { KyselyDefaultPlugins } from '@maroonedsoftware/kysely';
++
++const toParameter = (value: unknown): unknown => {
++    if (!DateTime.isDateTime(value)) return value;
++    if (!value.isValid) throw new Error(`Cannot write an invalid DateTime: ${value.invalidReason}`);
++    return value.toISO();
++};
++
++class DateTimeParameterTransformer extends OperationNodeTransformer {
++    protected override transformValue(node: ValueNode): ValueNode {
++        return super.transformValue({ ...node, value: toParameter(node.value) });
++    }
++
++    protected override transformPrimitiveValueList(node: PrimitiveValueListNode): PrimitiveValueListNode {
++        return super.transformPrimitiveValueList({ ...node, values: node.values.map(toParameter) });
++    }
++}
++
++/**
++ * Sends a Luxon `DateTime` parameter as an ISO string.
++ *
++ * It has no `toPostgres`, so `pg` would otherwise `JSON.stringify` it, and that string reaches
++ * Postgres wrapped in double quotes, which `timestamptz` only accepts because its parser skips
++ * punctuation. An invalid `DateTime` throws here rather than reaching the database.
++ */
++export class DateTimeParameterPlugin implements KyselyPlugin {
++    private readonly transformer = new DateTimeParameterTransformer();
++
++    transformQuery(args: PluginTransformQueryArgs): RootOperationNode {
++        return this.transformer.transformNode(args.node);
++    }
++
++    async transformResult(args: PluginTransformResultArgs): Promise<QueryResult<UnknownRow>> {
++        return args.result;
++    }
++}
++
++/** The plugins every Kysely instance here runs with. */
++export const WilsonKyselyPlugins = [...KyselyDefaultPlugins, new DateTimeParameterPlugin()];
+diff --git a/apps/api/src/modules/events/event.log.ts b/apps/api/src/modules/events/event.log.ts
+index 83a55e84..cc64a34f 100644
+--- a/apps/api/src/modules/events/event.log.ts
++++ b/apps/api/src/modules/events/event.log.ts
+@@ -229,22 +229,13 @@ export class EventLog {
+      * `since` in, and this does no conversion of its own. `createdAt` is stored in UTC (this table's
+      * own doc comment), so a caller after "today" in its own local zone, not UTC's, must pass local
+      * midnight, not `since.toUTC()`'s midnight — `Poller`/`BoardWriteService.start` do exactly that.
+-     *
+-     * Compares through a raw predicate rather than `.where('createdAt', '>=', since)`: kysely
+-     * resolves that operand's type to `createdAt`'s select type, `DateTime` (`db.ts`), and postgres's
+-     * driver has no idea how to serialize a Luxon `DateTime` object — it lacks a `toPostgres` method,
+-     * so `pg`'s `prepareValue` would fall through to `JSON.stringify` it, sending postgres a `{...}`
+-     * literal where it wants a timestamp. Handing it a real `Date` (`since.toJSDate()`) inside the
+-     * raw fragment sidesteps that entirely: `pg` special-cases `Date` instances and serializes one
+-     * correctly. The column is named literally as `created_at` here because a raw `sql` fragment is
+-     * never touched by `CamelCasePlugin` the way `.where('createdAt', ...)` above is.
+      */
+     async outputTokensSince(project: string, since: DateTime): Promise<number> {
+         const row = await this.db
+             .selectFrom('wilson.cardEvents')
+             .where('project', '=', project)
+             .where('type', 'in', ['stage.passed', 'stage.failed'])
+-            .where(sql<boolean>`"created_at" >= ${since.toJSDate()}`)
++            .where('createdAt', '>=', since)
+             .select(sql<string>`coalesce(sum((payload->'usage'->>'outputTokens')::bigint), 0)`.as('total'))
+             .executeTakeFirstOrThrow();
+ 
+diff --git a/apps/api/tests/modules/data/kysely.plugins.test.ts b/apps/api/tests/modules/data/kysely.plugins.test.ts
+new file mode 100644
+index 00000000..30ebae5c
+--- /dev/null
++++ b/apps/api/tests/modules/data/kysely.plugins.test.ts
+@@ -0,0 +1,55 @@
++import { randomUUID } from 'node:crypto';
++import { afterAll, describe, expect, it } from 'vitest';
++import { sql } from 'kysely';
++import { DateTime } from 'luxon';
++import { testDb } from '../../support/test.db.js';
++
++describe('DateTimeParameterPlugin', () => {
++    const db = testDb();
++    const at = DateTime.fromISO('2030-01-02T03:04:05.678-05:00');
++
++    afterAll(() => db.destroy());
++
++    it('sends an ISO string, not a JSON-quoted one', () => {
++        const { parameters } = db.selectFrom('wilson.cacheEntries').selectAll().where('expiresAt', '>', at).compile();
++        expect(parameters).toEqual([at.toISO()]);
++    });
++
++    it('converts a parameter in a raw sql fragment', async () => {
++        const { rows } = await sql<{ value: DateTime }>`select ${at}::timestamptz as value`.execute(db);
++        expect(rows[0]!.value.toMillis()).toBe(at.toMillis());
++    });
++
++    it('round-trips single and multi-row inserts, updates and comparisons', async () => {
++        const prefix = randomUUID();
++        const later = at.plus({ hours: 1 });
++        await db
++            .insertInto('wilson.cacheEntries')
++            .values({ key: `${prefix}-a`, value: '1', expiresAt: at })
++            .execute();
++        await db
++            .insertInto('wilson.cacheEntries')
++            .values([
++                { key: `${prefix}-b`, value: '2', expiresAt: at },
++                { key: `${prefix}-c`, value: '3', expiresAt: later },
++            ])
++            .execute();
++        await db.updateTable('wilson.cacheEntries').set({ expiresAt: later }).where('key', '=', `${prefix}-a`).execute();
++
++        const rows = await db
++            .selectFrom('wilson.cacheEntries')
++            .select(['key', 'expiresAt'])
++            .where('key', 'like', `${prefix}-%`)
++            .where('expiresAt', '>=', later)
++            .orderBy('key')
++            .execute();
++
++        expect(rows.map(row => row.key)).toEqual([`${prefix}-a`, `${prefix}-c`]);
++        expect(rows.every(row => row.expiresAt.toMillis() === later.toMillis())).toBe(true);
++    });
++
++    it('refuses an invalid DateTime', () => {
++        const query = db.selectFrom('wilson.cacheEntries').selectAll().where('expiresAt', '>', DateTime.invalid('bad input'));
++        expect(() => query.compile()).toThrow('invalid DateTime');
++    });
++});
+diff --git a/apps/api/tests/support/test.db.ts b/apps/api/tests/support/test.db.ts
+index 80d81b31..d755d2bd 100644
+--- a/apps/api/tests/support/test.db.ts
++++ b/apps/api/tests/support/test.db.ts
+@@ -1,7 +1,8 @@
+ import { randomUUID } from 'node:crypto';
+ import { Kysely, PostgresDialect } from 'kysely';
+-import { KyselyDefaultPlugins, KyselyPgTypeOverrides, KyselyPool } from '@maroonedsoftware/kysely';
++import { KyselyPgTypeOverrides, KyselyPool } from '@maroonedsoftware/kysely';
+ import type { DB } from '#modules/data/db.js';
++import { WilsonKyselyPlugins } from '#modules/data/kysely.plugins.js';
+ 
+ export interface TestDatabaseConnection {
+     host: string;
+@@ -41,7 +42,7 @@ export const testDb = (): Kysely<DB> =>
+                 types: KyselyPgTypeOverrides,
+             }),
+         }),
+-        plugins: [...KyselyDefaultPlugins],
++        plugins: WilsonKyselyPlugins,
+     });
+ 
+ /**

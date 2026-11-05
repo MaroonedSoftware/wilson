@@ -10,6 +10,7 @@ import { WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { DRY_RUN_ENABLED } from '#modules/settings/dry.run.setting.js';
 import { RE_REVIEW_ON_MERGE } from '#modules/settings/re.review.on.merge.setting.js';
+import { RE_REVIEW_CAP, RE_REVIEW_RETRY_KEY } from './re.review.js';
 import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
 import { findStage, StageConfigError, stepOn, validTargets, type StageConfig } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
@@ -22,6 +23,7 @@ import { CardJobs } from '#modules/jobs/card.jobs.js';
 import { RunningCards } from '#modules/jobs/running.cards.js';
 import { ScopeCheckResultSchema } from '#modules/stages/stage.result.js';
 import type {
+    AnswerCardRequest,
     CardDetail,
     CardDivision,
     CreateCardRequest,
@@ -42,13 +44,24 @@ import { BoardConfig } from './board.config.js';
 import { BoardRepository } from './board.repository.js';
 import { CardNotFoundError } from './postgres.board.repository.js';
 import { toCardDetail } from './board.service.js';
+import { withAnswer } from './append.answer.js';
 import { withFindings } from './append.findings.js';
 import { git, gitOn } from './git.js';
 import { rankBetween, renormalizedPositions } from './card.position.js';
-import { filesInScope, PLAN_SECTIONS, planGap, sectionKey, withSection, type Card } from './card.js';
+import { blockedRetryKey, filesInScope, PLAN_SECTIONS, planGap, sectionKey, withSection, type Card } from './card.js';
 import { nextCardId, seedSplitBody, splitProblem } from './split.js';
 import type { ReviewFinding } from '#modules/stages/stage.result.js';
 import { DONE, endedAs } from '#modules/stages/terminal.js';
+
+/**
+ * A card's retries without its current stage's own counters: what clearing a flag gives back, in full,
+ * since the stage is being sent round again on a person's say-so.
+ */
+const withoutStageRetries = (card: Card): Record<string, number> => {
+    const { stage, retries } = card.frontmatter;
+    const { [stage]: _kickbacks, [blockedRetryKey(stage)]: _questions, ...rest } = retries;
+    return rest;
+};
 
 /**
  * What {@link BoardWriteService}'s merge check found. `unproven` means the suite never ran, so the
@@ -206,11 +219,12 @@ export class BoardWriteService {
                     needsHumanReason: _needsHumanReason,
                     planCheck: _planCheck,
                     planCheckReason: _planCheckReason,
+                    blocked: _blocked,
                     ...flagless
                 } = card.frontmatter;
                 // Clearing a flag spends what `ack` spends: the flagged stage's retry key goes, or the
                 // stage's next single failure would land straight back on `maxKickbacks`.
-                const { [card.frontmatter.stage]: _dropped, ...retries } = card.frontmatter.retries;
+                const retries = withoutStageRetries(card);
                 const rest = card.frontmatter.needsHuman ? { ...flagless, retries } : flagless;
                 if (!enteringBacklog) {
                     return { ...card, frontmatter: { ...rest, stage: target } };
@@ -629,11 +643,10 @@ export class BoardWriteService {
                 // and drop the current stage's retry key entirely rather than zeroing it — an absent key
                 // is what "never failed" looks like, and a key present with a falsy value is a second
                 // shape for the same state.
-                const { needsHuman: _needsHuman, needsHumanReason: _needsHumanReason, ...rest } = current.frontmatter;
-                const { [current.frontmatter.stage]: _dropped, ...retries } = current.frontmatter.retries;
+                const { needsHuman: _needsHuman, needsHumanReason: _needsHumanReason, blocked: _blocked, ...rest } = current.frontmatter;
                 return {
                     ...current,
-                    frontmatter: { ...rest, retries },
+                    frontmatter: { ...rest, retries: withoutStageRetries(current) },
                 };
             },
             {
@@ -643,6 +656,54 @@ export class BoardWriteService {
                 type: 'card.acked',
                 payload: { stage, reason, retries: droppedRetries, by: 'human' },
             },
+        );
+
+        return toCardDetail(await this.boardRepository.read(id));
+    }
+
+    /**
+     * Answer the question a stage stopped to ask: the answer goes into the plan, the flag comes off,
+     * and the stage runs again in a fresh session when next dispatched. Unlike {@link ack} this keeps
+     * `retries`: nothing failed, and the stage's kickback count still means what it meant.
+     *
+     * The question is read from `current`, under the row lock, so a second answer racing this one is
+     * refused rather than appended, and an answer to a card moved in the meantime has nothing to say.
+     * Never from the pin, which is frozen at approval. The pin moves past the answer, as it does past
+     * human findings ({@link recordFindings}): the next stage reads the plan at the pin.
+     */
+    async answer(id: string, request: AnswerCardRequest): Promise<CardDetail> {
+        const before = await this.readOrThrow(id);
+        const answer = request.answer.trim();
+        if (answer.length === 0) throw httpError(400).withDetails({ reason: `cannot answer ${id}: the answer is empty` });
+
+        const stage = before.frontmatter.stage;
+        const payload: Record<string, unknown> = { stage, answer, by: 'human' };
+        let advancesPin = false;
+
+        await this.boardRepository.writeWithEvent(
+            id,
+            `Answer ${id}`,
+            current => {
+                const { needsHuman: _needsHuman, needsHumanReason: _needsHumanReason, blocked, ...rest } = current.frontmatter;
+                if (!blocked) throw httpError(400).withDetails({ reason: `${id} has no question waiting for an answer` });
+
+                payload.question = blocked.question;
+                advancesPin = Boolean(current.frontmatter.planVersionId);
+                return {
+                    ...current,
+                    frontmatter: rest,
+                    body: withAnswer(current.body, {
+                        stage: blocked.stage,
+                        question: blocked.question,
+                        askedAt: blocked.askedAt,
+                        answer,
+                        answeredAt: new Date().toISOString(),
+                        patchPath: blocked.patchPath,
+                    }),
+                };
+            },
+            { project: this.boardConfig.project, cardId: id, stage, type: 'card.answered', payload },
+            { repinIf: () => advancesPin },
         );
 
         return toCardDetail(await this.boardRepository.read(id));
@@ -1267,19 +1328,3 @@ const HUMAN_FINDINGS_NOTE = '_A human left these comments on the diff._';
  * event history runs past it before the refusal it should find.
  */
 const DIVISION_LOOKBACK = 2000;
-
-/**
- * The `retries` key {@link BoardWriteService.reReviewOnOverlap} counts its send-backs under —
- * distinct from `review`, the stage name itself, so this check's bookkeeping never touches
- * `review`'s own `maxKickbacks` counter. Follows `kickback.ts`'s `droppedRetryKey` naming: `<the
- * stage it routes to>:<what this counter is>`.
- */
-const RE_REVIEW_RETRY_KEY = 'review:re-review';
-
-/**
- * How many times {@link BoardWriteService.reReviewOnOverlap} sends a card back to `review` for the
- * same reason before giving up and flagging a human. Small and fixed, the same posture
- * `RESULT_DROPPED_ALLOWANCE` (`kickback.ts`) takes for its own bounded allowance: a card whose
- * files keep colliding with what lands on `main` is not making progress by retrying forever.
- */
-const RE_REVIEW_CAP = 2;

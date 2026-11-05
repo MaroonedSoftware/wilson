@@ -33,6 +33,7 @@ vi.mock('ai', async importOriginal => {
 });
 
 const { ApiStageAgent } = await import('#modules/agent/api.stage.agent.js');
+const { REPEATED_CALL_LIMIT } = await import('#modules/agent/repeated.call.js');
 
 const makeStage = (overrides: Partial<StageConfig> = {}): StageConfig =>
     ({
@@ -84,11 +85,85 @@ describe('ApiStageAgent budget wiring', () => {
         await agent.run(runInput(stage));
 
         const stopWhen = capturedOptions.current?.stopWhen as ((arg: { steps: unknown[] }) => boolean)[];
-        expect(stopWhen).toHaveLength(3);
+        expect(stopWhen).toHaveLength(5);
         // Neither hasToolCall nor stepCountIs would stop the loop here — only the new budget
         // condition looks at cumulative input tokens at all.
-        expect(stopWhen[2]!({ steps: [{ usage: { inputTokens: 1000 } }] })).toBe(true);
-        expect(stopWhen[2]!({ steps: [{ usage: { inputTokens: 999 } }] })).toBe(false);
+        expect(stopWhen[3]!({ steps: [{ usage: { inputTokens: 1000 } }] })).toBe(true);
+        expect(stopWhen[3]!({ steps: [{ usage: { inputTokens: 999 } }] })).toBe(false);
+    });
+
+    describe('a run repeating one call', () => {
+        const LOOPING = Array.from({ length: REPEATED_CALL_LIMIT }, () => ({
+            toolCalls: [{ toolName: 'bash', input: { command: 'pnpm test' } }],
+            toolResults: [],
+        }));
+        const stopWhenLoop = async () => {
+            generateMock.mockResolvedValue({ usage: { inputTokens: 0, outputTokens: 0 }, steps: [] });
+            await new ApiStageAgent(fakeModels).run(runInput(makeStage()));
+            return (capturedOptions.current?.stopWhen as ((arg: { steps: unknown[] }) => boolean)[])[4]!;
+        };
+
+        it('stops the loop at the limit, and not before', async () => {
+            const stops = await stopWhenLoop();
+
+            expect(stops({ steps: LOOPING.slice(1) })).toBe(false);
+            expect(stops({ steps: LOOPING })).toBe(true);
+        });
+
+        it('names the loop, rather than a missing report or a step budget', async () => {
+            generateMock.mockResolvedValue({ usage: { inputTokens: 0, outputTokens: 0 }, steps: LOOPING });
+
+            const output = await new ApiStageAgent(fakeModels).run(runInput(makeStage()));
+
+            expect(output.loopFailure).toContain(`same bash call ${REPEATED_CALL_LIMIT} times`);
+            expect(output.truncated).toBe(true);
+            expect(output.budgetFailure).toBeUndefined();
+        });
+
+        it('leaves re-running the tests after each successful edit alone', async () => {
+            const stops = await stopWhenLoop();
+            const steps = Array.from({ length: REPEATED_CALL_LIMIT * 2 }, (_, round) => {
+                const edit = { toolName: 'edit', input: { path: 'a.ts', old_string: String(round) } };
+                return {
+                    toolCalls: [{ toolName: 'bash', input: { command: 'pnpm test' } }, edit],
+                    toolResults: [{ ...edit, output: 'edited a.ts' }],
+                };
+            });
+
+            expect(stops({ steps })).toBe(false);
+        });
+
+        it('does not take an edit answered with an error for a successful one', async () => {
+            const stops = await stopWhenLoop();
+            const steps = Array.from({ length: REPEATED_CALL_LIMIT }, (_, round) => {
+                const edit = { toolName: 'edit', input: { path: 'a.ts', old_string: String(round) } };
+                return {
+                    toolCalls: [{ toolName: 'bash', input: { command: 'pnpm test' } }, edit],
+                    toolResults: [{ ...edit, output: 'error: old_string not found in a.ts' }],
+                };
+            });
+
+            expect(stops({ steps })).toBe(true);
+        });
+
+        it('gives way to a report made in the step that tripped it', async () => {
+            const steps = [
+                ...LOOPING.slice(1),
+                {
+                    toolCalls: [
+                        { toolName: 'bash', input: { command: 'pnpm test' } },
+                        { toolName: 'report_result', input: { summary: 'done' } },
+                    ],
+                },
+            ];
+            generateMock.mockResolvedValue({ usage: { inputTokens: 0, outputTokens: 0 }, steps });
+
+            const output = await new ApiStageAgent(fakeModels).run(runInput(makeStage()));
+
+            expect(output.result).toEqual({ summary: 'done' });
+            expect(output.loopFailure).toBeUndefined();
+            expect(output.truncated).toBe(false);
+        });
     });
 
     it('passes an abortSignal timed to the stage’s maxWallClockMs into generate', async () => {
@@ -141,7 +216,20 @@ describe('ApiStageAgent budget wiring', () => {
 
         const output = (await agent.run(runInput(makeStage({ maxInputTokens: 1000 })))) as { budgetFailure?: string };
 
-        expect(output.budgetFailure).toContain('used 1000, cap 1000');
+        expect(output.budgetFailure).toContain('used 1000 cost-weighted, cap 1000');
+    });
+
+    it('weights the run’s cached input, recording the split and leaving a long cached run under its cap', async () => {
+        generateMock.mockResolvedValue({
+            usage: { inputTokens: 5100, outputTokens: 10, inputTokenDetails: { cacheReadTokens: 5000, cacheWriteTokens: 0 } },
+            steps: [],
+        });
+        const agent = new ApiStageAgent(fakeModels);
+
+        const output = await agent.run(runInput(makeStage({ maxInputTokens: 1000 })));
+
+        expect(output.budgetFailure).toBeUndefined();
+        expect(output.usage).toEqual({ inputTokens: 100, outputTokens: 10, cachedInputTokens: 5000, cacheWriteInputTokens: 0 });
     });
 
     it('leaves budgetFailure undefined while the run stays under its cap', async () => {

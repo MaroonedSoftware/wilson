@@ -187,8 +187,11 @@ export const patchLane = (config: LaneConfig, name: string, patch: LanePatch, so
     const patched = { ...lane, ...columns, settings };
     const next = { ...config, lanes: config.lanes.map(candidate => (candidate === lane ? patched : candidate)) };
     const { stages } = validateStages(documentFromLanes(next), source);
-    const { adapter, provider, model, isolated } = stages.find(stage => stage.name === name)!;
+    const { adapter, provider, model, isolated, depths } = stages.find(stage => stage.name === name)!;
     if (model) assertRoutable(name, { adapter, provider, model }, isolated);
+    for (const depth of depths ?? []) {
+        if (depth.model !== undefined) assertRoutable(name, { adapter, provider, model: depth.model }, isolated);
+    }
     return next;
 };
 

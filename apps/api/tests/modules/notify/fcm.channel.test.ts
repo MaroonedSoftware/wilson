@@ -76,6 +76,20 @@ describe('FcmChannel', () => {
         expect(sends[0]!.message.android).toEqual({ priority: 'high' });
     });
 
+    // `Notifier.notify` waits on this channel with no timeout of its own, so a stalled Google must not
+    // be able to stall the stage that is reporting: every call has to carry its own deadline.
+    it('puts a deadline on every call to Google', async () => {
+        const fetchMock = vi.fn<typeof fetch>(async (url: unknown) =>
+            String(url).includes('oauth2') ? json({ access_token: 'google-token' }) : json({ name: 'sent' }),
+        );
+        vi.stubGlobal('fetch', fetchMock);
+
+        await new FcmChannel(account, devices(['a']), logger()).send(notification);
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        for (const [, init] of fetchMock.mock.calls) expect(init?.signal).toBeInstanceOf(AbortSignal);
+    });
+
     it('carries ids only, so no title or reason reaches Google', async () => {
         const { sends } = google();
 
