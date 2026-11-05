@@ -2,6 +2,7 @@ import { Fragment, type ReactNode } from 'react';
 import { Anchor, Box, Code, List, Stack, Text, Title } from '@mantine/core';
 import { Link, useParams } from '@tanstack/react-router';
 import type { PhrasingContent, RootContent } from 'mdast';
+import { InlineImage } from '#src/components/InlineImage.js';
 import { parseMarkdown } from '#src/lib/markdown.js';
 
 /** A link produced by `remarkCardRefs` points here; render it through the router instead of a
@@ -142,6 +143,11 @@ function renderInlineNode(node: PhrasingContent, key: number, body: string, proj
                 </Anchor>
             );
         }
+        // Same shape as `CARD_LINK` above: a recognised source is drawn, anything else degrades. The
+        // allow-list lives in `lib/images.ts` because card and plan bodies are agent-written and
+        // untrusted — the reason this file builds elements from mdast rather than injecting HTML.
+        case 'image':
+            return <InlineImage key={key} url={node.url} alt={node.alt ?? ''} />;
         default: {
             const text = sourceText(node, body);
             return text ? <Fragment key={key}>{text}</Fragment> : null;

@@ -15,11 +15,14 @@
 import { createElement } from 'react';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { MantineProvider } from '@mantine/core';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRootRoute, createRoute, createRouter } from '@tanstack/react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Blockquote, List, Paragraph, PhrasingContent, RootContent } from 'mdast';
 import { parseMarkdown } from '#src/lib/markdown.js';
 import { Markdown } from '#src/components/Markdown.js';
+import { wilson } from '#src/lib/sdk.js';
+import { WilsonSdkProvider } from '#src/lib/sdk-context.js';
 
 /** Concatenates the literal text of a run of phrasing content, so a block's rendered words can be
  * asserted on without depending on exactly how many text/strong/emphasis nodes it split into. */
@@ -232,10 +235,13 @@ describe('Markdown', () => {
                 dispatchEvent: vi.fn(),
             })),
         );
+        // jsdom implements neither; `InlineImage` shows fetched bytes through an object URL.
+        Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:test/1'), revokeObjectURL: vi.fn() });
     });
 
     afterEach(() => {
         cleanup();
+        vi.restoreAllMocks();
         vi.unstubAllGlobals();
     });
 
@@ -254,8 +260,68 @@ describe('Markdown', () => {
     function renderMarkdown(markdownBody: string) {
         body = markdownBody;
         const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ['/'] }) });
-        return render(createElement(MantineProvider, null, createElement(RouterProvider, { router })));
+        // `InlineImage` fetches through the SDK by way of a query, so both providers sit above it.
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        return render(
+            createElement(
+                MantineProvider,
+                null,
+                createElement(
+                    QueryClientProvider,
+                    { client },
+                    createElement(WilsonSdkProvider, { client: wilson, children: createElement(RouterProvider, { router }) }),
+                ),
+            ),
+        );
     }
+
+    const fetchers = () => {
+        const chat = vi.spyOn(wilson.chat, 'fetchAChatImage').mockResolvedValue({
+            contentType: 'image/png',
+            data: new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }),
+            headers: { xContentTypeOptions: 'nosniff', contentSecurityPolicy: "default-src 'none'" },
+        });
+        const card = vi.spyOn(wilson.context, 'fetchAnAttachment').mockRejectedValue(new Error('not expected'));
+        return { chat, card };
+    };
+
+    it('draws an image served from a chat thread, fetched through the SDK', async () => {
+        const { chat } = fetchers();
+        renderMarkdown('![a chart](/api/chat/threads/1/attachments/2)');
+        const image = await screen.findByAltText('a chart');
+        expect(image.tagName).toBe('IMG');
+        expect(image.getAttribute('src')).toBe('blob:test/1');
+        expect(chat).toHaveBeenCalledWith('1', '2');
+    });
+
+    it('draws a data: image URI as it is, with no request', async () => {
+        const { chat, card } = fetchers();
+        const uri = 'data:image/png;base64,iVBORw0KGgo=';
+        renderMarkdown(`![a dot](${uri})`);
+        const image = await screen.findByAltText('a dot');
+        expect(image.tagName).toBe('IMG');
+        expect(image.getAttribute('src')).toBe(uri);
+        expect(chat).not.toHaveBeenCalled();
+        expect(card).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['https://evil.example/x.png', 'images from other sites are not shown'],
+        ['//host/x.png', 'images from other sites are not shown'],
+        ['javascript:alert(1)', 'that image source is not allowed'],
+        ['data:text/html;base64,AA==', 'that is not an image data URI'],
+        ['/api/chat/threads/1/attachments/2?x=1', 'that image source is not allowed'],
+        ['/api/chat/threads/1/attachments/../../2', 'that image source is not allowed'],
+    ])('renders the alt text of an image from %s, with no picture, link or request', async (url, reason) => {
+        const { chat, card } = fetchers();
+        const { container } = renderMarkdown(`![a tracker](${url})`);
+        const alt = await screen.findByText('a tracker');
+        expect(alt.getAttribute('title')).toBe(reason);
+        expect(container.querySelector('img')).toBeNull();
+        expect(container.querySelector('a')).toBeNull();
+        expect(chat).not.toHaveBeenCalled();
+        expect(card).not.toHaveBeenCalled();
+    });
 
     it('joins wrapped paragraph lines into one visual block, separated by spaces', async () => {
         renderMarkdown('This is a plan\nthat wraps across\nseveral lines.');

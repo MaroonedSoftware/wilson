@@ -7,9 +7,6 @@ import { useWilsonSdk } from './sdk-context.js';
 export const CHAT_THREADS_KEY = ['chat-threads'] as const;
 export const chatThreadKey = (id: string) => ['chat-thread', id] as const;
 
-/** What a message says about the images it carries, since only the desktop app draws them. Empty when it carries none. */
-export const imagesCaption = (count: number): string => (count === 0 ? '' : count === 1 ? '1 image' : `${count} images`);
-
 /** The person's chat threads, most recently active first. */
 export function useChatThreads(enabled: boolean) {
     const wilson = useWilsonSdk();
