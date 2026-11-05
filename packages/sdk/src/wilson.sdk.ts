@@ -1,6 +1,7 @@
 import type { SdkOptions } from './sdk-options.js';
 import { createSdkFetch } from './sdk-options.js';
 import { ApiKeysClient } from './api.keys.client.js';
+import { AppApiClient } from './app.api.client.js';
 import { AppsClient } from './apps.client.js';
 import { AuthClient } from './auth.client.js';
 import { BoardClient } from './board.client.js';
@@ -24,6 +25,7 @@ import { StagesClient } from './stages.client.js';
 
 export class WilsonSdk {
     readonly apiKeys: ApiKeysClient;
+    readonly appApi: AppApiClient;
     readonly apps: AppsClient;
     readonly auth: AuthClient;
     readonly board: BoardClient;
@@ -48,6 +50,7 @@ export class WilsonSdk {
     constructor(options: SdkOptions) {
         const sdkFetch = options.fetch ?? createSdkFetch(options);
         this.apiKeys = new ApiKeysClient(sdkFetch);
+        this.appApi = new AppApiClient(sdkFetch);
         this.apps = new AppsClient(sdkFetch);
         this.auth = new AuthClient(sdkFetch);
         this.board = new BoardClient(sdkFetch);

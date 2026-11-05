@@ -1,5 +1,6 @@
 // Auto-generated barrel file
 export * from './api.keys.js';
+export * from './app.api.js';
 export * from './apps.js';
 export * from './auth.js';
 export * from './board.js';

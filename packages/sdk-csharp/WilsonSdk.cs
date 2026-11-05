@@ -20,6 +20,7 @@ public sealed class WilsonSdk : IDisposable
     {
         Http = new SdkHttp(options);
         ApiKeys = new ApiKeysClient(Http);
+        AppApi = new AppApiClient(Http);
         Apps = new AppsClient(Http);
         Auth = new AuthClient(Http);
         Board = new BoardClient(Http);
@@ -45,6 +46,8 @@ public sealed class WilsonSdk : IDisposable
     public SdkHttp Http { get; }
 
     public ApiKeysClient ApiKeys { get; }
+
+    public AppApiClient AppApi { get; }
 
     public AppsClient Apps { get; }
 
