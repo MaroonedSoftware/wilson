@@ -4,6 +4,7 @@ import { DateTime } from 'luxon';
 import { ChatAttachmentRepository, UNCLAIMED_ATTACHMENT_HOURS } from '#modules/chat/chat.attachment.repository.js';
 import { ChatAttachmentService } from '#modules/chat/chat.attachment.service.js';
 import { ChatThreadRepository } from '#modules/chat/chat.thread.repository.js';
+import { MAX_CREATED_SVG_BYTES } from '#modules/chat/chat.image.js';
 import type { DB } from '#modules/data/db.js';
 import { testDb } from '#tests/support/test.db.js';
 
@@ -95,6 +96,35 @@ describe('ChatAttachmentService.create', () => {
         expect(smuggled.details?.reason).toMatch(/SVG must be sent as source/);
 
         expect(await rowsIn(thread)).toEqual([]);
+    });
+
+    it('stores nothing for SVG over the cap, and does not sweep on a refusal', async () => {
+        const thread = await newThread();
+        const old = await new ChatAttachmentRepository(db).insert(thread, { filename: 'old.png', contentType: 'image/png', contentHash: 'h', bytes: PNG });
+        await db
+            .updateTable('wilson.chatAttachments')
+            .set({ createdAt: DateTime.now().minus({ hours: UNCLAIMED_ATTACHMENT_HOURS + 1 }) })
+            .where('id', '=', BigInt(old.id))
+            .execute();
+
+        const big = `<svg xmlns="http://www.w3.org/2000/svg"><text>${'a'.repeat(MAX_CREATED_SVG_BYTES)}</text></svg>`;
+        const error = await refusalOf(service().create(thread, { kind: 'svg', source: big }, 'a.svg'));
+
+        expect(error.statusCode).toBe(400);
+        expect(error.details?.reason).toMatch(/byte limit/);
+        expect((await rowsIn(thread)).map(row => String(row.id))).toEqual([old.id]);
+    });
+
+    it('serves a created SVG back through bytes() as image/svg+xml with the fixed headers', async () => {
+        const thread = await newThread();
+        const created = await service().create(thread, { kind: 'svg', source: SVG }, 'a.svg');
+
+        const served = await service().bytes(thread, created.id);
+
+        expect(served.contentType).toBe('image/svg+xml');
+        expect(served.body.toString('utf8')).toBe(SVG);
+        expect(served.headers).toEqual({ xContentTypeOptions: 'nosniff', contentSecurityPolicy: "default-src 'none'" });
+        await expect(service().bytes(await newThread(), created.id)).rejects.toMatchObject({ statusCode: 404 });
     });
 
     it('answers 404 for a thread that does not exist, before checking the image', async () => {

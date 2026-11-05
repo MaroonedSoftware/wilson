@@ -91,6 +91,20 @@ describe('chat images', () => {
         expect(await fetched.text()).toBe(source);
     });
 
+    it('misses a created SVG from another thread, and serves created bytes under their sniffed type', async () => {
+        const service = server.container.get(ChatAttachmentService);
+        const svgRow = await service.create(threadId, { kind: 'svg', source: '<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>' }, 'a.svg');
+        expect((await fetchImage(svgRow.id, await newThread())).status).toBe(404);
+
+        const bytes = png(256);
+        const pngRow = await service.create(threadId, { kind: 'bytes', base64: bytes.toString('base64') }, 'a.png');
+        const fetched = await fetchImage(pngRow.id);
+        expect(fetched.status).toBe(200);
+        expect(fetched.headers.get('content-type')).toBe('image/png');
+        expect(fetched.headers.get('x-content-type-options')).toBe('nosniff');
+        expect(Buffer.from(await fetched.arrayBuffer())).toEqual(bytes);
+    });
+
     it('still refuses a valid SVG uploaded as a file, whatever it is declared as', async () => {
         const source = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>');
         for (const type of ['image/svg+xml', 'image/png']) {

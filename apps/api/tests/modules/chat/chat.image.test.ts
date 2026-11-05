@@ -50,6 +50,14 @@ describe('sanitiseSvg accepts', () => {
         accepted(`<?xml version="1.0" encoding="UTF-8"?>\n${svg('<text x="1" y="2">a &amp; b &lt; c &gt; &quot;d&quot; &apos;</text>')}\n`);
     });
 
+    it('the xmlns literals in single quotes, a nested svg, and source exactly at the cap', () => {
+        accepted(`<svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'><svg><use xlink:href='#a'/></svg></svg>`);
+        const shell = svg('<text></text>');
+        const atCap = svg(`<text>${'a'.repeat(MAX_CREATED_SVG_BYTES - shell.length)}</text>`);
+        expect(Buffer.byteLength(atCap)).toBe(MAX_CREATED_SVG_BYTES);
+        expect(accepted(atCap).length).toBe(MAX_CREATED_SVG_BYTES);
+    });
+
     it('a realistic chart', () => {
         accepted(
             `<svg ${NS} viewBox="0 0 100 50" width="100" height="50" role="img" aria-label="bars">` +
@@ -120,6 +128,35 @@ describe('sanitiseSvg refuses', () => {
         expect(reasonFor(source)).toMatch(reason);
     });
 
+    it.each([
+        ['a mixed-case <Script>', svg('<Script/>'), /<script>/],
+        ['a lower-case <foreignobject>', svg('<foreignobject/>'), /<foreignObject>/],
+        ['a namespaced image', svg('<svg:image href="#a"/>'), /<image>/],
+        ['<animateMotion>', svg('<animateMotion/>'), /animation/],
+        ['a lower-case <!doctype', `<!doctype svg>${svg('')}`, /DOCTYPE/],
+        ['any other markup declaration', `<!ELEMENT svg ANY>${svg('')}`, /markup declaration/],
+        ['an xmlns:xlink with another value', svg('', `${NS} xmlns:xlink="http://example.com/xlink"`), /xmlns:xlink=.*only/],
+        ['xmlns:xlink away from the root', svg(`<g ${XLINK}/>`), /xmlns:xlink.*only on the root/],
+        ['a mixed-case event handler', svg('<rect oNcLiCk="x"/>'), /event handler/],
+        ['an upper-case STYLE attribute', svg('<rect STYLE="x"/>'), /style attribute/],
+        ['javascript: split by whitespace', svg('<rect fill="java\tscript:x"/>'), /javascript:/],
+        ['an upper-case URL( to another place', svg('<rect fill="URL(https://example.com/a)"/>'), /url\(/],
+        ['an unclosed url(#', svg('<rect fill="url(#a"/>'), /url\(/],
+        ['an empty fragment', svg('<use href="#"/>'), /outside the document/],
+        ['a fragment with a scheme hidden after it', svg('<use href="#a javascript:x"/>'), /javascript:|outside the document/],
+        ['"]]>" in text', svg('<text>a ]]> b</text>'), /\]\]>/],
+        ['"<" inside an attribute value', svg('<rect id="a<b"/>'), /malformed attribute/],
+        ['a noncharacter', svg('<text>￾</text>'), /control character|broken character/],
+    ])('%s', (_label, source, reason) => {
+        expect(reasonFor(source)).toMatch(reason);
+    });
+
+    it('every refusal as a full sentence, never an empty reason', () => {
+        for (const source of [svg('<script/>'), svg('<rect onload="x"/>'), '<g/>', '', svg('<g>')]) {
+            expect(reasonFor(source)).toMatch(/^the (SVG|SVG's|source) .{10,}/);
+        }
+    });
+
     it('source over MAX_CREATED_SVG_BYTES, before scanning it', () => {
         const filler = '<script>'.repeat(Math.ceil(MAX_CREATED_SVG_BYTES / 8));
         expect(reasonFor(svg(filler))).toMatch(/over the 1048576-byte limit/);
@@ -145,6 +182,25 @@ describe('decodeCreatedImage', () => {
             expect(result.ok).toBe(false);
         }
         expect(decodeCreatedImage('iVBO!!!!')).toEqual({ ok: false, reason: 'the image is not valid base64' });
+    });
+
+    it('takes the type from the bytes for JPEG, WebP and GIF too', () => {
+        const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(32, 2)]);
+        const webp = Buffer.concat([Buffer.from('RIFF'), Buffer.from([0x20, 0, 0, 0]), Buffer.from('WEBPVP8 '), Buffer.alloc(32, 3)]);
+        const gif = Buffer.concat([Buffer.from('GIF87a'), Buffer.alloc(32, 4)]);
+        expect(decodeCreatedImage(jpeg.toString('base64'))).toEqual({ ok: true, bytes: jpeg, contentType: 'image/jpeg' });
+        expect(decodeCreatedImage(webp.toString('base64'))).toEqual({ ok: true, bytes: webp, contentType: 'image/webp' });
+        expect(decodeCreatedImage(gif.toString('base64'))).toEqual({ ok: true, bytes: gif, contentType: 'image/gif' });
+    });
+
+    it('refuses base64 with a line break in it', () => {
+        const valid = png(120).toString('base64');
+        expect(decodeCreatedImage(`${valid.slice(0, 76)}\n${valid.slice(76)}`)).toEqual({ ok: false, reason: 'the image is not valid base64' });
+    });
+
+    it('refuses an over-long string before decoding it', () => {
+        const result = decodeCreatedImage('A'.repeat(Math.ceil(MAX_CREATED_IMAGE_BYTES / 3) * 4 + 4));
+        expect(result).toEqual({ ok: false, reason: `the image is over the ${MAX_CREATED_IMAGE_BYTES}-byte limit` });
     });
 
     it('refuses an empty string', () => {
