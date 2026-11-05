@@ -34,6 +34,17 @@ rejects with an `Error` whose message is the reason. Dates arrive as ISO strings
 | `wilson.listProjectActivity({ limit, before })` | `activity.read` | Recent events, newest first |
 | `wilson.getProjectStats({ days })`              | `stats.read`    | What the project spent      |
 
+Answers come from version 1 of the app API (`/api/app-api/v1`, defined in `apps/api/data/contracts/app.api.ck`).
+Fields may be added to it, but none will be changed or taken away. An optional field is left out, not sent
+as `null`, unless it says otherwise.
+
+| Answer                   | Fields                                                                                                                                                                                                          |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A card, from `listCards` | `id`, `title`, `stage`, `dependsOn`, `needsHuman`, and when set `doneReason`, `planCheck`, `planCheckReason`, `branch`, `needsHumanReason`, `blocked`, `position`, `splitFrom`, `stageEnteredAt`, `mergeStatus` |
+| `getCard`                | A card's fields plus `body`, `sections` and, for a card that was split, `pieces`                                                                                                                                |
+| An activity event        | `id`, `cardId`, `cardTitle` (`null` once the card is gone), `type`, `stage` (may be `null`), `createdAt`. Not what the event carried: open the card for that                                                    |
+| `getProjectStats`        | `since`, `until`, `zone`, `total`, `stages`, `days`, `topCards`, `conversations`, all token and attempt counts                                                                                                  |
+
 An app may have 16 requests waiting at once. Past that, a request is refused until one finishes.
 
 | Also there                       | What it is                                                  |

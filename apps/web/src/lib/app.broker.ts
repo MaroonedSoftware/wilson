@@ -3,7 +3,7 @@ import { reasonFor } from './mutations.js';
 
 /** The part of the SDK an app can ever reach. Nothing else is in scope here to be asked for. */
 export type AppBrokerClient = {
-    board: Pick<WilsonSdk['board'], 'listCards' | 'getCard' | 'listBoardColumns' | 'listProjectActivity' | 'getProjectStats'>;
+    appApi: Pick<WilsonSdk['appApi'], 'listCardsV1' | 'getCardV1' | 'listBoardColumnsV1' | 'listProjectActivityV1' | 'getProjectStatsV1'>;
 };
 
 /** One thing an app can ask for: the grant it takes, and how arguments from the app become a call. */
@@ -58,26 +58,26 @@ const METHODS = new Map<string, AppMethod>([
             grant: 'board.read',
             run: (client, args) => {
                 noArguments(args);
-                return client.board.listCards();
+                return client.appApi.listCardsV1();
             },
         },
     ],
-    ['getCard', { grant: 'board.read', run: (client, args) => client.board.getCard(cardId(args)) }],
+    ['getCard', { grant: 'board.read', run: (client, args) => client.appApi.getCardV1(cardId(args)) }],
     [
         'listBoardColumns',
         {
             grant: 'board.read',
             run: (client, args) => {
                 noArguments(args);
-                return client.board.listBoardColumns();
+                return client.appApi.listBoardColumnsV1();
             },
         },
     ],
     [
         'listProjectActivity',
-        { grant: 'activity.read', run: (client, args) => client.board.listProjectActivity(wholeNumbers(args, ['limit', 'before'])) },
+        { grant: 'activity.read', run: (client, args) => client.appApi.listProjectActivityV1(wholeNumbers(args, ['limit', 'before'])) },
     ],
-    ['getProjectStats', { grant: 'stats.read', run: (client, args) => client.board.getProjectStats(wholeNumbers(args, ['days'])) }],
+    ['getProjectStats', { grant: 'stats.read', run: (client, args) => client.appApi.getProjectStatsV1(wholeNumbers(args, ['days'])) }],
 ]);
 
 /** The method names `window.wilson` offers, granted or not. */

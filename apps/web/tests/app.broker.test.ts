@@ -15,24 +15,24 @@ import {
 const ALL: AppGrant[] = ['board.read', 'activity.read', 'stats.read'];
 
 const fakeClient = () => {
-    const board = {
-        listCards: vi.fn(async () => [{ id: '0001' }]),
-        getCard: vi.fn(async (id: string) => ({ id })),
-        listBoardColumns: vi.fn(async () => ({ columns: [] })),
-        listProjectActivity: vi.fn(async () => []),
-        getProjectStats: vi.fn(async () => ({ days: 7 })),
+    const appApi = {
+        listCardsV1: vi.fn(async () => [{ id: '0001' }]),
+        getCardV1: vi.fn(async (id: string) => ({ id })),
+        listBoardColumnsV1: vi.fn(async () => ({ columns: [] })),
+        listProjectActivityV1: vi.fn(async () => []),
+        getProjectStatsV1: vi.fn(async () => ({ days: 7 })),
     };
-    return { client: { board } as unknown as AppBrokerClient, board };
+    return { client: { appApi } as unknown as AppBrokerClient, appApi };
 };
 
 const ask = async (method: string, args: unknown[] = [], grants: AppGrant[] = ALL, client = fakeClient().client) =>
     (await answerAppRequest({ id: 1, method, args }, grants, client)) as AppResponse;
 
 const failure = async (method: string, args: unknown[] = [], grants: AppGrant[] = ALL) => {
-    const { client, board } = fakeClient();
+    const { client, appApi } = fakeClient();
     const response = await ask(method, args, grants, client);
     expect(response.ok).toBe(false);
-    for (const call of Object.values(board)) expect(call).not.toHaveBeenCalled();
+    for (const call of Object.values(appApi)) expect(call).not.toHaveBeenCalled();
     return (response as { error: string }).error;
 };
 
@@ -90,13 +90,13 @@ describe('arguments', () => {
     });
 
     it('passes a query through', async () => {
-        const { client, board } = fakeClient();
+        const { client, appApi } = fakeClient();
 
         await ask('listProjectActivity', [{ limit: 5, before: 10 }], ALL, client);
         await ask('getProjectStats', [{ days: 30 }], ALL, client);
 
-        expect(board.listProjectActivity).toHaveBeenCalledWith({ limit: 5, before: 10 });
-        expect(board.getProjectStats).toHaveBeenCalledWith({ days: 30 });
+        expect(appApi.listProjectActivityV1).toHaveBeenCalledWith({ limit: 5, before: 10 });
+        expect(appApi.getProjectStatsV1).toHaveBeenCalledWith({ days: 30 });
     });
 
     it.each([
@@ -116,15 +116,15 @@ describe('arguments', () => {
 
 describe('answers', () => {
     it('sends plain data, with dates as ISO strings', async () => {
-        const { client, board } = fakeClient();
-        board.listCards.mockResolvedValue([{ id: '0001', at: DateTime.fromISO('2026-11-05T00:00:00.000Z', { zone: 'utc' }) }] as never);
+        const { client, appApi } = fakeClient();
+        appApi.listCardsV1.mockResolvedValue([{ id: '0001', at: DateTime.fromISO('2026-11-05T00:00:00.000Z', { zone: 'utc' }) }] as never);
 
         expect(await ask('listCards', [], ALL, client)).toEqual({ id: 1, ok: true, result: [{ id: '0001', at: '2026-11-05T00:00:00.000Z' }] });
     });
 
     it("sends the server's reason, and none of the error's headers", async () => {
-        const { client, board } = fakeClient();
-        board.getCard.mockRejectedValue(new SdkError(404, 'Not Found', { details: { reason: 'no card' } }, new Headers({ 'x-secret': 'hidden' })));
+        const { client, appApi } = fakeClient();
+        appApi.getCardV1.mockRejectedValue(new SdkError(404, 'Not Found', { details: { reason: 'no card' } }, new Headers({ 'x-secret': 'hidden' })));
 
         expect(await ask('getCard', ['0001'], ALL, client)).toEqual({ id: 1, ok: false, error: 'no card' });
     });
@@ -139,10 +139,10 @@ describe('answers', () => {
         { id: 1, method: 5, args: [] },
         { id: 1, method: 'listCards' },
     ])('ignores %j, which is not a request', async data => {
-        const { client, board } = fakeClient();
+        const { client, appApi } = fakeClient();
 
         expect(await answerAppRequest(data, ALL, client)).toBeUndefined();
-        expect(board.listCards).not.toHaveBeenCalled();
+        expect(appApi.listCardsV1).not.toHaveBeenCalled();
     });
 });
 
@@ -166,21 +166,21 @@ describe('serveApp', () => {
     });
 
     it('refuses requests past the limit without calling the API, and recovers', async () => {
-        const { client, board } = fakeClient();
+        const { client, appApi } = fakeClient();
         const release: (() => void)[] = [];
-        board.listCards.mockImplementation(() => new Promise(resolve => release.push(() => resolve([{ id: '0001' }]))));
+        appApi.listCardsV1.mockImplementation(() => new Promise(resolve => release.push(() => resolve([{ id: '0001' }]))));
         const { app, host, replies } = connect(client);
 
         for (let id = 1; id <= MAX_APP_REQUESTS_IN_FLIGHT + 2; id += 1) app.postMessage({ id, method: 'listCards', args: [] });
 
         await vi.waitFor(() => expect(replies).toHaveLength(2));
         expect(replies.every(reply => !reply.ok && reply.error === 'too many requests at once')).toBe(true);
-        expect(board.listCards).toHaveBeenCalledTimes(MAX_APP_REQUESTS_IN_FLIGHT);
+        expect(appApi.listCardsV1).toHaveBeenCalledTimes(MAX_APP_REQUESTS_IN_FLIGHT);
 
         for (const finish of release) finish();
         await vi.waitFor(() => expect(replies).toHaveLength(MAX_APP_REQUESTS_IN_FLIGHT + 2));
         app.postMessage({ id: 99, method: 'listCards', args: [] });
-        await vi.waitFor(() => expect(board.listCards).toHaveBeenCalledTimes(MAX_APP_REQUESTS_IN_FLIGHT + 1));
+        await vi.waitFor(() => expect(appApi.listCardsV1).toHaveBeenCalledTimes(MAX_APP_REQUESTS_IN_FLIGHT + 1));
         release.at(-1)!();
         host.close();
     });
