@@ -7,7 +7,7 @@ options {
     }
 }
 
-# Operator apps: one HTML file each, run by the web app in a sandboxed iframe with no network access
+# Operator apps: one HTML file each, run by the web app in a sandboxed iframe with web requests blocked
 # and no credentials. An app reaches Wilson only by asking the web app, which answers only what the
 # app's grants allow. Deployment-scoped like `hosts.ck`, not per project.
 #

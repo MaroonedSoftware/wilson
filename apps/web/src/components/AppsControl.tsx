@@ -4,6 +4,7 @@ import { Alert, Badge, Button, Checkbox, Code, FileInput, Group, Stack, Text, Te
 import type { AppGrant, AppSummary } from '@wilson/sdk';
 import { addedGrants, APP_GRANTS, grantLabel, MAX_APP_HTML_BYTES, nameFromFilename, slugFromFilename } from '#src/lib/apps.js';
 import { reasonFor } from '#src/lib/mutations.js';
+import { AnchorLink } from '#src/lib/router-link.js';
 import { useWilsonSdk } from '#src/lib/sdk-context.js';
 
 const APPS_KEY = ['apps'];
@@ -27,8 +28,10 @@ const EMPTY_FORM: AppForm = { file: null, slug: '', name: '', description: '', g
  * slug of an installed app, or pressing Replace on one, makes the form a replace, which says so and
  * names any grant the app would gain. A replace needs no file: leaving it out changes only the
  * details and grants, which is how a grant is taken back from an app without its source to hand.
+ *
+ * An app opens inside a project, so Open shows only when Settings was reached from one.
  */
-export function AppsControl() {
+export function AppsControl({ project }: { project?: string | undefined }) {
     const sdk = useWilsonSdk();
     const queryClient = useQueryClient();
     const apps = useQuery({ queryKey: APPS_KEY, queryFn: () => sdk.apps.listApps() });
@@ -95,8 +98,8 @@ export function AppsControl() {
     return (
         <Stack gap="sm">
             <Text size="sm" c="dimmed">
-                An app is one HTML file that runs in its own sandbox, with no network access and no credentials. It can read only what you tick here,
-                but it could share anything it can read, so install only apps you trust with that data.
+                An app is one HTML file that runs in its own sandbox, without your credentials and with ordinary web requests blocked. It can read
+                only what you tick here, but it could share anything it can read, so install only apps you trust with that data.
             </Text>
             {apps.error && <Alert color="red">{apps.error.message}</Alert>}
             {installed.length === 0 && !apps.isPending && !apps.error && (
@@ -143,6 +146,11 @@ export function AppsControl() {
                         </Group>
                     ) : (
                         <Group gap="xs" wrap="nowrap">
+                            {project && (
+                                <AnchorLink to="/projects/$project/apps/$slug" params={{ project, slug: app.slug }} size="sm">
+                                    Open
+                                </AnchorLink>
+                            )}
                             <Button size="xs" variant="default" onClick={() => startReplace(app)}>
                                 Replace
                             </Button>

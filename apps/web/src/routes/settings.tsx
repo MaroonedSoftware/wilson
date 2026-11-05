@@ -955,7 +955,7 @@ function SettingsRoute() {
             <Paper withBorder p="md" radius="sm">
                 <Stack gap="sm">
                     <Title order={4}>Apps</Title>
-                    <AppsControl />
+                    <AppsControl project={project} />
                 </Stack>
             </Paper>
 

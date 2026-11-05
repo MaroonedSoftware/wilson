@@ -25,7 +25,7 @@ const burndown: AppSummary = {
 };
 const stored: App = { ...burndown, html: '<h1>stored</h1>' };
 
-const renderControl = () => {
+const renderControl = (project?: string) => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     return render(
         createElement(
@@ -34,7 +34,7 @@ const renderControl = () => {
             createElement(
                 QueryClientProvider,
                 { client },
-                createElement(WilsonSdkProvider, { client: wilson, children: createElement(AppsControl) }),
+                createElement(WilsonSdkProvider, { client: wilson, children: createElement(AppsControl, { project }) }),
             ),
         ),
     );

@@ -2,7 +2,7 @@
 
 -- =========================================================================
 -- wilson.apps: the operator apps installed on this server. An app is one HTML
--- file, which the web app runs in a sandboxed iframe with no network access and
+-- file, which the web app runs in a sandboxed iframe with web requests blocked and
 -- no credentials, plus the grants it was installed with: what the web app may
 -- fetch on its behalf.
 --
