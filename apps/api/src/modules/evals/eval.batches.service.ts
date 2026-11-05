@@ -16,6 +16,7 @@ import type {
     LaneCandidate as LaneCandidateContract,
     ListEvalBatchesQuery,
 } from '../../generated/evals.js';
+import type { EvalExpected } from './eval.attempt.js';
 import { summarizeRuns, totalRuns } from './eval.report.js';
 import { EvalFixtureRepository } from './eval.fixture.repository.js';
 import { EvalRunRepository, type EvalArm, type EvalBatchRow, type EvalRunRow } from './eval.run.repository.js';
@@ -142,11 +143,16 @@ export class EvalBatchesService {
     async show(id: string): Promise<EvalBatchDetail> {
         const batch = await this.requireBatch(id);
         const runs = await this.runs.runs(id);
+        const expected = new Map<string, EvalExpected>();
+        for (const fixtureId of new Set(runs.map(run => run.fixtureId))) {
+            const fixture = await this.fixtures.find(fixtureId);
+            if (fixture?.expected) expected.set(fixtureId, fixture.expected);
+        }
         return {
             batch: batchContract(batch, await this.runs.outputTokensSpent(id)),
             runs: runs.map(runContract),
-            summary: summarizeRuns(runs),
-            totals: totalRuns(runs),
+            summary: summarizeRuns(runs, expected),
+            totals: totalRuns(runs, expected),
         };
     }
 

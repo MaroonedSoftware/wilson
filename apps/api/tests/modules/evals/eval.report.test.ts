@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { orderRuns } from '#modules/evals/eval.batches.service.js';
-import { summarizeRuns } from '#modules/evals/eval.report.js';
+import type { EvalExpected } from '#modules/evals/eval.attempt.js';
+import { scoreRun, summarizeRuns, totalRuns } from '#modules/evals/eval.report.js';
 import type { EvalRunRow } from '#modules/evals/eval.run.repository.js';
 
 const run = (overrides: Partial<EvalRunRow>): EvalRunRow => ({
@@ -76,5 +77,51 @@ describe('orderRuns', () => {
             '2u',
             '2a',
         ]);
+    });
+});
+
+describe('scoreRun', () => {
+    const revise: EvalExpected = { verdict: 'revise', blockerFiles: ['a.ts'], source: 'operator' };
+    const pass: EvalExpected = { verdict: 'pass', blockerFiles: [], source: 'operator' };
+    const reviewed = (verdict: string, ...files: string[]) =>
+        run({ result: { verdict, findings: files.map(file => ({ severity: 'blocker', file })) } });
+
+    it('tells a caught blocker from one named somewhere else, and from a pass', () => {
+        expect(scoreRun(revise, reviewed('revise', 'a.ts'))).toBe('caught');
+        expect(scoreRun(revise, reviewed('revise', 'b.ts'))).toBe('missed');
+        expect(scoreRun(revise, reviewed('pass'))).toBe('missed');
+    });
+
+    it('counts any blocker as caught when none is named', () => {
+        expect(scoreRun({ ...revise, blockerFiles: [] }, reviewed('revise', 'b.ts'))).toBe('caught');
+    });
+
+    it('tells a clean pass from a false alarm', () => {
+        expect(scoreRun(pass, reviewed('pass'))).toBe('clean');
+        expect(scoreRun(pass, reviewed('revise', 'a.ts'))).toBe('falseAlarms');
+    });
+
+    it('scores neither a report the runner threw out nor a run with no conclusion', () => {
+        expect(scoreRun(revise, { ...reviewed('revise', 'a.ts'), unjudged: true })).toBe('unscored');
+        expect(scoreRun(revise, run({}))).toBe('unscored');
+    });
+
+    it('means a review that passes everything cannot score well', () => {
+        const expected = new Map<string, EvalExpected>([
+            ['1', revise],
+            ['2', pass],
+        ]);
+        const runs = [
+            { ...reviewed('pass'), fixtureId: '1' },
+            { ...reviewed('pass'), fixtureId: '2' },
+        ];
+
+        expect(totalRuns(runs, expected)[0]!.score).toMatchObject({ caught: 0, missed: 1, clean: 1 });
+    });
+
+    it('leaves the score out of a fixture that expects nothing, and leaves unfinished runs uncounted', () => {
+        expect(summarizeRuns([run({})])[0]).not.toHaveProperty('score');
+        const [summary] = summarizeRuns([{ ...reviewed('pass'), status: 'interrupted' }], new Map([['7', revise]]));
+        expect(summary!.score).toEqual({ caught: 0, missed: 0, falseAlarms: 0, clean: 0, unscored: 0 });
     });
 });

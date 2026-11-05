@@ -52,6 +52,18 @@ public sealed class EvalsClient(SdkHttp http)
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Set eval fixture expected</summary>
+    /// <exception cref="SdkException">On 400, 404.</exception>
+    public async Task<EvalFixture> SetEvalFixtureExpectedAsync(string id, SetEvalFixtureExpectedRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Put,
+            http.Path("api", "evals", "fixtures", http.Segment(id), "expected"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<EvalFixture>(response);
+    }
+
     /// <summary>
     /// List eval batches
     /// Starting a batch needs `wilson.step.up`, as saving a lane does: it spends tokens and runs a config

@@ -1,4 +1,4 @@
-import type { EvalArmTotal, EvalBatchDetail, EvalSpread, LaneCandidate } from '@wilson/sdk';
+import type { EvalArmTotal, EvalBatchDetail, EvalScore, EvalSpread, LaneCandidate } from '@wilson/sdk';
 
 const spread = (value: EvalSpread | undefined, unit: string): string => (value ? `${value.median}${unit} (${value.min}-${value.max})` : '-');
 
@@ -21,6 +21,9 @@ const armLine = (summary: EvalArmTotal): string => {
     ].join(' ');
 };
 
+const scoreLine = ({ caught, missed, falseAlarms, clean, unscored }: EvalScore): string =>
+    `             review: caught ${caught}, missed ${missed}, false alarms ${falseAlarms}, clean ${clean}${unscored > 0 ? `, ${unscored} unscored` : ''}`;
+
 const describeCandidate = ({ lane, ...changes }: LaneCandidate): string => {
     const names = Object.keys(changes);
     return `candidate: ${lane}, ${names.length > 0 ? `changing ${names.join(', ')}` : 'changing nothing (A/A)'}`;
@@ -39,12 +42,16 @@ export const renderBatch = ({ batch, runs, summary, totals }: EvalBatchDetail): 
         lines.push('', `fixture ${fixtureId}`);
         for (const row of summary.filter(candidate => candidate.fixtureId === fixtureId)) {
             lines.push(armLine(row));
+            if (row.score) lines.push(scoreLine(row.score));
             for (const { reason, count } of row.failures) lines.push(`    ${count}x ${reason}`);
         }
     }
     if (new Set(summary.map(row => row.fixtureId)).size > 1) {
         lines.push('', 'all fixtures');
-        for (const total of totals) lines.push(armLine(total));
+        for (const total of totals) {
+            lines.push(armLine(total));
+            if (total.score) lines.push(scoreLine(total.score));
+        }
     }
     const errors = runs.filter(run => run.error);
     if (errors.length > 0) {

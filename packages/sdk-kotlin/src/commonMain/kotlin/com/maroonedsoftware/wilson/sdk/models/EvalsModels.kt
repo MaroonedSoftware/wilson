@@ -6,18 +6,22 @@ import kotlin.time.Instant
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 
-/** One past attempt, kept to be run again. `warnings` is only ever filled when capturing one. */
+/**
+ * What a review of a fixture should find. `blockerFiles` empty means any blocker counts. `source` says
+ * whether this came from the card's own review or from a person, since only a person's word is more
+ * than the model agreeing with itself.
+ */
 @Serializable
-data class EvalFixture(
-    val id: String,
-    val sourceCardId: String,
-    val title: String,
-    val stage: String,
-    val planVersionId: String,
-    val baseSha: String,
-    val headSha: String,
-    val warnings: List<String>,
-    val createdAt: Instant,
+data class EvalExpected(
+    val verdict: EvalExpectedVerdict,
+    val blockerFiles: List<String>,
+    val source: EvalExpectedSource,
+)
+
+@Serializable
+data class SetEvalFixtureExpectedRequest(
+    val verdict: SetEvalFixtureExpectedRequestVerdict,
+    val blockerFiles: List<String>? = null,
 )
 
 /** `attempt` counts from 1, oldest first, and defaults to the card's latest attempt at that stage. */
@@ -73,6 +77,16 @@ data class EvalSpread(
     val max: Long,
 )
 
+/** How review runs' conclusions compared with what their fixture expected. */
+@Serializable
+data class EvalScore(
+    val caught: Long,
+    val missed: Long,
+    val falseAlarms: Long,
+    val clean: Long,
+    val unscored: Long,
+)
+
 @Serializable
 data class EvalFailureCount(
     val reason: String,
@@ -88,6 +102,21 @@ data class EvalRunPatch(
 @Serializable
 data class ListEvalBatchesQuery(
     val limit: Long? = null,
+)
+
+/** One past attempt, kept to be run again. `warnings` is only ever filled when capturing one. */
+@Serializable
+data class EvalFixture(
+    val id: String,
+    val sourceCardId: String,
+    val title: String,
+    val stage: String,
+    val planVersionId: String,
+    val baseSha: String,
+    val headSha: String,
+    val expected: EvalExpected? = null,
+    val warnings: List<String>,
+    val createdAt: Instant,
 )
 
 /**
@@ -133,6 +162,7 @@ data class EvalArmTotal(
     val pending: Long,
     val outputTokens: EvalSpread? = null,
     val wallClockMs: EvalSpread? = null,
+    val score: EvalScore? = null,
 )
 
 /**
@@ -150,6 +180,7 @@ data class EvalArmSummary(
     val pending: Long,
     val outputTokens: EvalSpread? = null,
     val wallClockMs: EvalSpread? = null,
+    val score: EvalScore? = null,
     val failures: List<EvalFailureCount>,
 )
 
@@ -159,6 +190,66 @@ data class EvalBatchDetail(
     val runs: List<EvalRun>,
     val summary: List<EvalArmSummary>,
     val totals: List<EvalArmTotal>,
+)
+
+@Serializable(with = EvalExpectedVerdictSerializer::class)
+enum class EvalExpectedVerdict {
+    PASS,
+    REVISE,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [EvalExpectedVerdict] by its wire spelling. A spelling it does not know reads as [EvalExpectedVerdict.UNKNOWN]. */
+object EvalExpectedVerdictSerializer : SdkEnumSerializer<EvalExpectedVerdict>(
+    "EvalExpectedVerdict",
+    EvalExpectedVerdict.UNKNOWN,
+    EvalExpectedVerdict.PASS to "pass",
+    EvalExpectedVerdict.REVISE to "revise",
+)
+
+@Serializable(with = EvalExpectedSourceSerializer::class)
+enum class EvalExpectedSource {
+    ATTEMPT,
+    OPERATOR,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [EvalExpectedSource] by its wire spelling. A spelling it does not know reads as [EvalExpectedSource.UNKNOWN]. */
+object EvalExpectedSourceSerializer : SdkEnumSerializer<EvalExpectedSource>(
+    "EvalExpectedSource",
+    EvalExpectedSource.UNKNOWN,
+    EvalExpectedSource.ATTEMPT to "attempt",
+    EvalExpectedSource.OPERATOR to "operator",
+)
+
+@Serializable(with = SetEvalFixtureExpectedRequestVerdictSerializer::class)
+enum class SetEvalFixtureExpectedRequestVerdict {
+    PASS,
+    REVISE,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [SetEvalFixtureExpectedRequestVerdict] by its wire spelling. A spelling it does not know reads as [SetEvalFixtureExpectedRequestVerdict.UNKNOWN]. */
+object SetEvalFixtureExpectedRequestVerdictSerializer : SdkEnumSerializer<SetEvalFixtureExpectedRequestVerdict>(
+    "SetEvalFixtureExpectedRequestVerdict",
+    SetEvalFixtureExpectedRequestVerdict.UNKNOWN,
+    SetEvalFixtureExpectedRequestVerdict.PASS to "pass",
+    SetEvalFixtureExpectedRequestVerdict.REVISE to "revise",
 )
 
 @Serializable(with = EvalBatchStatusSerializer::class)

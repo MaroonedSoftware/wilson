@@ -108,6 +108,34 @@ describe('EvalFixturesService', () => {
         expect(fixture.warnings.join()).toContain('split from 0030');
     });
 
+    it('reads what a review should find from the card’s own review, and lets a person replace it', async () => {
+        await board.create(card('0009'), 'initial');
+        await logAttempt('0009');
+        const findings = [{ severity: 'blocker', file: 'x.ts', problem: 'p' }];
+        await events.append({ project, cardId: '0009', stage: 'review', type: 'stage.passed', payload: { result: { verdict: 'revise', findings } } });
+
+        const fixture = await service.capture({ cardId: '0009', stage: 'review' });
+        expect(fixture.expected).toEqual({ verdict: 'revise', blockerFiles: ['x.ts'], source: 'attempt' });
+
+        const labelled = await service.setExpected(fixture.id, { verdict: 'pass' });
+        expect(labelled.expected).toEqual({ verdict: 'pass', blockerFiles: [], source: 'operator' });
+        expect((await service.list()).find(f => f.id === fixture.id)?.expected?.source).toBe('operator');
+    });
+
+    it('refuses to label anything but a review, a pass naming blockers, or a missing fixture', async () => {
+        await board.create(card('0010'), 'initial');
+        await logAttempt('0010');
+        const implementing = await service.capture({ cardId: '0010', stage: 'implementing' });
+        await board.create(card('0011'), 'initial');
+        await logAttempt('0011');
+        const review = await service.capture({ cardId: '0011', stage: 'review' });
+
+        expect(implementing.expected).toBeUndefined();
+        await expect(service.setExpected(implementing.id, { verdict: 'pass' })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(service.setExpected(review.id, { verdict: 'pass', blockerFiles: ['a.ts'] })).rejects.toMatchObject({ statusCode: 400 });
+        await expect(service.setExpected('999999', { verdict: 'pass' })).rejects.toMatchObject({ statusCode: 404 });
+    });
+
     it('refuses a stage an eval cannot replay', async () => {
         await expect(service.capture({ cardId: '0001', stage: 'challenge' })).rejects.toMatchObject({ statusCode: 400 });
     });

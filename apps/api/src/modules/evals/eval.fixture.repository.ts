@@ -4,7 +4,7 @@ import type { DateTime } from 'luxon';
 import { BoardConfig } from '#modules/board/board.config.js';
 import type { Card } from '#modules/board/card.js';
 import type { DB, Json, WilsonEvalFixtures } from '#modules/data/db.js';
-import type { AttemptEvent } from './eval.attempt.js';
+import type { AttemptEvent, EvalExpected } from './eval.attempt.js';
 
 /** The events an attempt can be found from. A stage writes tool events by the hundred; these it does not. */
 const ATTEMPT_EVENT_TYPES = ['stage.dispatched', 'stage.passed', 'stage.failed', 'worktree.created', 'work.committed'];
@@ -19,6 +19,7 @@ export interface EvalFixtureRow {
     plan: Card;
     baseSha: string;
     headSha: string;
+    expected?: EvalExpected;
     createdAt: DateTime;
 }
 
@@ -33,6 +34,7 @@ const toRow = (row: Selectable<WilsonEvalFixtures>): EvalFixtureRow => ({
     plan: row.plan as unknown as Card,
     baseSha: row.baseSha,
     headSha: row.headSha,
+    ...(row.expected ? { expected: row.expected as unknown as EvalExpected } : {}),
     createdAt: row.createdAt,
 });
 
@@ -96,6 +98,7 @@ export class EvalFixtureRepository {
                 plan: JSON.stringify(fixture.plan) as unknown as Json,
                 baseSha: fixture.baseSha,
                 headSha: fixture.headSha,
+                expected: fixture.expected ? (JSON.stringify(fixture.expected) as unknown as Json) : null,
             })
             .onConflict(conflict => conflict.columns(['project', 'sourceEventId']).doNothing())
             .returningAll()
@@ -116,6 +119,15 @@ export class EvalFixtureRepository {
             .where('id', '=', BigInt(id))
             .executeTakeFirst();
         return row ? toRow(row) : undefined;
+    }
+
+    async setExpected(id: string, expected: EvalExpected): Promise<void> {
+        await this.db
+            .updateTable('wilson.evalFixtures')
+            .set({ expected: JSON.stringify(expected) as unknown as Json })
+            .where('project', '=', this.config.project)
+            .where('id', '=', BigInt(id))
+            .execute();
     }
 
     async remove(id: string): Promise<void> {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveAttempt, type AttemptEvent } from '#modules/evals/eval.attempt.js';
+import { expectedFromAttempt, resolveAttempt, type AttemptEvent } from '#modules/evals/eval.attempt.js';
 
 let nextId = 0;
 const event = (type: string, stage: string, payload: Record<string, unknown> = {}): AttemptEvent => ({ id: String(++nextId), stage, type, payload });
@@ -78,5 +78,54 @@ describe('resolveAttempt', () => {
     it('answers nothing for a stage never attempted, or one with no fork point on record', () => {
         expect(resolveAttempt([event('worktree.created', 'review', { baseSha: 'base1' })], 'testing')).toBeUndefined();
         expect(resolveAttempt([event('stage.dispatched', 'review')], 'review')).toBeUndefined();
+    });
+});
+
+describe('expectedFromAttempt', () => {
+    const blocker = (file: string) => ({ severity: 'blocker', file });
+
+    it('reads a pass off the attempt’s own result', () => {
+        const dispatched = event('stage.dispatched', 'review');
+        const log = [dispatched, event('stage.passed', 'review', { result: { verdict: 'pass', findings: [{ severity: 'concern', file: 'a.ts' }] } })];
+
+        expect(expectedFromAttempt(log, dispatched.id)).toEqual({ verdict: 'pass', blockerFiles: [], source: 'attempt' });
+    });
+
+    it('names each blocker’s file once, leaving concerns out', () => {
+        const dispatched = event('stage.dispatched', 'review');
+        const findings = [blocker('a.ts'), blocker('a.ts'), blocker('b.ts'), { severity: 'concern', file: 'c.ts' }];
+        const log = [dispatched, event('stage.passed', 'review', { result: { verdict: 'revise', findings } })];
+
+        expect(expectedFromAttempt(log, dispatched.id)).toEqual({ verdict: 'revise', blockerFiles: ['a.ts', 'b.ts'], source: 'attempt' });
+    });
+
+    it('lets a challenge straight after have the last word', () => {
+        const dispatched = event('stage.dispatched', 'review');
+        const log = [
+            dispatched,
+            event('stage.passed', 'review', { result: { verdict: 'revise', findings: [blocker('a.ts')] } }),
+            event('stage.dispatched', 'review'),
+            event('stage.passed', 'review', { step: 'challenge', result: { verdict: 'pass', findings: [] } }),
+        ];
+
+        expect(expectedFromAttempt(log, dispatched.id)).toMatchObject({ verdict: 'pass', blockerFiles: [] });
+    });
+
+    it('does not read a later attempt’s result as this one’s', () => {
+        const dispatched = event('stage.dispatched', 'review');
+        const log = [
+            dispatched,
+            event('stage.passed', 'review', { result: { verdict: 'revise', findings: [blocker('a.ts')] } }),
+            event('stage.passed', 'review', { result: { verdict: 'pass', findings: [] } }),
+        ];
+
+        expect(expectedFromAttempt(log, dispatched.id)).toMatchObject({ verdict: 'revise' });
+    });
+
+    it('answers nothing for an attempt with no coherent verdict, or no ending', () => {
+        const dispatched = event('stage.dispatched', 'review');
+
+        expect(expectedFromAttempt([dispatched, event('stage.failed', 'review', { result: null })], dispatched.id)).toBeUndefined();
+        expect(expectedFromAttempt([dispatched], dispatched.id)).toBeUndefined();
     });
 });

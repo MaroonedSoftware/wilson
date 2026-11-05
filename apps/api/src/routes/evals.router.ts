@@ -10,6 +10,7 @@ import {
     EvalFixture,
     EvalRunPatch,
     ListEvalBatchesQuery,
+    SetEvalFixtureExpectedRequest,
 } from '../generated/evals.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
 
@@ -59,6 +60,27 @@ EvalsRouter.delete('/api/evals/fixtures/:id', requirePolicy({ policy: 'wilson.ma
     await service.remove(id);
 
     ctx.status = 204;
+});
+
+/**
+ * from [evals.ck](../../data/contracts/evals.ck) `PUT /api/evals/fixtures/{id}/expected`
+ */
+EvalsRouter.put('/api/evals/fixtures/:id/expected', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, SetEvalFixtureExpectedRequest);
+
+    const service = ctx.container.get(EvalFixturesService);
+    const result: EvalFixture = await service.setExpected(id, body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
 });
 
 /**

@@ -60,3 +60,31 @@ export const resolveAttempt = (events: readonly AttemptEvent[], stage: string, a
         headSha: lastCommit ? (lastCommit.payload.sha as string) : baseSha,
     };
 };
+
+/** What a review of a fixture should find. See `wilson.eval_fixtures.expected`. */
+export interface EvalExpected {
+    verdict: 'pass' | 'revise';
+    /** The files a blocker should name. Empty means any blocker counts. */
+    blockerFiles: string[];
+    source: 'attempt' | 'operator';
+}
+
+const expectedFromResult = (result: unknown): EvalExpected | undefined => {
+    const { verdict, findings } = (result ?? {}) as { verdict?: unknown; findings?: unknown };
+    if (verdict !== 'pass' && verdict !== 'revise') return undefined;
+    const list = Array.isArray(findings) ? (findings as { severity?: unknown; file?: unknown }[]) : [];
+    const files = list.filter(finding => finding.severity === 'blocker' && typeof finding.file === 'string').map(finding => finding.file as string);
+    return { verdict, blockerFiles: [...new Set(files)], source: 'attempt' };
+};
+
+/**
+ * What the card's own review of this attempt concluded. A `challenge` step straight after has the
+ * last word, since that is what the card acted on: a blocker it refuted was not one after all.
+ * Answers `undefined` for an attempt that reached no coherent verdict.
+ */
+export const expectedFromAttempt = (events: readonly AttemptEvent[], eventId: string): EvalExpected | undefined => {
+    const after = events.slice(events.findIndex(event => event.id === eventId) + 1).filter(event => ENDINGS.has(event.type));
+    const [ending, next] = after;
+    if (!ending) return undefined;
+    return expectedFromResult(next?.payload.step === 'challenge' ? next.payload.result : ending.payload.result);
+};

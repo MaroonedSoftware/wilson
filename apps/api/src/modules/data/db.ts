@@ -314,6 +314,7 @@ export interface WilsonEvalBatches {
 export interface WilsonEvalFixtures {
   baseSha: string;
   createdAt: Generated<DateTime>;
+  expected: Json | null;
   headSha: string;
   id: Generated<bigint>;
   plan: Json;

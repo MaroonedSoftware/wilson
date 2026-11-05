@@ -1090,6 +1090,14 @@ The report gives counts, medians and ranges and names no winner, because a few r
 one. A candidate that changes nothing makes an A/A batch, which measures how far runs differ by chance;
 run one first, since a real difference has to clear that noise.
 
+**A review needs more than a verifier.** `ReviewVerifier` checks that a report is coherent, not that it
+is right, so a review that passes everything looks flawless to it. A `review` fixture therefore carries
+what the review should find, read at capture from what the card's own review concluded, with a
+`challenge` step's result taking precedence. A batch reports caught, missed, false alarms and clean. That
+default is the model agreeing with itself, so `wilson eval fixture label <id> --verdict revise --blockers
+<files>` replaces it with a person's word, and `wilson eval fixture list` shows which each one has. An
+eval's review runs no `challenge` step, so its false alarms include blockers a challenge might refute.
+
 **Nothing here reaches the board.** A run's id is `eval-<row id>`, which no card can have. It writes
 no `stage.passed` or `stage.failed` and commits nothing, so a card's budget, the daily ceiling, the
 poller and the scope check never see it. Its tool events do land in `wilson.card_events`, which has no

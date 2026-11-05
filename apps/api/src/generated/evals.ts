@@ -11,21 +11,26 @@ const _ZodJson: z.ZodType<_JsonValue> = z.lazy(() =>
 );
 
 /**
- * One past attempt, kept to be run again. `warnings` is only ever filled when capturing one.
- * generated from [EvalFixture](../../data/contracts/evals.ck)
+ * What a review of a fixture should find. `blockerFiles` empty means any blocker counts. `source` says
+ * whether this came from the card's own review or from a person, since only a person's word is more
+ * than the model agreeing with itself.
+ * generated from [EvalExpected](../../data/contracts/evals.ck)
  */
-export const EvalFixture = z.strictObject({
-    id: z.string(),
-    sourceCardId: z.string(),
-    title: z.string(),
-    stage: z.string(),
-    planVersionId: z.string(),
-    baseSha: z.string(),
-    headSha: z.string(),
-    warnings: z.array(z.string()),
-    createdAt: _ZodDatetime,
+export const EvalExpected = z.strictObject({
+    verdict: z.enum(['pass', 'revise']),
+    blockerFiles: z.array(z.string()),
+    source: z.enum(['attempt', 'operator']),
 });
-export type EvalFixture = z.infer<typeof EvalFixture>;
+export type EvalExpected = z.infer<typeof EvalExpected>;
+
+/**
+ * generated from [SetEvalFixtureExpectedRequest](../../data/contracts/evals.ck)
+ */
+export const SetEvalFixtureExpectedRequest = z.strictObject({
+    verdict: z.enum(['pass', 'revise']),
+    blockerFiles: z.array(z.string()).optional(),
+});
+export type SetEvalFixtureExpectedRequest = z.infer<typeof SetEvalFixtureExpectedRequest>;
 
 /**
  * `attempt` counts from 1, oldest first, and defaults to the card's latest attempt at that stage.
@@ -89,6 +94,19 @@ export const EvalSpread = z.strictObject({
 export type EvalSpread = z.infer<typeof EvalSpread>;
 
 /**
+ * How review runs' conclusions compared with what their fixture expected.
+ * generated from [EvalScore](../../data/contracts/evals.ck)
+ */
+export const EvalScore = z.strictObject({
+    caught: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    missed: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    falseAlarms: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    clean: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    unscored: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type EvalScore = z.infer<typeof EvalScore>;
+
+/**
  * generated from [EvalFailureCount](../../data/contracts/evals.ck)
  */
 export const EvalFailureCount = z.strictObject({
@@ -113,6 +131,24 @@ export const ListEvalBatchesQuery = z.strictObject({
     limit: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()).optional(),
 });
 export type ListEvalBatchesQuery = z.infer<typeof ListEvalBatchesQuery>;
+
+/**
+ * One past attempt, kept to be run again. `warnings` is only ever filled when capturing one.
+ * generated from [EvalFixture](../../data/contracts/evals.ck)
+ */
+export const EvalFixture = z.strictObject({
+    id: z.string(),
+    sourceCardId: z.string(),
+    title: z.string(),
+    stage: z.string(),
+    planVersionId: z.string(),
+    baseSha: z.string(),
+    headSha: z.string(),
+    expected: EvalExpected.optional(),
+    warnings: z.array(z.string()),
+    createdAt: _ZodDatetime,
+});
+export type EvalFixture = z.infer<typeof EvalFixture>;
 
 /**
  * One batch: fixtures run again on one host, up to a limit on what it spends. `waitingReason` says why
@@ -161,6 +197,7 @@ export const EvalArmTotal = z.strictObject({
     pending: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
     outputTokens: EvalSpread.optional(),
     wallClockMs: EvalSpread.optional(),
+    score: EvalScore.optional(),
 });
 export type EvalArmTotal = z.infer<typeof EvalArmTotal>;
 
@@ -179,6 +216,7 @@ export const EvalArmSummary = z.strictObject({
     pending: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
     outputTokens: EvalSpread.optional(),
     wallClockMs: EvalSpread.optional(),
+    score: EvalScore.optional(),
     failures: z.array(EvalFailureCount),
 });
 export type EvalArmSummary = z.infer<typeof EvalArmSummary>;

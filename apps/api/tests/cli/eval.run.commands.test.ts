@@ -127,6 +127,14 @@ describe('renderBatch', () => {
         expect(text.toLowerCase()).not.toMatch(/winner|better|worse|significant/);
     });
 
+    it('prints a review score under its arm', () => {
+        const base = detail();
+        const score = { caught: 2, missed: 1, falseAlarms: 0, clean: 3, unscored: 1 };
+        const text = renderBatch({ ...base, summary: [{ ...base.summary[0]!, score }] });
+
+        expect(text).toContain('review: caught 2, missed 1, false alarms 0, clean 3, 1 unscored');
+    });
+
     it('calls a candidate that changes nothing an A/A batch', () => {
         const base = detail();
         const text = renderBatch({ ...base, batch: { ...base.batch, candidate: { lane: 'review' } } } as unknown as EvalBatchDetail);

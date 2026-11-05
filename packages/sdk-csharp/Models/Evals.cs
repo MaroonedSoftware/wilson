@@ -11,35 +11,31 @@ using MaroonedSoftware.Wilson.Sdk.Runtime;
 
 namespace MaroonedSoftware.Wilson.Sdk.Models;
 
-/// <summary>One past attempt, kept to be run again. `warnings` is only ever filled when capturing one.</summary>
-public sealed record EvalFixture
+/// <summary>
+/// What a review of a fixture should find. `blockerFiles` empty means any blocker counts. `source` says
+/// whether this came from the card's own review or from a person, since only a person's word is more
+/// than the model agreeing with itself.
+/// </summary>
+public sealed record EvalExpected
 {
-    [JsonPropertyName("id")]
-    public required string Id { get; init; }
+    [JsonPropertyName("verdict")]
+    public required EvalExpectedVerdict Verdict { get; init; }
 
-    [JsonPropertyName("sourceCardId")]
-    public required string SourceCardId { get; init; }
+    [JsonPropertyName("blockerFiles")]
+    public required List<string> BlockerFiles { get; init; }
 
-    [JsonPropertyName("title")]
-    public required string Title { get; init; }
+    [JsonPropertyName("source")]
+    public required EvalExpectedSource Source { get; init; }
+}
 
-    [JsonPropertyName("stage")]
-    public required string Stage { get; init; }
+public sealed record SetEvalFixtureExpectedRequest
+{
+    [JsonPropertyName("verdict")]
+    public required SetEvalFixtureExpectedRequestVerdict Verdict { get; init; }
 
-    [JsonPropertyName("planVersionId")]
-    public required string PlanVersionId { get; init; }
-
-    [JsonPropertyName("baseSha")]
-    public required string BaseSha { get; init; }
-
-    [JsonPropertyName("headSha")]
-    public required string HeadSha { get; init; }
-
-    [JsonPropertyName("warnings")]
-    public required List<string> Warnings { get; init; }
-
-    [JsonPropertyName("createdAt")]
-    public required DateTimeOffset CreatedAt { get; init; }
+    [JsonPropertyName("blockerFiles")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? BlockerFiles { get; init; }
 }
 
 /// <summary>`attempt` counts from 1, oldest first, and defaults to the card's latest attempt at that stage.</summary>
@@ -160,6 +156,25 @@ public sealed record EvalSpread
     public required long Max { get; init; }
 }
 
+/// <summary>How review runs' conclusions compared with what their fixture expected.</summary>
+public sealed record EvalScore
+{
+    [JsonPropertyName("caught")]
+    public required long Caught { get; init; }
+
+    [JsonPropertyName("missed")]
+    public required long Missed { get; init; }
+
+    [JsonPropertyName("falseAlarms")]
+    public required long FalseAlarms { get; init; }
+
+    [JsonPropertyName("clean")]
+    public required long Clean { get; init; }
+
+    [JsonPropertyName("unscored")]
+    public required long Unscored { get; init; }
+}
+
 public sealed record EvalFailureCount
 {
     [JsonPropertyName("reason")]
@@ -183,6 +198,41 @@ public sealed record ListEvalBatchesQuery
     [JsonPropertyName("limit")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? Limit { get; init; }
+}
+
+/// <summary>One past attempt, kept to be run again. `warnings` is only ever filled when capturing one.</summary>
+public sealed record EvalFixture
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("sourceCardId")]
+    public required string SourceCardId { get; init; }
+
+    [JsonPropertyName("title")]
+    public required string Title { get; init; }
+
+    [JsonPropertyName("stage")]
+    public required string Stage { get; init; }
+
+    [JsonPropertyName("planVersionId")]
+    public required string PlanVersionId { get; init; }
+
+    [JsonPropertyName("baseSha")]
+    public required string BaseSha { get; init; }
+
+    [JsonPropertyName("headSha")]
+    public required string HeadSha { get; init; }
+
+    [JsonPropertyName("expected")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EvalExpected? Expected { get; init; }
+
+    [JsonPropertyName("warnings")]
+    public required List<string> Warnings { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; init; }
 }
 
 /// <summary>
@@ -282,6 +332,10 @@ public sealed record EvalArmTotal
     [JsonPropertyName("wallClockMs")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public EvalSpread? WallClockMs { get; init; }
+
+    [JsonPropertyName("score")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EvalScore? Score { get; init; }
 }
 
 /// <summary>
@@ -319,6 +373,10 @@ public sealed record EvalArmSummary
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public EvalSpread? WallClockMs { get; init; }
 
+    [JsonPropertyName("score")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EvalScore? Score { get; init; }
+
     [JsonPropertyName("failures")]
     public required List<EvalFailureCount> Failures { get; init; }
 }
@@ -336,6 +394,174 @@ public sealed record EvalBatchDetail
 
     [JsonPropertyName("totals")]
     public required List<EvalArmTotal> Totals { get; init; }
+}
+
+[JsonConverter(typeof(EvalExpectedVerdictConverter))]
+public enum EvalExpectedVerdict
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("pass")]
+    Pass,
+
+    [JsonStringEnumMemberName("revise")]
+    Revise,
+}
+
+/// <summary>
+/// Reads and writes <see cref="EvalExpectedVerdict"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="EvalExpectedVerdict.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class EvalExpectedVerdictConverter : JsonConverter<EvalExpectedVerdict>
+{
+    public override EvalExpectedVerdict Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for EvalExpectedVerdict, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, EvalExpectedVerdict value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override EvalExpectedVerdict ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, EvalExpectedVerdict value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static EvalExpectedVerdict FromWire(string? text) => text switch
+    {
+        "pass" => EvalExpectedVerdict.Pass,
+        "revise" => EvalExpectedVerdict.Revise,
+        _ => EvalExpectedVerdict.Unknown,
+    };
+
+    private static string ToWire(EvalExpectedVerdict value) => value switch
+    {
+        EvalExpectedVerdict.Pass => "pass",
+        EvalExpectedVerdict.Revise => "revise",
+        _ => throw new JsonException($"EvalExpectedVerdict.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(EvalExpectedSourceConverter))]
+public enum EvalExpectedSource
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("attempt")]
+    Attempt,
+
+    [JsonStringEnumMemberName("operator")]
+    Operator,
+}
+
+/// <summary>
+/// Reads and writes <see cref="EvalExpectedSource"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="EvalExpectedSource.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class EvalExpectedSourceConverter : JsonConverter<EvalExpectedSource>
+{
+    public override EvalExpectedSource Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for EvalExpectedSource, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, EvalExpectedSource value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override EvalExpectedSource ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, EvalExpectedSource value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static EvalExpectedSource FromWire(string? text) => text switch
+    {
+        "attempt" => EvalExpectedSource.Attempt,
+        "operator" => EvalExpectedSource.Operator,
+        _ => EvalExpectedSource.Unknown,
+    };
+
+    private static string ToWire(EvalExpectedSource value) => value switch
+    {
+        EvalExpectedSource.Attempt => "attempt",
+        EvalExpectedSource.Operator => "operator",
+        _ => throw new JsonException($"EvalExpectedSource.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(SetEvalFixtureExpectedRequestVerdictConverter))]
+public enum SetEvalFixtureExpectedRequestVerdict
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("pass")]
+    Pass,
+
+    [JsonStringEnumMemberName("revise")]
+    Revise,
+}
+
+/// <summary>
+/// Reads and writes <see cref="SetEvalFixtureExpectedRequestVerdict"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="SetEvalFixtureExpectedRequestVerdict.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class SetEvalFixtureExpectedRequestVerdictConverter : JsonConverter<SetEvalFixtureExpectedRequestVerdict>
+{
+    public override SetEvalFixtureExpectedRequestVerdict Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for SetEvalFixtureExpectedRequestVerdict, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, SetEvalFixtureExpectedRequestVerdict value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override SetEvalFixtureExpectedRequestVerdict ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, SetEvalFixtureExpectedRequestVerdict value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static SetEvalFixtureExpectedRequestVerdict FromWire(string? text) => text switch
+    {
+        "pass" => SetEvalFixtureExpectedRequestVerdict.Pass,
+        "revise" => SetEvalFixtureExpectedRequestVerdict.Revise,
+        _ => SetEvalFixtureExpectedRequestVerdict.Unknown,
+    };
+
+    private static string ToWire(SetEvalFixtureExpectedRequestVerdict value) => value switch
+    {
+        SetEvalFixtureExpectedRequestVerdict.Pass => "pass",
+        SetEvalFixtureExpectedRequestVerdict.Revise => "revise",
+        _ => throw new JsonException($"SetEvalFixtureExpectedRequestVerdict.{value} has no wire spelling, so it cannot be sent."),
+    };
 }
 
 [JsonConverter(typeof(EvalBatchStatusConverter))]

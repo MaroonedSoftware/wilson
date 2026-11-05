@@ -64,6 +64,7 @@ import evalRunCommand from './commands/eval/run.command.js';
 import evalShowCommand from './commands/eval/show.command.js';
 import evalStopCommand from './commands/eval/stop.command.js';
 import evalFixtureAddCommand from './commands/eval/fixture-add.command.js';
+import evalFixtureLabelCommand from './commands/eval/fixture-label.command.js';
 import evalFixtureListCommand from './commands/eval/fixture-list.command.js';
 import evalFixtureRemoveCommand from './commands/eval/fixture-remove.command.js';
 import learningsShowCommand from './commands/learnings/show.command.js';
@@ -148,6 +149,7 @@ const app = await createCliApp({
         reg(['eval', 'stop'], evalStopCommand),
         reg(['eval', 'patch'], evalPatchCommand),
         reg(['eval', 'fixture', 'add'], evalFixtureAddCommand),
+        reg(['eval', 'fixture', 'label'], evalFixtureLabelCommand),
         reg(['eval', 'fixture', 'list'], evalFixtureListCommand),
         reg(['eval', 'fixture', 'rm'], evalFixtureRemoveCommand),
         reg(['learnings', 'show'], learningsShowCommand),

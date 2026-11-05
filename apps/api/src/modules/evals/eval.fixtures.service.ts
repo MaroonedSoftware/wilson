@@ -3,8 +3,8 @@ import { httpError } from '@maroonedsoftware/errors';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
 import { git } from '#modules/board/git.js';
-import type { CaptureEvalFixtureRequest, EvalFixture } from '../../generated/evals.js';
-import { resolveAttempt } from './eval.attempt.js';
+import type { CaptureEvalFixtureRequest, EvalFixture, SetEvalFixtureExpectedRequest } from '../../generated/evals.js';
+import { expectedFromAttempt, resolveAttempt } from './eval.attempt.js';
 import { EvalFixtureRepository, type EvalFixtureRow } from './eval.fixture.repository.js';
 
 /**
@@ -25,6 +25,7 @@ const toContract = (fixture: EvalFixtureRow, warnings: string[] = []): EvalFixtu
     planVersionId: fixture.planVersionId,
     baseSha: fixture.baseSha,
     headSha: fixture.headSha,
+    ...(fixture.expected && { expected: fixture.expected }),
     warnings,
     createdAt: fixture.createdAt,
 });
@@ -59,6 +60,7 @@ export class EvalFixturesService {
 
         await this.assertUsable(resolved.baseSha, resolved.headSha);
 
+        const expected = stage === 'review' ? expectedFromAttempt(events, resolved.eventId) : undefined;
         const fixture = await this.fixtures.insert({
             sourceCardId: cardId,
             stage,
@@ -67,6 +69,7 @@ export class EvalFixturesService {
             plan,
             baseSha: resolved.baseSha,
             headSha: resolved.headSha,
+            ...(expected && { expected }),
         });
         if (!fixture) {
             throw httpError(409).withDetails({ reason: `that attempt of card ${cardId} at ${stage} is already a fixture` });
@@ -89,6 +92,21 @@ export class EvalFixturesService {
 
     async list(): Promise<EvalFixture[]> {
         return (await this.fixtures.list()).map(fixture => toContract(fixture));
+    }
+
+    /** A person's word on what a review of this fixture should find, replacing what the card's review said. */
+    async setExpected(id: string, { verdict, blockerFiles }: SetEvalFixtureExpectedRequest): Promise<EvalFixture> {
+        const fixture = IS_ID.test(id) ? await this.fixtures.find(id) : undefined;
+        if (!fixture) throw httpError(404).withDetails({ reason: `no fixture ${id}` });
+        if (fixture.stage !== 'review') {
+            throw httpError(400).withDetails({ reason: `fixture ${id} is an attempt at ${fixture.stage}; only a review has an expected verdict` });
+        }
+        if (verdict === 'pass' && blockerFiles && blockerFiles.length > 0) {
+            throw httpError(400).withDetails({ reason: 'an expected pass has no blockers to name' });
+        }
+        const expected = { verdict, blockerFiles: blockerFiles ?? [], source: 'operator' as const };
+        await this.fixtures.setExpected(id, expected);
+        return toContract({ ...fixture, expected });
     }
 
     async remove(id: string): Promise<void> {

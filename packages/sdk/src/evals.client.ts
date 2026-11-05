@@ -6,6 +6,7 @@ import type {
     EvalFixture,
     EvalRunPatch,
     ListEvalBatchesQuery,
+    SetEvalFixtureExpectedRequest,
 } from './types/evals.js';
 import { reviveEvalBatch, reviveEvalBatchDetail, reviveEvalFixture } from './types/evals.js';
 import type { SdkFetch } from './sdk-options.js';
@@ -36,6 +37,16 @@ export class EvalsClient {
     /** @name Remove eval fixture */
     async removeEvalFixture(id: string): Promise<void> {
         await this.fetch(`/api/evals/fixtures/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    }
+
+    /** @name Set eval fixture expected */
+    async setEvalFixtureExpected(id: string, body: SetEvalFixtureExpectedRequest): Promise<EvalFixture> {
+        const result = await this.fetch(`/api/evals/fixtures/${encodeURIComponent(id)}/expected`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return reviveEvalFixture(await parseJson<EvalFixture>(result));
     }
 
     /**

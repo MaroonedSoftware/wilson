@@ -15,6 +15,20 @@ options {
 # Gated (PROJECT.md decision 10): the file's floor is `wilson.manage`, and every `get` lowers it to
 # `wilson.view`.
 
+# What a review of a fixture should find. `blockerFiles` empty means any blocker counts. `source` says
+# whether this came from the card's own review or from a person, since only a person's word is more
+# than the model agreeing with itself.
+contract EvalExpected: {
+    verdict: enum(pass, revise)
+    blockerFiles: array(string)
+    source: enum(attempt, operator)
+}
+
+contract SetEvalFixtureExpectedRequest: {
+    verdict: enum(pass, revise)
+    blockerFiles?: array(string)
+}
+
 # One past attempt, kept to be run again. `warnings` is only ever filled when capturing one.
 contract EvalFixture: {
     id: string
@@ -24,6 +38,7 @@ contract EvalFixture: {
     planVersionId: string
     baseSha: string
     headSha: string
+    expected?: EvalExpected
     warnings: array(string)
     createdAt: datetime
 }
@@ -93,6 +108,27 @@ contract LaneCandidate: {
     model?: string
 }
 
+operation /api/evals/fixtures/{id}/expected: {
+    params: {
+        id: string
+    }
+    put: {
+        name: Set eval fixture expected
+        mcp: exclude
+        service: EvalFixturesService.setExpected
+        request: {
+            application/json: SetEvalFixtureExpectedRequest
+        }
+        response: {
+            200: {
+                application/json: EvalFixture
+            }
+            400:
+            404:
+        }
+    }
+}
+
 # One batch: fixtures run again on one host, up to a limit on what it spends. `waitingReason` says why
 # nothing is running right now, such as a host with no slot free.
 contract EvalBatch: {
@@ -136,6 +172,15 @@ contract EvalSpread: {
     max: int
 }
 
+# How review runs' conclusions compared with what their fixture expected.
+contract EvalScore: {
+    caught: int
+    missed: int
+    falseAlarms: int
+    clean: int
+    unscored: int
+}
+
 contract EvalFailureCount: {
     reason: string
     count: int
@@ -153,6 +198,7 @@ contract EvalArmSummary: {
     pending: int
     outputTokens?: EvalSpread
     wallClockMs?: EvalSpread
+    score?: EvalScore
     failures: array(EvalFailureCount)
 }
 
@@ -166,6 +212,7 @@ contract EvalArmTotal: {
     pending: int
     outputTokens?: EvalSpread
     wallClockMs?: EvalSpread
+    score?: EvalScore
 }
 
 contract EvalBatchDetail: {

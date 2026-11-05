@@ -8,6 +8,7 @@ import com.maroonedsoftware.wilson.sdk.models.EvalBatchDetail
 import com.maroonedsoftware.wilson.sdk.models.EvalFixture
 import com.maroonedsoftware.wilson.sdk.models.EvalRunPatch
 import com.maroonedsoftware.wilson.sdk.models.ListEvalBatchesQuery
+import com.maroonedsoftware.wilson.sdk.models.SetEvalFixtureExpectedRequest
 import com.maroonedsoftware.wilson.sdk.runtime.SdkHttp
 import io.ktor.http.HttpMethod
 
@@ -41,6 +42,18 @@ class EvalsClient(private val http: SdkHttp) {
         http.execute(HttpMethod.Delete) {
             path("api", "evals", "fixtures", segment(id))
         }
+    }
+
+    /**
+     * Set eval fixture expected
+     * @throws SdkError on 400, 404
+     */
+    suspend fun setEvalFixtureExpected(id: String, body: SetEvalFixtureExpectedRequest): EvalFixture {
+        val response = http.execute(HttpMethod.Put) {
+            path("api", "evals", "fixtures", segment(id), "expected")
+            jsonBody(body, "application/json")
+        }
+        return http.decodeJson(response)
     }
 
     /**
