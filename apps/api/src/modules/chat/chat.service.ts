@@ -287,7 +287,13 @@ export class ChatService {
      * operation in the turn runs as that session. Rejects when the turn fails, which the turn has also
      * published as `failed`. Resolves with `undefined` for a thread that does not exist.
      */
-    async runNote(threadId: string, note: string, session: AuthenticationSession, project?: string): Promise<NoteOutcome | undefined> {
+    async runNote(
+        threadId: string,
+        note: string,
+        session: AuthenticationSession,
+        project?: string,
+        { maxSteps }: { maxSteps?: number } = {},
+    ): Promise<NoteOutcome | undefined> {
         return threadLock(threadId).run(
             `note to chat thread ${threadId}`,
             message => this.logger.info(message),
@@ -295,7 +301,7 @@ export class ChatService {
                 const thread = await this.threads.get(threadId);
                 if (!thread) return undefined;
                 const history = await this.messages.since(thread.id);
-                return this.answer(thread, history, note, session, project, { followUp: true });
+                return this.answer(thread, history, note, session, project, { followUp: true, maxSteps });
             },
         );
     }
@@ -349,7 +355,7 @@ export class ChatService {
         text: string,
         session: AuthenticationSession,
         project?: string,
-        { followUp = false, images }: { followUp?: boolean; images?: ChatImage[] } = {},
+        { followUp = false, images, maxSteps }: { followUp?: boolean; images?: ChatImage[]; maxSteps?: number } = {},
     ): Promise<NoteOutcome> {
         const fail = (reason: string): never => {
             publishChat(thread.id, { event: 'failed', data: { reason } });
@@ -387,6 +393,7 @@ export class ChatService {
                 // What keeps a turn from changing anything is that it holds only `chatTools`, so a turn
                 // whose engine offers or attempts anything else fails rather than carrying on.
                 onlyOwnTools: true,
+                maxSteps,
                 onText: delta => publishChat(thread.id, { event: 'delta', data: delta }),
             });
         } catch (err) {

@@ -285,12 +285,14 @@ export interface WilsonGoalCards {
 export interface WilsonGoals {
   createdAt: Generated<DateTime>;
   id: Generated<bigint>;
+  lastEventId: Generated<bigint>;
   outcome: string;
   project: string;
   status: Generated<"active" | "paused" | "done" | "abandoned">;
   threadId: bigint;
   title: string;
   updatedAt: Generated<DateTime>;
+  wakeHeldUntil: DateTime | null;
 }
 
 export interface WilsonHostProjects {

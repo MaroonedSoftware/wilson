@@ -1,8 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Kysely } from 'kysely';
+import { DateTime } from 'luxon';
 import { ChatThreadRepository } from '#modules/chat/chat.thread.repository.js';
+import { ChatUsageRepository } from '#modules/chat/chat.usage.repository.js';
 import type { DB } from '#modules/data/db.js';
+import type { CardEventType } from '#modules/events/card.event.js';
+import { EventLog } from '#modules/events/event.log.js';
 import { GoalRepository } from '#modules/goal/goal.repository.js';
 import { testDb } from '#tests/support/test.db.js';
 
@@ -72,6 +76,77 @@ describe('GoalRepository', () => {
 
         expect(await goals().update(goal.id, { status: 'done' })).toMatchObject({ status: 'done', title: 'Add SSO' });
         expect(await goals().update(goal.id, {})).toMatchObject({ status: 'done', title: 'Add SSO' });
+    });
+
+    describe('wake-ups', () => {
+        const eventOn = (project: string, cardId: string, type: CardEventType = 'stage.blocked') =>
+            new EventLog(db, console as never).append({ project, cardId, stage: 'testing', type, payload: {} });
+        const TYPES: CardEventType[] = ['stage.blocked'];
+
+        it('starts its cursor at the newest event, so it hears nothing from before it existed', async () => {
+            const project = await newProject();
+            await newCard(project, '0001');
+            await eventOn(project, '0001');
+            const goal = await newGoal(project);
+            await goals().linkCard(goal, '0001');
+
+            expect(await goals().eventsAfter(goal, TYPES, 10)).toEqual([]);
+        });
+
+        it("reads only its own cards' events of the given types past its cursor, oldest first, up to a limit", async () => {
+            const project = await newProject();
+            await newCard(project, '0001');
+            await newCard(project, '0002');
+            const goal = await newGoal(project);
+            await goals().linkCard(goal, '0001');
+            await eventOn(project, '0001');
+            await eventOn(project, '0002');
+            await eventOn(project, '0001', 'stage.failed');
+            await eventOn(project, '0001');
+
+            const events = await goals().eventsAfter(goal, TYPES, 10);
+            expect(events.map(event => [event.cardId, event.type, event.stage])).toEqual([
+                ['0001', 'stage.blocked', 'testing'],
+                ['0001', 'stage.blocked', 'testing'],
+            ]);
+            expect(BigInt(events[0]!.id)).toBeLessThan(BigInt(events[1]!.id));
+            expect(await goals().eventsAfter(goal, TYPES, 1)).toHaveLength(1);
+
+            await goals().advanceCursor(goal.id, events[0]!.id);
+            expect((await goals().eventsAfter((await goals().get(goal.id))!, TYPES, 10)).map(event => event.id)).toEqual([events[1]!.id]);
+        });
+
+        it('offers only active goals on open threads that nothing holds back, and advancing lifts a hold', async () => {
+            const project = await newProject();
+            const held = await newGoal(project);
+            await goals().holdWake(held.id, DateTime.now().plus({ minutes: 5 }));
+            const lapsed = await newGoal(project);
+            await goals().holdWake(lapsed.id, DateTime.now().minus({ minutes: 5 }));
+            const paused = await newGoal(project);
+            await goals().update(paused.id, { status: 'paused' });
+            const archived = await newGoal(project);
+            await new ChatThreadRepository(db).archive(archived.threadId);
+            const open = await newGoal(project);
+
+            const offered = (await goals().wakeable()).filter(goal => goal.project === project).map(goal => goal.id);
+            expect(offered.sort()).toEqual([lapsed.id, open.id].sort());
+
+            await goals().advanceCursor(held.id, '0');
+            expect((await goals().get(held.id))?.wakeHeldUntil).toBeUndefined();
+        });
+
+        it("adds up its project's goal threads and no others", async () => {
+            const project = await newProject();
+            const goal = await newGoal(project);
+            const usage = new ChatUsageRepository(db);
+            await usage.record(goal.threadId, { engine: 'api', model: 'm', usage: { outputTokens: 100 } });
+            await usage.record(goal.threadId, { engine: 'api', model: 'm', usage: { outputTokens: 50 } });
+            await usage.record((await newGoal(await newProject())).threadId, { engine: 'api', model: 'm', usage: { outputTokens: 999 } });
+            await usage.record(await newThread(), { engine: 'api', model: 'm', usage: { outputTokens: 999 } });
+
+            expect(await goals().outputTokensSince(project, DateTime.now().minus({ minutes: 1 }))).toBe(150);
+            expect(await goals().outputTokensSince(project, DateTime.now().plus({ minutes: 1 }))).toBe(0);
+        });
     });
 
     describe('cards', () => {

@@ -1,7 +1,8 @@
 import { Injectable } from 'injectkit';
-import { Kysely, type Selectable } from 'kysely';
-import type { DateTime } from 'luxon';
+import { Kysely, sql, type Selectable } from 'kysely';
+import { DateTime } from 'luxon';
 import type { DB, WilsonGoals } from '#modules/data/db.js';
+import type { CardEventType } from '#modules/events/card.event.js';
 
 export type GoalStatus = 'active' | 'paused' | 'done' | 'abandoned';
 
@@ -13,6 +14,10 @@ export interface Goal {
     /** What done looks like, in the person's terms. */
     outcome: string;
     status: GoalStatus;
+    /** The last `wilson.card_events` row its wake-ups have dealt with. Starts at the newest row when the goal is created. */
+    lastEventId: string;
+    /** No wake-up runs before this, after one failed. */
+    wakeHeldUntil?: DateTime;
     createdAt: DateTime;
     updatedAt: DateTime;
 }
@@ -40,6 +45,15 @@ export interface GoalCard {
     needsHuman: boolean;
 }
 
+/** An event on one of a goal's cards, as a wake-up reads it. */
+export interface GoalEvent {
+    id: string;
+    cardId: string;
+    stage?: string;
+    type: CardEventType;
+    payload: unknown;
+}
+
 /** What became of linking a card: `missing` for no such card in the goal's project, `taken` when it is in another goal. */
 export type LinkOutcome = 'linked' | 'missing' | 'taken';
 
@@ -50,6 +64,8 @@ const toGoal = (row: Selectable<WilsonGoals>): Goal => ({
     title: row.title,
     outcome: row.outcome,
     status: row.status as GoalStatus,
+    lastEventId: String(row.lastEventId),
+    wakeHeldUntil: row.wakeHeldUntil ?? undefined,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
 });
@@ -65,7 +81,14 @@ export class GoalRepository {
     async create({ threadId, project, title, outcome }: NewGoal): Promise<Goal> {
         const row = await this.db
             .insertInto('wilson.goals')
-            .values({ threadId: BigInt(threadId), project, title, outcome })
+            .values({
+                threadId: BigInt(threadId),
+                project,
+                title,
+                outcome,
+                // A goal hears what happens from here on, not what its cards did before it existed.
+                lastEventId: sql<bigint>`(select coalesce(max(id), 0) from wilson.card_events)`,
+            })
             .returningAll()
             .executeTakeFirstOrThrow();
         return toGoal(row);
@@ -136,5 +159,65 @@ export class GoalRepository {
             .where('link.goalId', '=', BigInt(goalId))
             .orderBy('card.id')
             .execute();
+    }
+
+    /** The goals a wake-up could run for now: active, on a thread still open, and not held back. */
+    async wakeable(): Promise<Goal[]> {
+        const rows = await this.db
+            .selectFrom('wilson.goals as goal')
+            .innerJoin('wilson.chatThreads as thread', 'thread.id', 'goal.threadId')
+            .selectAll('goal')
+            .where('goal.status', '=', 'active')
+            .where('thread.archivedAt', 'is', null)
+            .where(eb => eb.or([eb('goal.wakeHeldUntil', 'is', null), eb('goal.wakeHeldUntil', '<=', DateTime.now())]))
+            .orderBy('goal.id')
+            .execute();
+        return rows.map(toGoal);
+    }
+
+    /** Events of `types` on the goal's cards past its cursor, oldest first. */
+    async eventsAfter(goal: Pick<Goal, 'id' | 'lastEventId'>, types: CardEventType[], limit: number): Promise<GoalEvent[]> {
+        const rows = await this.db
+            .selectFrom('wilson.cardEvents as event')
+            .innerJoin('wilson.goalCards as link', join => join.onRef('link.project', '=', 'event.project').onRef('link.cardId', '=', 'event.cardId'))
+            .select(['event.id', 'event.cardId', 'event.stage', 'event.type', 'event.payload'])
+            .where('link.goalId', '=', BigInt(goal.id))
+            .where('event.id', '>', BigInt(goal.lastEventId))
+            .where('event.type', 'in', types)
+            .orderBy('event.id')
+            .limit(limit)
+            .execute();
+        return rows.map(row => ({
+            id: String(row.id),
+            cardId: row.cardId,
+            stage: row.stage ?? undefined,
+            type: row.type as CardEventType,
+            payload: row.payload,
+        }));
+    }
+
+    /** Move a goal's cursor forward, which a turn that got this far has earned, and lift any hold. */
+    async advanceCursor(id: string, eventId: string): Promise<void> {
+        await this.db
+            .updateTable('wilson.goals')
+            .set({ lastEventId: BigInt(eventId), wakeHeldUntil: null })
+            .where('id', '=', BigInt(id))
+            .execute();
+    }
+
+    async holdWake(id: string, until: DateTime): Promise<void> {
+        await this.db.updateTable('wilson.goals').set({ wakeHeldUntil: until }).where('id', '=', BigInt(id)).execute();
+    }
+
+    /** What a project's goal threads have spent since `since`, a person's own messages on them included. */
+    async outputTokensSince(project: string, since: DateTime): Promise<number> {
+        const row = await this.db
+            .selectFrom('wilson.chatTurnUsage as usage')
+            .innerJoin('wilson.goals as goal', 'goal.threadId', 'usage.threadId')
+            .where('goal.project', '=', project)
+            .where('usage.createdAt', '>=', since)
+            .select(sql<string>`coalesce(sum(usage.output_tokens), 0)`.as('total'))
+            .executeTakeFirstOrThrow();
+        return Number(row.total);
     }
 }

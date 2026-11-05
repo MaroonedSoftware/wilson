@@ -22,6 +22,7 @@ import { CardStageDeadJob } from './card.stage.dead.job.js';
 import { CardJobs, type ActiveCardStageJob } from './card.jobs.js';
 import { EvalRunJob, EVAL_RUN_POLICY, EVAL_RUN_WORKER } from '#modules/evals/eval.run.job.js';
 import { EvalRunSweep } from '#modules/evals/eval.run.sweep.js';
+import { GoalWakeJob, GOAL_WAKE_POLICY, GOAL_WAKE_WORKER } from './goal.wake.job.js';
 import { PlanDraftJob, PLAN_DRAFT_POLICY, PLAN_DRAFT_WORKER } from './plan.draft.job.js';
 import { RuleProposalJob, RULE_PROPOSAL_POLICY, RULE_PROPOSAL_WORKER } from './rule.proposal.job.js';
 import { PlanSessionSweep } from '#modules/plan/plan.session.sweep.js';
@@ -571,6 +572,7 @@ export const JobsModule: ServerKitModule = {
         registerJobContext(registry);
         registry.register(CardStageDeadJob).useClass(CardStageDeadJob).asTransient();
         registry.register(PlanDraftJob).useClass(PlanDraftJob).asTransient();
+        registry.register(GoalWakeJob).useClass(GoalWakeJob).asTransient();
         registry.register(RuleProposalJob).useClass(RuleProposalJob).asTransient();
         registry.register(PlanSessionSweep).useClass(PlanSessionSweep).asTransient();
         registry.register(EvalRunJob).useClass(EvalRunJob).asTransient();
@@ -580,6 +582,7 @@ export const JobsModule: ServerKitModule = {
         jobRegistry.set('card.stage', { job: CardStageJob, policy: CARD_STAGE_POLICY, worker: CARD_STAGE_WORKER });
         jobRegistry.set('card.stage.dead', { job: CardStageDeadJob, policy: CARD_STAGE_DEAD_POLICY });
         jobRegistry.set('card.plan-draft', { job: PlanDraftJob, policy: PLAN_DRAFT_POLICY, worker: PLAN_DRAFT_WORKER });
+        jobRegistry.set('goal.wake', { job: GoalWakeJob, policy: GOAL_WAKE_POLICY, worker: GOAL_WAKE_WORKER });
         jobRegistry.set('eval.run', { job: EvalRunJob, policy: EVAL_RUN_POLICY, worker: EVAL_RUN_WORKER });
         jobRegistry.set('card.rule-proposal', { job: RuleProposalJob, policy: RULE_PROPOSAL_POLICY, worker: RULE_PROPOSAL_WORKER });
         registry.register(CardJobs).useClass(CardJobs).asTransient();
