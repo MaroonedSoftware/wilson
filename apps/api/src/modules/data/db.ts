@@ -245,6 +245,7 @@ export interface WilsonChatThreads {
 }
 
 export interface WilsonChatTurnUsage {
+  account: string | null;
   cachedInputTokens: number | null;
   createdAt: Generated<DateTime>;
   engine: "api" | "cli";
@@ -445,6 +446,7 @@ export interface WilsonMcpConnectionTools {
 }
 
 export interface WilsonPlanTurns {
+  account: string | null;
   cachedInputTokens: number | null;
   cardId: string;
   content: string;

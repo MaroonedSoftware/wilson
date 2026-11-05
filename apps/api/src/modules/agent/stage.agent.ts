@@ -47,6 +47,12 @@ export interface AgentRunOutput {
      * many of those were writes, absent where the engine reports only reads (`codex`).
      */
     usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; cacheWriteInputTokens?: number };
+    /**
+     * The engine account `usage` was spent on: a saved token's name, `local`, `worker:<host>` or
+     * `codex:<host>`, as `EngineAccountsService` names them. Absent for an adapter that signs in with
+     * no engine account, such as `api`.
+     */
+    account?: string;
     /** True when the loop was cut off rather than ending because the agent finished. */
     truncated: boolean;
     /**

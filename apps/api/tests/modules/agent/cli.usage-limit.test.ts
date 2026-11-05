@@ -197,6 +197,49 @@ describe('CliStageAgent — usage limits', () => {
         });
     });
 
+    describe('naming the account spent', () => {
+        const finished = { type: 'result', subtype: 'success', is_error: false, result: 'done', usage: { input_tokens: 10, output_tokens: 5 } };
+
+        it('names the account chosen for an engine on this machine', async () => {
+            queryMock.mockReturnValue(streamOf([finished]));
+            const service = { local: async () => ({ name: 'pool-a', token: 'a' }), recordLimit: async () => {} };
+
+            const output = await new CliStageAgent(silentLogger as never, undefined, service as never).run(runInput(makeStage()) as never);
+
+            expect(output.account).toBe('pool-a');
+        });
+
+        it("names the host's account for an engine that runs on one", async () => {
+            queryMock.mockReturnValue(streamOf([finished]));
+            const input = runInput(makeStage());
+            const engineAccount = vi.fn(async () => ({ name: 'worker:my-mac' }));
+            const context = { ...input.context, host: Object.assign(new MemoryHost(), { spawnClaude: vi.fn(), engineAccount }) };
+
+            const output = await new CliStageAgent(silentLogger as never, undefined, { recordLimit: async () => {} } as never).run({
+                ...input,
+                context,
+            } as never);
+
+            expect(output.account).toBe('worker:my-mac');
+        });
+
+        it("names this machine's own sign-in with no accounts to choose from", async () => {
+            queryMock.mockReturnValue(streamOf([finished]));
+
+            const output = await new CliStageAgent(silentLogger as never).run(runInput(makeStage()) as never);
+
+            expect(output.account).toBe('local');
+        });
+
+        it('names the account on a run refused before it starts', async () => {
+            const service = { local: async () => ({ name: 'pool-a', limit: { ...limit, account: 'pool-a' } }), recordLimit: async () => {} };
+
+            const output = await new CliStageAgent(silentLogger as never, undefined, service as never).run(runInput(makeStage()) as never);
+
+            expect(output).toMatchObject({ account: 'pool-a', usageLimit: { account: 'pool-a' } });
+        });
+    });
+
     it('says nothing of a limit on an ordinary run', async () => {
         queryMock.mockReturnValue(streamOf([{ type: 'result', subtype: 'success', usage: { input_tokens: 10, output_tokens: 5 } }]));
         const service = accounts();

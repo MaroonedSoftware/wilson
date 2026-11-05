@@ -8,6 +8,8 @@ export interface NewChatTurnUsage {
     engine: ChatEngineName;
     model: string;
     usage: NonNullable<ChatTurnOutput['usage']>;
+    /** The engine account it was spent on, absent for an engine that signs in with none. */
+    account?: string;
 }
 
 /** `wilson.chat_turn_usage`: what each chat turn cost, silent turns included, since those store no message. */
@@ -16,7 +18,7 @@ export class ChatUsageRepository {
     constructor(private readonly db: Kysely<DB>) {}
 
     /** Record one turn's cost against its thread. */
-    async record(threadId: string, { engine, model, usage }: NewChatTurnUsage): Promise<void> {
+    async record(threadId: string, { engine, model, usage, account }: NewChatTurnUsage): Promise<void> {
         await this.db
             .insertInto('wilson.chatTurnUsage')
             .values({
@@ -26,6 +28,7 @@ export class ChatUsageRepository {
                 inputTokens: usage.inputTokens ?? null,
                 cachedInputTokens: usage.cachedInputTokens ?? null,
                 outputTokens: usage.outputTokens,
+                account: account ?? null,
             })
             .execute();
     }

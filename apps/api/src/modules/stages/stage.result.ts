@@ -291,6 +291,8 @@ export interface StageOutcome {
     verifiedTree?: TreeSnapshot;
     result?: unknown;
     usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; cacheWriteInputTokens?: number };
+    /** The engine account `usage` was spent on, as `AgentRunOutput.account` names it. */
+    account?: string;
     /**
      * `VerificationOutcome.supportedRefusal`, carried only when the run itself added no failure of
      * its own: a truncated or budget-cut run's report is not one to act on, whatever it said.

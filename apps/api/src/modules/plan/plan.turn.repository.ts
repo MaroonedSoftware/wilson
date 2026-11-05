@@ -50,6 +50,8 @@ export class PlanTurnRepository {
         engineSessionId?: string,
         contextSeenId?: string,
         usage?: TurnUsage,
+        /** The engine account `usage` was spent on. */
+        account?: string,
     ): Promise<PlanTurn> {
         return this.db.transaction().execute(async trx => {
             await sql`select pg_advisory_xact_lock(hashtext(${this.config.project}), hashtext(${cardId}))`.execute(trx);
@@ -77,6 +79,7 @@ export class PlanTurnRepository {
                     inputTokens: usage?.inputTokens,
                     cachedInputTokens: usage?.cachedInputTokens,
                     outputTokens: usage?.outputTokens,
+                    account: account ?? null,
                 })
                 .returning('createdAt')
                 .executeTakeFirstOrThrow();

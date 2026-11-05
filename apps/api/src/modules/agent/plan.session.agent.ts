@@ -111,11 +111,15 @@ export class PlanSessionAgent {
      * loop only, so a subagent's spend is not in it, the same as what a stage records. */
     lastTurnUsage: TurnUsage | undefined;
 
+    /** The account this session signed in as when it started, which every one of its turns spends. */
+    readonly account: string;
+
     private readonly usageWatch: UsageLimitWatch;
     private readonly onUsageLimit: PlanSessionOptions['onUsageLimit'];
 
     constructor(options: PlanSessionOptions) {
-        this.usageWatch = new UsageLimitWatch(options.account ?? LOCAL_ACCOUNT);
+        this.account = options.account ?? LOCAL_ACCOUNT;
+        this.usageWatch = new UsageLimitWatch(this.account);
         this.onUsageLimit = options.onUsageLimit;
         this.stream = query({
             prompt: this.inbox,
