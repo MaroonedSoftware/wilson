@@ -232,6 +232,17 @@ export interface WilsonChatThreads {
   updatedAt: Generated<DateTime>;
 }
 
+export interface WilsonChatTurnUsage {
+  cachedInputTokens: number | null;
+  createdAt: Generated<DateTime>;
+  engine: "api" | "cli";
+  id: Generated<bigint>;
+  inputTokens: number | null;
+  model: string;
+  outputTokens: number;
+  threadId: bigint;
+}
+
 export interface WilsonCodeReads {
   commitSha: string | null;
   createdAt: Generated<DateTime>;
@@ -536,6 +547,7 @@ export interface DB {
   "wilson.chatPendingActions": WilsonChatPendingActions;
   "wilson.chatQuestions": WilsonChatQuestions;
   "wilson.chatThreads": WilsonChatThreads;
+  "wilson.chatTurnUsage": WilsonChatTurnUsage;
   "wilson.codeReads": WilsonCodeReads;
   "wilson.engineLimits": WilsonEngineLimits;
   "wilson.engineTokens": WilsonEngineTokens;

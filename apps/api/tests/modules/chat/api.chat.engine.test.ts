@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { ApiChatEngine } from '#modules/chat/api.chat.engine.js';
 import type { ChatTurnInput } from '#modules/chat/chat.engine.js';
-import { says, scriptedModel } from './chat.model.fake.js';
+import { calls, says, scriptedModel } from './chat.model.fake.js';
 
 const image = { contentType: 'image/png' as const, bytes: Buffer.from([1, 2, 3]) };
 
@@ -60,5 +61,23 @@ describe('ApiChatEngine images', () => {
             { type: 'text', text: 'an old one' },
         ]);
         expect(recent!.content.map(part => part.type)).toEqual(['file', 'text']);
+    });
+});
+
+describe('ApiChatEngine usage', () => {
+    it("reports the turn's whole cost across its steps", async () => {
+        const model = scriptedModel([calls('ping', {}), says('An answer.')]);
+
+        const { usage } = await new ApiChatEngine(model.registry).turn({
+            thread: { id: '7' },
+            history: [],
+            text: 'what is this?',
+            system: 'the system prompt',
+            tools: [{ name: 'ping', description: 'Answers pong.', input: z.object({}), execute: async () => 'pong' }],
+            provider: 'anthropic',
+            model: 'claude-sonnet-5-5',
+        });
+
+        expect(usage).toEqual({ inputTokens: 20, cachedInputTokens: 0, outputTokens: 10 });
     });
 });

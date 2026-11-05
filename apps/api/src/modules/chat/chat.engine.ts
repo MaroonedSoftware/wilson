@@ -51,7 +51,7 @@ export interface ChatTurnOutput {
     engineMessages?: unknown;
     /** The session to resume next turn ('cli'). */
     engineSessionId?: string;
-    /** What the turn cost, when the engine reports it ('cli'). */
+    /** What the turn cost, when the engine reports it. */
     usage?: { inputTokens?: number; cachedInputTokens?: number; outputTokens: number };
 }
 

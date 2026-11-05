@@ -14,6 +14,7 @@ import { ChatEngineSettingService } from './chat.engine.setting.service.js';
 import { ChatMessageRepository } from './chat.message.repository.js';
 import { ChatPendingActionRepository } from './chat.pending.action.repository.js';
 import { ChatQuestionRepository } from './chat.question.repository.js';
+import { ChatUsageRepository } from './chat.usage.repository.js';
 import { ChatService } from './chat.service.js';
 import { ChatThreadRepository } from './chat.thread.repository.js';
 import { CliChatEngine } from './cli.chat.engine.js';
@@ -43,6 +44,7 @@ export const ChatModule: ServerKitModule = {
         registry.register(ChatAttachmentService).useClass(ChatAttachmentService).asTransient();
         registry.register(ChatPendingActionRepository).useClass(ChatPendingActionRepository).asTransient();
         registry.register(ChatQuestionRepository).useClass(ChatQuestionRepository).asTransient();
+        registry.register(ChatUsageRepository).useClass(ChatUsageRepository).asTransient();
         registry.register(ChatCatalog).useClass(ChatCatalog).asSingleton();
         registry.register(ApiChatEngine).useClass(ApiChatEngine).asTransient();
         registry.register(CliChatEngine).useClass(CliChatEngine).asTransient();
@@ -68,6 +70,7 @@ export const ChatModule: ServerKitModule = {
                     container.get(ChatAttachmentRepository),
                     container.get(ChatPendingActionRepository),
                     container.get(ChatQuestionRepository),
+                    container.get(ChatUsageRepository),
                     container.get(ChatCatalog),
                     container.get(ProjectRepository),
                     { api: container.get(ApiChatEngine), cli: container.get(CliChatEngine) },

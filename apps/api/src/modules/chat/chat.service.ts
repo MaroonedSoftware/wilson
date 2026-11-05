@@ -29,6 +29,7 @@ import { ChatPendingActionRepository, type PendingAction } from './chat.pending.
 import { chatSystemPrompt } from './chat.prompt.js';
 import { ChatThreadRepository, type ChatEngineName, type ChatThread } from './chat.thread.repository.js';
 import { chatTools, type ChatTurnContext } from './chat.tools.js';
+import { ChatUsageRepository } from './chat.usage.repository.js';
 import { toWireAction, toWireMessage, toWireQuestion, toWireThread } from './chat.wire.js';
 
 /** A thread's title until its first message names it. */
@@ -130,6 +131,7 @@ export class ChatService {
         private readonly attachments: ChatAttachmentRepository,
         private readonly actions: ChatPendingActionRepository,
         private readonly questions: ChatQuestionRepository,
+        private readonly usage: ChatUsageRepository,
         private readonly catalog: ChatCatalog,
         private readonly projects: ProjectRepository,
         private readonly engines: Record<ChatEngineName, ChatEngine | undefined>,
@@ -376,6 +378,13 @@ export class ChatService {
             return fail(`the chat could not answer: ${explainError(err)}`);
         }
 
+        if (output.usage) {
+            // Recorded before anything below can stop the turn, because a silent turn stores no message.
+            // The answer is already paid for, so failing to count it must not lose it.
+            await this.usage
+                .record(thread.id, { engine: thread.engine, model, usage: output.usage })
+                .catch(err => this.logger.warn(`chat thread ${thread.id}: could not record the turn's usage: ${explainError(err)}`));
+        }
         if (output.engineSessionId) await this.threads.setEngineSessionId(thread.id, output.engineSessionId);
         const { text: written, suggestions } = splitSuggestions(output.text.trim());
         if (followUp && written === NOTHING_MORE && context.proposed.length === 0) {

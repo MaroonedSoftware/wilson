@@ -1,5 +1,6 @@
 import { Injectable } from 'injectkit';
 import { stepCountIs, streamText, tool, type ModelMessage, type ToolSet } from 'ai';
+import { stageUsageOf } from '#modules/agent/budget.js';
 import { ModelRegistry } from '#modules/agent/model.registry.js';
 import { ChatEngine, type ChatImage, type ChatTurnInput, type ChatTurnOutput } from './chat.engine.js';
 
@@ -82,6 +83,14 @@ export class ApiChatEngine extends ChatEngine {
             }
         }
 
-        return { text: answer, engineMessages: await result.responseMessages };
+        const total = stageUsageOf(await result.totalUsage);
+        return {
+            text: answer,
+            engineMessages: await result.responseMessages,
+            usage:
+                total.outputTokens === undefined
+                    ? undefined
+                    : { inputTokens: total.inputTokens, cachedInputTokens: total.cachedInputTokens, outputTokens: total.outputTokens },
+        };
     }
 }

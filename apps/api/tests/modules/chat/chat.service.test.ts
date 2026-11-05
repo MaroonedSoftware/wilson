@@ -20,6 +20,7 @@ import {
     titleFrom,
 } from '#modules/chat/chat.service.js';
 import { ChatThreadRepository } from '#modules/chat/chat.thread.repository.js';
+import { ChatUsageRepository } from '#modules/chat/chat.usage.repository.js';
 import type { DB } from '#modules/data/db.js';
 import { testDb } from '#tests/support/test.db.js';
 import { fakeCatalog, fakeContainer, fakeHandler, fakeSession, refusal, type FakeCall } from './chat.fakes.js';
@@ -62,6 +63,7 @@ describe('ChatService', () => {
             new ChatAttachmentRepository(db),
             actions,
             questions,
+            new ChatUsageRepository(db),
             catalog,
             container.get(ProjectRepository),
             { api: new ApiChatEngine(model.registry), cli: undefined },
@@ -226,6 +228,49 @@ describe('ChatService', () => {
         stop();
 
         expect(heard).toEqual([{ event: 'failed', data: { reason: expect.stringContaining('the chat could not answer') } }]);
+    });
+
+    describe('usage', () => {
+        const usageOf = (threadId: string) =>
+            db
+                .selectFrom('wilson.chatTurnUsage')
+                .select(['engine', 'model', 'inputTokens', 'cachedInputTokens', 'outputTokens'])
+                .where('threadId', '=', BigInt(threadId))
+                .orderBy('id')
+                .execute();
+        const oneTurn = { engine: 'api', model: 'claude-sonnet-5-5', inputTokens: 10, cachedInputTokens: 0, outputTokens: 5 };
+
+        it('records what a turn cost', async () => {
+            const { service } = setup([says('Two cards.')]);
+            const thread = await service.startThread();
+
+            await service.sendMessage(thread.id, { text: 'What is in review?' });
+
+            expect(await usageOf(thread.id)).toEqual([oneTurn]);
+        });
+
+        it(`records a silent follow-up too, which stores no message (${NOTHING_MORE})`, async () => {
+            const { service } = setup([proposeMove, says('Proposed.'), says(NOTHING_MORE)]);
+            const thread = await service.startThread();
+            const { proposed } = await service.sendMessage(thread.id, { text: 'Move 0007' });
+
+            await service.decide(proposed[0]!.id, { decision: 'confirm' });
+            await service.whenIdle();
+
+            expect((await service.getThread(thread.id)).messages).toHaveLength(2);
+            expect(await usageOf(thread.id)).toEqual([{ ...oneTurn, inputTokens: 20, outputTokens: 10 }, oneTurn]);
+        });
+
+        it('keeps the answer when its usage cannot be recorded', async () => {
+            const record = vi.spyOn(ChatUsageRepository.prototype, 'record').mockRejectedValueOnce(new Error('the disk is full'));
+            const { service } = setup([says('Two cards.')]);
+            const thread = await service.startThread();
+
+            const { reply } = await service.sendMessage(thread.id, { text: 'What is in review?' });
+
+            expect(reply.content).toBe('Two cards.');
+            record.mockRestore();
+        });
     });
 
     it('holds every turn to its own tools, so an engine that reaches for another fails it', async () => {
