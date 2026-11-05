@@ -366,6 +366,9 @@ export class ChatService {
                 tools: chatTools(this.catalog, context),
                 provider,
                 model,
+                // What keeps a turn from changing anything is that it holds only `chatTools`, so a turn
+                // whose engine offers or attempts anything else fails rather than carrying on.
+                onlyOwnTools: true,
                 onText: delta => publishChat(thread.id, { event: 'delta', data: delta }),
             });
         } catch (err) {

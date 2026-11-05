@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Kysely } from 'kysely';
 import { Duration } from 'luxon';
 import { ConsoleLogger } from '@maroonedsoftware/logger';
@@ -226,6 +226,17 @@ describe('ChatService', () => {
         stop();
 
         expect(heard).toEqual([{ event: 'failed', data: { reason: expect.stringContaining('the chat could not answer') } }]);
+    });
+
+    it('holds every turn to its own tools, so an engine that reaches for another fails it', async () => {
+        const turn = vi.spyOn(ApiChatEngine.prototype, 'turn');
+        const { service } = setup([says('Two cards.')]);
+        const thread = await service.startThread();
+
+        await service.sendMessage(thread.id, { text: 'What is in review?' });
+
+        expect(turn.mock.calls.map(([input]) => input.onlyOwnTools)).toEqual([true]);
+        turn.mockRestore();
     });
 
     it('tells the model which project the person is looking at', async () => {
