@@ -4,12 +4,13 @@
 # Signs with Apple's `codesign` where there is one and `rcodesign` (apple-codesign) elsewhere, so a
 # release can be built on Linux. `SIGNER=rcodesign` picks it on a Mac too, to try that path here.
 #
-# A single file (`PublishSingleFile` in the app's project), so that Contents/MacOS holds only Mach-O. `codesign` signs any other file there by
+# A single file, so that Contents/MacOS holds only Mach-O. `codesign` signs any other file there by
 # writing extended attributes, which only `ditto` carries through a zip, and `rcodesign` cannot sign
 # one at all. Native libraries stay beside it: `IncludeNativeLibrariesForSelfExtract` fails at run
 # time on macOS. Not `PublishTrimmed`: the generated SDK reads JSON by reflection, which the trimmer
-# cannot see. Deadair's script explains each signing step in full, and any change here should be read
-# against it.
+# cannot see. No single-file analyzer, which would add an ILLink package to the restore whose version
+# follows the SDK's patch, so the lock files would disagree between machines. Deadair's script
+# explains each signing step in full, and any change here should be read against it.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,6 +37,8 @@ dotnet publish "$root/src/MaroonedSoftware.Wilson.Desktop" \
     --runtime osx-arm64 \
     --self-contained true \
     -p:PublishTrimmed=false \
+    -p:PublishSingleFile=true \
+    -p:EnableSingleFileAnalyzer=false \
     -p:DebugType=embedded \
     -p:Version="$version" \
     --output "$out/publish"
