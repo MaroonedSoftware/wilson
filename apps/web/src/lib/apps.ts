@@ -1,4 +1,5 @@
 import type { AppGrant } from '@wilson/sdk';
+import { APP_METHOD_NAMES } from './app.broker.js';
 
 /** The API's limit on an app's HTML (`apps.service.ts`), here so a large file is refused before it is sent. */
 export const MAX_APP_HTML_BYTES = 512 * 1024;
@@ -56,10 +57,61 @@ export const APP_CONTENT_SECURITY_POLICY = [
 /** The iframe's `sandbox` value. Scripts only: no same-origin, popups, forms or top navigation. */
 export const APP_SANDBOX = 'allow-scripts';
 
+/** What the host says to an app's frame when it hands over the app's port. */
+export const APP_CONNECT_MESSAGE = 'wilson.connect';
+
+/** What an app is told about where it is running. */
+export interface AppContext {
+    project: string;
+    grants: readonly AppGrant[];
+}
+
+/** JSON that is safe inside a script element: no `<`, so nothing in it can end the element. */
+const scriptJson = (value: unknown): string => JSON.stringify(value).replaceAll('<', '\\u003c');
+
 /**
- * The document an app runs as: the policy, then the app's HTML exactly as installed. The policy comes
- * first so it is in force before the app's first byte is parsed. Anything the app writes can add to
- * it but never loosen it, and its own `<!doctype>`, `<html>` and `<head>` tags merge into this one.
+ * `window.wilson` as an app sees it: a promise-returning function per method, plus the project and
+ * grants. Calls made before the host connects wait for it. This is a convenience for the app and
+ * enforces nothing, since the app's own code can replace it, and the host checks every request.
  */
-export const appDocument = (html: string): string =>
-    `<!doctype html><meta http-equiv="Content-Security-Policy" content="${APP_CONTENT_SECURITY_POLICY}">${html}`;
+const appClient = ({ project, grants }: AppContext): string =>
+    `(() => {
+const names = ${scriptJson(APP_METHOD_NAMES)};
+const waiting = new Map();
+const early = [];
+let port;
+let next = 0;
+addEventListener('message', event => {
+    if (port || event.source !== parent || event.data !== ${scriptJson(APP_CONNECT_MESSAGE)} || !event.ports[0]) return;
+    port = event.ports[0];
+    port.onmessage = ({ data }) => {
+        const call = waiting.get(data.id);
+        if (!call) return;
+        waiting.delete(data.id);
+        if (data.ok) call.resolve(data.result);
+        else call.reject(new Error(data.error));
+    };
+    for (const request of early.splice(0)) port.postMessage(request);
+});
+const method = name => (...args) =>
+    new Promise((resolve, reject) => {
+        const id = ++next;
+        waiting.set(id, { resolve, reject });
+        if (port) port.postMessage({ id, method: name, args });
+        else early.push({ id, method: name, args });
+    });
+window.wilson = Object.freeze({
+    project: ${scriptJson(project)},
+    grants: Object.freeze(${scriptJson(grants)}),
+    ...Object.fromEntries(names.map(name => [name, method(name)])),
+});
+})();`;
+
+/**
+ * The document an app runs as: the policy, the client, then the app's HTML exactly as installed. The
+ * policy comes first so it is in force before the app's first byte is parsed. Anything the app writes
+ * can add to it but never loosen it, and its own `<!doctype>`, `<html>` and `<head>` tags merge into
+ * this one.
+ */
+export const appDocument = (html: string, context: AppContext): string =>
+    `<!doctype html><meta http-equiv="Content-Security-Policy" content="${APP_CONTENT_SECURITY_POLICY}"><script>${appClient(context)}</script>${html}`;
