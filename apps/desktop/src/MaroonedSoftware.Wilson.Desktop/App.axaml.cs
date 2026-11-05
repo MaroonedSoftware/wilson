@@ -42,7 +42,7 @@ public partial class App : Application
                     MacDockIcon.Hide();
                 }
             };
-            ShowInMenuBar(window, desktop);
+            var statusItem = ShowInMenuBar(shell, window, desktop);
             if (TryGetFeature(typeof(IActivatableLifetime)) is IActivatableLifetime activatable)
             {
                 // Opening the app again from Finder or Spotlight, or a click on the Dock icon while it is
@@ -58,6 +58,7 @@ public partial class App : Application
 
             desktop.Exit += (_, _) =>
             {
+                statusItem.Dispose();
                 shell.Dispose();
                 updateHttp.Dispose();
             };
@@ -81,22 +82,27 @@ public partial class App : Application
         _ = _updates?.CheckNowAsync();
     }
 
-    private void ShowInMenuBar(Window window, IClassicDesktopStyleApplicationLifetime desktop)
+    private static MacStatusItem ShowInMenuBar(ShellViewModel shell, Window window, IClassicDesktopStyleApplicationLifetime desktop)
     {
-        var open = new NativeMenuItem("Open Wilson");
-        open.Click += (_, _) => Reveal(window);
-        var quit = new NativeMenuItem("Quit Wilson");
-        quit.Click += (_, _) => desktop.Shutdown();
+        MenuBarWindow? panel = null;
 
         using var image = AssetLoader.Open(new Uri("avares://wilson/Assets/tray.png"));
-        var tray = new TrayIcon
-        {
-            Icon = new WindowIcon(image),
-            ToolTipText = "Wilson",
-            Menu = new NativeMenu { open, new NativeMenuItemSeparator(), quit },
-        };
-        MacOSProperties.SetIsTemplateIcon(tray, true);
-        TrayIcon.SetIcons(this, [tray]);
+        using var png = new MemoryStream();
+        image.CopyTo(png);
+        var item = new MacStatusItem(png.ToArray(), "Wilson", () => panel?.Toggle());
+
+        panel = new MenuBarWindow(item, new MenuBarViewModel(
+            shell,
+            () =>
+            {
+                panel?.Dismiss();
+                Reveal(window);
+            },
+            () => desktop.Shutdown()));
+
+        // A panel macOS refused focus has none to lose when this window is pressed.
+        window.Activated += (_, _) => panel.Dismiss();
+        return item;
     }
 
     private static void Reveal(Window window)

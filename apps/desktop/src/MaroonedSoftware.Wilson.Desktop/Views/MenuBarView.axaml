@@ -1,0 +1,117 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.MenuBarView"
+    x:DataType="vm:MenuBarViewModel"
+    Width="300">
+    <UserControl.Styles>
+        <Style Selector="TextBlock.heading">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="Medium" />
+            <Setter Property="Foreground" Value="{DynamicResource Quiet}" />
+            <Setter Property="Margin" Value="0,12,0,4" />
+        </Style>
+        <Style Selector="TextBlock.warns"><Setter Property="Foreground" Value="{DynamicResource Flag}" /></Style>
+        <Style Selector="Button.row">
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="4,2" />
+            <Setter Property="Margin" Value="-4,0" />
+        </Style>
+        <Style Selector="Button.row /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="BorderThickness" Value="0" /></Style>
+        <Style Selector="Border.bar"><Setter Property="Background" Value="{DynamicResource Quiet}" /></Style>
+        <Style Selector="Border.bar.today"><Setter Property="Background" Value="{DynamicResource Ink}" /></Style>
+    </UserControl.Styles>
+    <UserControl.DataTemplates>
+        <DataTemplate DataType="vm:MenuBarRow">
+            <DockPanel Margin="0,1">
+                <TextBlock DockPanel.Dock="Right" FontWeight="Medium" Classes.warns="{Binding Warns}" Text="{Binding Value}" Margin="12,0,0,0" />
+                <TextBlock Classes="quiet" Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+            </DockPanel>
+        </DataTemplate>
+        <DataTemplate DataType="vm:MenuBarRing">
+            <StackPanel Spacing="4" ToolTip.Tip="{Binding Detail}">
+                <Panel Width="{Binding $parent[ContentControl].Tag}" Height="{Binding $parent[ContentControl].Tag}" HorizontalAlignment="Center">
+                    <Ellipse Stroke="{DynamicResource Line}" StrokeThickness="6" />
+                    <Arc Stroke="{DynamicResource Ink}" StrokeThickness="6" StartAngle="-90" SweepAngle="{Binding Sweep}" />
+                    <TextBlock FontWeight="Medium" Text="{Binding Value}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Panel>
+                <TextBlock Classes="quiet" FontSize="11" Text="{Binding Label}" HorizontalAlignment="Center" />
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.DataTemplates>
+
+    <Border Background="{DynamicResource Panel}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="10">
+        <DockPanel Margin="14,12">
+            <DockPanel DockPanel.Dock="Top">
+                <Border DockPanel.Dock="Right" Background="{DynamicResource Flag}" CornerRadius="4" Padding="6,1" VerticalAlignment="Center" IsVisible="{Binding Draining}">
+                    <TextBlock FontSize="11" Foreground="{DynamicResource Panel}" Text="Draining" />
+                </Border>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock FontWeight="SemiBold" FontSize="14" Text="Wilson" VerticalAlignment="Center" />
+                    <TextBlock Classes="quiet" FontSize="11" Text="{Binding Server}" TextTrimming="CharacterEllipsis" MaxWidth="170" VerticalAlignment="Center" />
+                </StackPanel>
+            </DockPanel>
+
+            <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0" Spacing="2">
+                <Separator Margin="0,0,0,4" />
+                <Button Classes="ghost row" Content="Open Wilson" Command="{Binding OpenWilsonCommand}" />
+                <Button Classes="ghost row" Content="Quit Wilson" Command="{Binding QuitCommand}" />
+            </StackPanel>
+
+            <TextBlock DockPanel.Dock="Top" Classes="error" FontSize="12" TextWrapping="Wrap" Text="{Binding Error}" Margin="0,8,0,0" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <TextBlock DockPanel.Dock="Top" Classes="quiet" Text="Sign in to see stats." Margin="0,12,0,0" IsVisible="{Binding SignedOut}" />
+
+            <ScrollViewer MaxHeight="560" IsVisible="{Binding HasFigures}">
+                <StackPanel>
+                    <Grid ColumnDefinitions="*,*,*" Margin="0,12,0,0">
+                        <ContentControl Grid.Column="0" Tag="58" Content="{Binding Passed}" VerticalAlignment="Center" />
+                        <ContentControl Grid.Column="1" Tag="78" Content="{Binding Slots}" />
+                        <ContentControl Grid.Column="2" Tag="58" Content="{Binding Cached}" VerticalAlignment="Center" />
+                    </Grid>
+
+                    <TextBlock Classes="heading" Text="Usage history" />
+                    <ItemsControl ItemsSource="{Binding Bars}" Height="44">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:MenuBarBar">
+                                <Panel Background="Transparent" ToolTip.Tip="{Binding Tip}">
+                                    <Border Classes="bar" Classes.today="{Binding Today}" Height="{Binding Height}" VerticalAlignment="Bottom" CornerRadius="2,2,0,0" Margin="1,0" />
+                                </Panel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Classes="quiet" FontSize="11" Text="{Binding HistoryLine}" Margin="0,4,0,0" />
+
+                    <TextBlock Classes="heading" Text="Details" />
+                    <ItemsControl ItemsSource="{Binding Today}" />
+
+                    <TextBlock Classes="heading" Text="Projects" />
+                    <ItemsControl ItemsSource="{Binding Projects}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:MenuBarProjectRow">
+                                <Button Classes="ghost row" Command="{Binding Panel.OpenProjectCommand}" CommandParameter="{Binding Name}">
+                                    <DockPanel>
+                                        <TextBlock DockPanel.Dock="Right" Classes="quiet" Classes.warns="{Binding Flagged}" Text="{Binding Detail}" Margin="12,0,0,0" />
+                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                    </DockPanel>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBlock Classes="heading" Text="Hosts" IsVisible="{Binding HasHosts}" />
+                    <ItemsControl ItemsSource="{Binding Hosts}" IsVisible="{Binding HasHosts}" />
+
+                    <TextBlock Classes="heading" Text="Account limits" IsVisible="{Binding HasLimits}" />
+                    <ItemsControl ItemsSource="{Binding Limits}" IsVisible="{Binding HasLimits}" />
+                </StackPanel>
+            </ScrollViewer>
+        </DockPanel>
+    </Border>
+</UserControl>
