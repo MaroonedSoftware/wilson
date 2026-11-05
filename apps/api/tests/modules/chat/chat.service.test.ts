@@ -277,6 +277,18 @@ describe('ChatService', () => {
         });
     });
 
+    it('does not propose the same change twice while the first still waits', async () => {
+        const { service } = setup([proposeMove, says('Proposed.'), proposeMove, says('Already proposed.')]);
+        const thread = await service.startThread();
+
+        const first = await service.sendMessage(thread.id, { text: 'Move 0007' });
+        const second = await service.sendMessage(thread.id, { text: 'Move 0007 please' });
+
+        expect(first.proposed).toHaveLength(1);
+        expect(second.proposed).toEqual([]);
+        expect((await service.getThread(thread.id)).actions).toHaveLength(1);
+    });
+
     describe('runNote', () => {
         const noRequest = () => {
             throw new Error('there is no request in progress');
