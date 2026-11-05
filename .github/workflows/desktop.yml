@@ -41,6 +41,35 @@ jobs:
             - run: dotnet build Wilson.Desktop.slnx -warnaserror --no-restore
             - run: dotnet test --solution Wilson.Desktop.slnx --no-build
 
+    # The bundle a release would ship, built and signed on Linux as the release builds it, and kept for a
+    # week so it can be checked on a Mac: `codesign --verify --strict` after `ditto -x -k`, as the
+    # app's own installer does. Not signed for updating, which needs the release's secret.
+    bundle:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        defaults:
+            run:
+                working-directory: apps/desktop
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+            - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+              with:
+                  global-json-file: apps/desktop/global.json
+            - run: tools/macos/install-rcodesign.sh "$RUNNER_TEMP/rcodesign"
+            - run: dotnet restore Wilson.Desktop.slnx --locked-mode
+            - run: tools/macos/make-app-bundle.sh
+            # A plain zip is enough now that every file in Contents/MacOS is Mach-O; `-y` keeps any link.
+            - working-directory: apps/desktop/artifacts
+              run: zip -qry Wilson.zip Wilson.app
+            - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+              with:
+                  name: wilson-bundle
+                  path: apps/desktop/artifacts/Wilson.zip
+                  retention-days: 7
+                  if-no-files-found: error
+
     # Output that does not compile is a generator bug to find here rather than in the app. Whether the
     # SDK matches the contracts is the `generated` job's to check, in `build.yml`.
     sdk:
