@@ -503,7 +503,11 @@ public sealed record ProjectGateRule
     public required long Unavailable { get; init; }
 }
 
-/// <summary>A card flagged for a person by what flagged it. A flag on a card still flagged counts once.</summary>
+/// <summary>
+/// A card flagged for a person by what flagged it. A flag on a card still flagged counts once.
+/// `processFailure` is a card held for a fault outside its work, such as an engine API error, with no
+/// retry spent.
+/// </summary>
 public sealed record ProjectGateTouchpoint
 {
     [JsonPropertyName("cause")]
@@ -2368,6 +2372,9 @@ public enum ProjectGateFailureFailureClass
     [JsonStringEnumMemberName("engine")]
     Engine,
 
+    [JsonStringEnumMemberName("engineApi")]
+    EngineApi,
+
     [JsonStringEnumMemberName("loop")]
     Loop,
 
@@ -2409,6 +2416,7 @@ public sealed class ProjectGateFailureFailureClassConverter : JsonConverter<Proj
         "resultDropped" => ProjectGateFailureFailureClass.ResultDropped,
         "budget" => ProjectGateFailureFailureClass.Budget,
         "engine" => ProjectGateFailureFailureClass.Engine,
+        "engineApi" => ProjectGateFailureFailureClass.EngineApi,
         "loop" => ProjectGateFailureFailureClass.Loop,
         "error" => ProjectGateFailureFailureClass.Error,
         _ => ProjectGateFailureFailureClass.Unknown,
@@ -2423,6 +2431,7 @@ public sealed class ProjectGateFailureFailureClassConverter : JsonConverter<Proj
         ProjectGateFailureFailureClass.ResultDropped => "resultDropped",
         ProjectGateFailureFailureClass.Budget => "budget",
         ProjectGateFailureFailureClass.Engine => "engine",
+        ProjectGateFailureFailureClass.EngineApi => "engineApi",
         ProjectGateFailureFailureClass.Loop => "loop",
         ProjectGateFailureFailureClass.Error => "error",
         _ => throw new JsonException($"ProjectGateFailureFailureClass.{value} has no wire spelling, so it cannot be sent."),
@@ -2461,6 +2470,9 @@ public enum ProjectGateTouchpointCause
 
     [JsonStringEnumMemberName("sourceClosed")]
     SourceClosed,
+
+    [JsonStringEnumMemberName("processFailure")]
+    ProcessFailure,
 }
 
 /// <summary>
@@ -2498,6 +2510,7 @@ public sealed class ProjectGateTouchpointCauseConverter : JsonConverter<ProjectG
         "poisoned" => ProjectGateTouchpointCause.Poisoned,
         "dead" => ProjectGateTouchpointCause.Dead,
         "sourceClosed" => ProjectGateTouchpointCause.SourceClosed,
+        "processFailure" => ProjectGateTouchpointCause.ProcessFailure,
         _ => ProjectGateTouchpointCause.Unknown,
     };
 
@@ -2511,6 +2524,7 @@ public sealed class ProjectGateTouchpointCauseConverter : JsonConverter<ProjectG
         ProjectGateTouchpointCause.Poisoned => "poisoned",
         ProjectGateTouchpointCause.Dead => "dead",
         ProjectGateTouchpointCause.SourceClosed => "sourceClosed",
+        ProjectGateTouchpointCause.ProcessFailure => "processFailure",
         _ => throw new JsonException($"ProjectGateTouchpointCause.{value} has no wire spelling, so it cannot be sent."),
     };
 }

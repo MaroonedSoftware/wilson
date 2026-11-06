@@ -267,3 +267,37 @@ describe('CliStageAgent — turn.empty (card 0126)', () => {
         expect(recorded).toHaveLength(0);
     });
 });
+
+describe('CliStageAgent — engine API errors', () => {
+    afterEach(() => {
+        queryMock.mockReset();
+        toolMock.mockClear();
+        tools.clear();
+    });
+
+    const errorTurn = (result: string) => ({ ...successResult, is_error: true, result });
+
+    it('names a client error from the model API, which a retry would repeat', async () => {
+        const root = await makeWorktree();
+        queryMock.mockReturnValue(streamOf([errorTurn('API Error: 400 {"error":{"message":"model not supported"}}')]));
+        const agent = new CliStageAgent(silentLogger as never);
+
+        const output = (await agent.run(runInput(makeStage(), root, recordingEvents().events) as never)) as Output & { engineApiError?: string };
+
+        expect(output.result).toBeUndefined();
+        expect(output.engineApiError).toBe('API Error: 400 {"error":{"message":"model not supported"}}');
+    });
+
+    it.each([
+        ['a rate limit, which clears by itself', 'API Error: 429 rate limited'],
+        ['a server error', 'API Error: 529 overloaded'],
+    ])('leaves %s to the ordinary failure', async (_name, text) => {
+        const root = await makeWorktree();
+        queryMock.mockReturnValue(streamOf([errorTurn(text)]));
+        const agent = new CliStageAgent(silentLogger as never);
+
+        const output = (await agent.run(runInput(makeStage(), root, recordingEvents().events) as never)) as Output & { engineApiError?: string };
+
+        expect(output.engineApiError).toBeUndefined();
+    });
+});

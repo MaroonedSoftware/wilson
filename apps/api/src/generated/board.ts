@@ -293,7 +293,18 @@ export type ProjectGateKickback = z.infer<typeof ProjectGateKickback>;
  * generated from [ProjectGateFailure](../../data/contracts/board.ck)
  */
 export const ProjectGateFailure = z.strictObject({
-    failureClass: z.enum(['verifier', 'reportRejected', 'schemaInvalid', 'noReport', 'resultDropped', 'budget', 'engine', 'loop', 'error']),
+    failureClass: z.enum([
+        'verifier',
+        'reportRejected',
+        'schemaInvalid',
+        'noReport',
+        'resultDropped',
+        'budget',
+        'engine',
+        'engineApi',
+        'loop',
+        'error',
+    ]),
     count: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
     matched: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
 });
@@ -324,10 +335,22 @@ export type ProjectGateRule = z.infer<typeof ProjectGateRule>;
 
 /**
  * A card flagged for a person by what flagged it. A flag on a card still flagged counts once.
+ * `processFailure` is a card held for a fault outside its work, such as an engine API error, with no
+ * retry spent.
  * generated from [ProjectGateTouchpoint](../../data/contracts/board.ck)
  */
 export const ProjectGateTouchpoint = z.strictObject({
-    cause: z.enum(['question', 'kickbackLimit', 'overBudget', 'contextOverflow', 'rebaseConflict', 'poisoned', 'dead', 'sourceClosed']),
+    cause: z.enum([
+        'question',
+        'kickbackLimit',
+        'overBudget',
+        'contextOverflow',
+        'rebaseConflict',
+        'poisoned',
+        'dead',
+        'sourceClosed',
+        'processFailure',
+    ]),
     count: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
 });
 export type ProjectGateTouchpoint = z.infer<typeof ProjectGateTouchpoint>;

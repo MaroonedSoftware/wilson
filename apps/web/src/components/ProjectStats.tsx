@@ -263,6 +263,7 @@ const FAILURE_LABEL: Record<ProjectGateStats['failures'][number]['failureClass']
     resultDropped: 'Its result was lost',
     budget: 'Ran out of budget',
     engine: 'The engine failed',
+    engineApi: 'The model API refused it',
     loop: 'Stopped in a loop',
     error: 'The stage threw',
 };
@@ -276,6 +277,7 @@ const TOUCHPOINT_LABEL: Record<ProjectGateStats['touchpoints'][number]['cause'],
     poisoned: 'Poisoned',
     dead: 'Job died',
     sourceClosed: 'Ticket closed',
+    processFailure: 'Held for a process fault',
 };
 
 const capitalized = (text: string): string => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;

@@ -309,7 +309,8 @@ export interface ProjectGateKickback {
  * generated from [ProjectGateFailure](../../../../apps/api/data/contracts/board.ck)
  */
 export interface ProjectGateFailure {
-    failureClass: 'verifier' | 'reportRejected' | 'schemaInvalid' | 'noReport' | 'resultDropped' | 'budget' | 'engine' | 'loop' | 'error';
+    failureClass:
+        'verifier' | 'reportRejected' | 'schemaInvalid' | 'noReport' | 'resultDropped' | 'budget' | 'engine' | 'engineApi' | 'loop' | 'error';
     count: number;
     matched: number;
 }
@@ -337,10 +338,13 @@ export interface ProjectGateRule {
 
 /**
  * A card flagged for a person by what flagged it. A flag on a card still flagged counts once.
+ * `processFailure` is a card held for a fault outside its work, such as an engine API error, with no
+ * retry spent.
  * generated from [ProjectGateTouchpoint](../../../../apps/api/data/contracts/board.ck)
  */
 export interface ProjectGateTouchpoint {
-    cause: 'question' | 'kickbackLimit' | 'overBudget' | 'contextOverflow' | 'rebaseConflict' | 'poisoned' | 'dead' | 'sourceClosed';
+    cause:
+        'question' | 'kickbackLimit' | 'overBudget' | 'contextOverflow' | 'rebaseConflict' | 'poisoned' | 'dead' | 'sourceClosed' | 'processFailure';
     count: number;
 }
 

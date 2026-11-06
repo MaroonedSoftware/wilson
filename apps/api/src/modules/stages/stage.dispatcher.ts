@@ -750,6 +750,17 @@ export class StageDispatcher {
             decision = { target: stageName, retries: decision.retries, needsHuman: { reason: outcome.needsHumanReason } };
         }
 
+        // A failure of the process rather than the stage (an engine API error) is no attempt at the
+        // work, so it spends none of the card's retries, and a retry would fail the same way in
+        // seconds. The card waits where it is, with its counters as they were, for a person to fix it.
+        if (outcome.processFailure && !outcome.passed) {
+            decision = {
+                target: stageName,
+                retries: head.frontmatter.retries,
+                needsHuman: { reason: `"${stageName}" is held, with no retry spent: ${outcome.processFailure}` },
+            };
+        }
+
         // Card 0200: a card whose ticket closed externally while this stage was running halts here
         // instead of advancing or kicking back further, once this one stage — already bounded by its
         // own budget — finishes. `InboundCardWriter` is what set the flag going in; this is the one

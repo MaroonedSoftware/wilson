@@ -1119,6 +1119,7 @@ export class CliStageAgent extends StageAgent {
                         // stopped there rather than reporting. Left off an ordinary pass so `stage.passed`
                         // stays exactly as noisy as it was before this card.
                         ...(reported === undefined ? { engineStopReason: describeEngineStop(message) } : {}),
+                        ...(reported === undefined ? engineApiErrorField(message) : {}),
                         ...droppedField(),
                         ...traceField(),
                     };
@@ -1339,6 +1340,22 @@ const STOPPED = Symbol('stopped');
  */
 const describeEngineStop = (message: { subtype: string; stop_reason: string | null }): string =>
     message.stop_reason ? `ended as '${message.subtype}' (stop_reason: ${message.stop_reason})` : `ended as '${message.subtype}'`;
+
+/** A client error from the model API as the engine words it. 429 is left out: it clears by itself. */
+const API_CLIENT_ERROR = /API Error: 4(?!29)\d\d\b/;
+
+/** The longest piece of the engine's error text kept on the run. */
+const API_ERROR_LIMIT = 500;
+
+/**
+ * `AgentRunOutput.engineApiError` from a `result` message, when the engine ended its turn on a
+ * client error from the model API. The engine reports these as a `success` turn with `is_error` set
+ * and the error as its text, which is what a model the engine version does not support looks like.
+ */
+export const engineApiErrorField = (message: { is_error?: boolean; result?: unknown }): { engineApiError?: string } => {
+    if (!message.is_error || typeof message.result !== 'string' || !API_CLIENT_ERROR.test(message.result)) return {};
+    return { engineApiError: message.result.trim().slice(0, API_ERROR_LIMIT) };
+};
 
 /**
  * Parses and validates the contents of the file `report_result` was pointed at, against this

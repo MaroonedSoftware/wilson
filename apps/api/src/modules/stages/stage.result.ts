@@ -234,6 +234,8 @@ export interface SupportedRefusal {
 /**
  * Why a stage failed, as a word to count by. `verifier` is the one judgment about the work. Every other
  * class says the stage did not finish or its report could not be used, so it says nothing about the code.
+ * The {@link PROCESS_FAILURE_CLASSES} say the process failed rather than the stage, so they hold the
+ * card without spending its retries.
  */
 export type FailureClass =
     /** A verifier's own check failed: the work, not the run. */
@@ -250,16 +252,25 @@ export type FailureClass =
     | 'budget'
     /** The engine stopped responding, or never started. */
     | 'engine'
+    /** The model API refused the engine's request with a client error, which a retry would repeat. */
+    | 'engineApi'
     /** The run was stopped for repeating the same tool call. */
     | 'loop'
     /** The stage threw before it reached an outcome. */
     | 'error';
+
+/**
+ * Failures of the process around the stage rather than of the stage: no attempt at the card's work was
+ * made, so none is charged to it. `engineApi` holds the card for a person (`StageOutcome.processFailure`).
+ */
+export const PROCESS_FAILURE_CLASSES: ReadonlySet<string> = new Set<FailureClass>(['engineApi']);
 
 /** The longest `reason` an event carries. The whole text stays in `failures`, or on the card. */
 export const REASON_LIMIT = 500;
 
 /** What a failed run knew about itself, in the order the failures it writes lead with. */
 export const failureClassOf = (signals: {
+    engineApiError?: string;
     engineFailure?: string;
     budgetFailure?: string;
     truncated?: boolean;
@@ -268,6 +279,7 @@ export const failureClassOf = (signals: {
     schemaInvalid: boolean;
     reportRejected?: boolean;
 }): FailureClass => {
+    if (signals.engineApiError) return 'engineApi';
     if (signals.engineFailure) return 'engine';
     if (signals.budgetFailure || signals.truncated) return 'budget';
     if (signals.resultDropped) return 'resultDropped';
@@ -312,6 +324,12 @@ export interface StageOutcome {
     needsHuman?: boolean;
     /** The verifier's `needsHumanReason`: flag the card with this, whatever retries it has left. */
     needsHumanReason?: string;
+    /**
+     * Set on a failing outcome the process caused rather than the stage (a `PROCESS_FAILURE_CLASSES`
+     * class): why the card is held. `writeTransition` flags the card with this and leaves its retries
+     * as they were, since the stage never got to attempt the work and a retry would fail the same way.
+     */
+    processFailure?: string;
     /**
      * Set on a failing outcome when the failure says nothing about the code: a step, wall-clock or
      * token budget cutoff, an engine that stopped responding, a run that never called the report

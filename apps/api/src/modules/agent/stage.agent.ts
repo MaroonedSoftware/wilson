@@ -97,6 +97,13 @@ export interface AgentRunOutput {
      */
     engineFailure?: string;
     /**
+     * Set when the engine ended its turn on a client error from the model API ("API Error: 400 ..."),
+     * with nothing reported: a model the engine version does not support, a request the API refuses.
+     * The engine's own words. Retrying sends the same request and gets the same answer, so the
+     * dispatcher holds the card for a person instead of spending its retries (`StageOutcome.processFailure`).
+     */
+    engineApiError?: string;
+    /**
      * Set when the run was stopped for repeating the same tool call (`RepeatedCallWatch`), naming the
      * call. Neither a budget nor the engine was at fault, so an operator has no cap to raise, and the
      * run never reported, so the dispatcher has nothing to verify.
