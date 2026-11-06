@@ -209,6 +209,22 @@ export const BACKGROUND_BASH_DENIAL =
 export const ENGINE_TOOLS = [...READ_TOOLS, ...WRITE_TOOLS, ...EXEC_TOOLS];
 
 /**
+ * The engine's page fetcher (card 0020). Not in {@link ENGINE_TOOLS}: it is added to the surface
+ * only for a project whose `webAllow` names a host (see {@link engineTools}), so a project with none
+ * keeps exactly the surface it had, and the guard still refuses it by its catch-all.
+ */
+const WEB_TOOL = 'WebFetch';
+
+/** The built-ins a stage's engine gets: {@link ENGINE_TOOLS}, plus `WebFetch` when any host is allowed. */
+export const engineTools = (webAllow: readonly string[]): string[] => (webAllow.length > 0 ? [...ENGINE_TOOLS, WEB_TOOL] : ENGINE_TOOLS);
+
+/**
+ * The project's `webAllow`, read off the scope guard. A hand-built context in a test may have no
+ * guard at all, and that reads the same as an empty list: nothing may be fetched.
+ */
+const webAllowOf = (context: ToolContext): readonly string[] => (context.scope as ToolContext['scope'] | undefined)?.webAllow ?? [];
+
+/**
  * Runs a stage through the Claude Code engine instead of a provider API.
  *
  * Authentication comes from the operator's own Claude Code credentials, so this path keeps working
@@ -715,7 +731,7 @@ export class CliStageAgent extends StageAgent {
                 // the guard's default-deny stays exactly as it is, unmoved.
                 settingSources: [],
                 strictMcpConfig: true,
-                tools: ENGINE_TOOLS,
+                tools: engineTools(webAllowOf(context)),
                 // Card 0249: the `PreToolUse` hook is consulted first — the engine calls it for
                 // every tool call, unconditionally, which is what `canUseTool` turned out not to
                 // be on host engine 2.1.266 (see the class doc comment's 2026-09-19 finding).
@@ -1420,7 +1436,7 @@ const ordinal = (n: number): string => {
 
 /**
  * The shape a repeated denial is grouped by: the command's leading token for Bash, the path for a
- * scope denial, the bare tool name otherwise. Not a precise dedupe — `find /` and `find . -name x`
+ * scope denial, the host for a refused fetch, the bare tool name otherwise. Not a precise dedupe — `find /` and `find . -name x`
  * share a shape on purpose, because a denial message that named the tool once already answered both.
  */
 const denialShapeFor = (toolName: string, detail: Record<string, unknown>): string => {
@@ -1429,6 +1445,10 @@ const denialShapeFor = (toolName: string, detail: Record<string, unknown>): stri
     }
     if (typeof detail.path === 'string' && detail.path) {
         return `${toolName}:${detail.path}`;
+    }
+    // A refused fetch, by host: a second host refused is a different answer, not a repeat.
+    if (typeof detail.host === 'string' && detail.host) {
+        return `${toolName}:${detail.host}`;
     }
     return toolName;
 };
@@ -1579,6 +1599,30 @@ export const createToolGuard = (
         // exactly as it does for request_scope.
         if (toolName === qualifiedDeleteTool()) {
             return writable === 'rw' ? { behavior: 'allow' } : deny(`this stage is ${writable}: it may not write`, { tool: toolName });
+        }
+
+        // Card 0020: a page fetch, only to a host the project's `webAllow` names. An empty list skips
+        // this branch entirely, so the catch-all below refuses it exactly as it always has.
+        //
+        // Redirects: one call is one URL, and that URL is what is checked. The engine follows a
+        // redirect itself only within the same host; one that points at a different host is not
+        // followed but handed back to the model as the redirect URL, to fetch with a new call — which
+        // comes back through here and is judged on its own host like any other. So a hop off the list
+        // is refused at the hop, not waved through behind an allowed first URL.
+        //
+        // Both outcomes are recorded with host, URL and decision, so every fetch can be audited.
+        if (toolName === WEB_TOOL && webAllowOf(context).length > 0) {
+            const url = typeof input.url === 'string' ? input.url : '';
+            const decision = context.scope.checkWeb(url);
+            if (!decision.allowed) return deny(decision.reason, { url, host: decision.host, decision: 'denied' });
+            await context.events.append({
+                project: context.project,
+                cardId: context.cardId,
+                stage: context.stage,
+                type: 'tool.executed',
+                payload: { tool: toolName, url, host: decision.host, decision: 'allowed' },
+            });
+            return { behavior: 'allow' };
         }
 
         // Card 0097, task 2: could a bare `delete` — the wrong name board config used to hand a

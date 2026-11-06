@@ -348,6 +348,11 @@ export class CodexStageAgent extends StageAgent {
             if (params.tool === REQUEST_SCOPE_TOOL && canWrite) {
                 return toolReply(await requestScope(context, String(args.path ?? ''), String(args.reason ?? '')), true);
             }
+            // Card 0020 lets the cli adapter's `WebFetch` reach a project's `webAllow` hosts. This
+            // engine is left refusing the web on purpose: its only web tool is `webSearch`, which
+            // takes a query rather than a URL, so there is no host to check against the list; it is
+            // switched off on the thread (`web_search: 'disabled'`), and an item of it is not one an
+            // approval is ever asked for (see `APPROVABLE_ITEMS`). Every web call stays refused here.
             return toolReply(`error: ${String(params.tool)} is not available to this stage`, false);
         };
 

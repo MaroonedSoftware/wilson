@@ -2,6 +2,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import picomatch from 'picomatch';
 import type { ExecutionHost } from '#modules/host/execution.host.js';
 import { localHost } from '#modules/host/local.execution.host.js';
+import { isHostAllowed } from '#modules/stages/web.allow.js';
 
 export type ScopeDecision =
     { allowed: true; path: string; via?: 'scope' | 'collateral' | 'grant' } | { allowed: false; path: string; reason: string };
@@ -44,7 +45,25 @@ export interface ScopeGuardOptions {
      * judged there.
      */
     host?: ExecutionHost;
+    /**
+     * The project's `webAllow` list (cards 0019/0020): the hosts a stage may fetch a page from.
+     * Carried here beside `alwaysAllowed` because this is the object that already travels from
+     * stage preparation to every adapter's guard. Unset or empty means no fetch is allowed at all.
+     */
+    webAllow?: readonly string[];
 }
+
+/** {@link ScopeGuard.checkWeb}'s answer, naming the host either way so the event log can audit it. */
+export type WebDecision = { allowed: true; url: string; host: string } | { allowed: false; url: string; host: string; reason: string };
+
+/** The hostname of `url`, or `''` when it does not parse — for naming in a decision, never for matching. */
+const hostOf = (url: string): string => {
+    try {
+        return new URL(url).hostname.toLowerCase();
+    } catch {
+        return '';
+    }
+};
 
 /**
  * Paths an agent may never write, whatever the plan says (PROJECT.md decisions 6 and 9).
@@ -160,6 +179,25 @@ export class ScopeGuard {
     /** Every widening granted so far, for the exit condition and the event log. */
     grants(): string[] {
         return [...this.granted].sort();
+    }
+
+    /** The project's `webAllow` list, empty when it names none. */
+    get webAllow(): readonly string[] {
+        return this.options.webAllow ?? [];
+    }
+
+    /**
+     * Whether the agent may fetch `url`: only when its parsed host is on `webAllow`, by
+     * `isHostAllowed`'s rules (http(s) only, exact host or a `*.` subdomain entry, no lookalikes).
+     * One URL per call, so a redirect is only allowed if its target is checked as a call of its own.
+     */
+    checkWeb(url: string): WebDecision {
+        const host = hostOf(url);
+        if (isHostAllowed(url, this.webAllow)) return { allowed: true, url, host };
+        const reason = host
+            ? `${host} is not in the project's web allowlist, so it may not be fetched`
+            : `${JSON.stringify(url)} is not an http(s) URL on a host in the project's web allowlist, so it may not be fetched`;
+        return { allowed: false, url, host, reason };
     }
 
     /** Every collateral path a write was actually allowed against, for the event log and caveats. */

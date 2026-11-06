@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BACKGROUND_BASH_DENIAL, createToolGuard } from '#modules/agent/cli.stage.agent.js';
+import { BACKGROUND_BASH_DENIAL, createToolGuard, ENGINE_TOOLS, engineTools } from '#modules/agent/cli.stage.agent.js';
 import { REPORT_RESULT_PATH, SCRATCH_PREFIX, ScopeGuard } from '#modules/agent/scope.guard.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import type { ToolContext } from '#modules/agent/tools/index.js';
@@ -261,6 +261,93 @@ describe('createToolGuard', () => {
         // offers must pass through here, and anything unlisted is refused rather than waved through.
         const { guard } = build('rw');
         await expect(guard('WebFetch', { url: 'https://example.com' }, opts)).resolves.toMatchObject({ behavior: 'deny' });
+    });
+
+    describe('WebFetch against webAllow (card 0020)', () => {
+        const buildWeb = (webAllow: string[]) => {
+            const denied: Record<string, unknown>[] = [];
+            const executed: Record<string, unknown>[] = [];
+            const context = {
+                project: 'p',
+                cardId: '1',
+                stage: 's',
+                worktreeRoot: '/tmp',
+                scope: new ScopeGuard({ worktreeRoot: '/tmp', allow: [], alwaysAllowed: [], webAllow }),
+                commands: new CommandAllowlist([]),
+                scopeViolationPolicy: 'widen' as const,
+                events: {
+                    append: async (e: { type: string; payload?: Record<string, unknown> }) => {
+                        if (e.type === 'tool.denied') denied.push(e.payload ?? {});
+                        if (e.type === 'tool.executed') executed.push(e.payload ?? {});
+                    },
+                },
+                logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
+            } as unknown as ToolContext;
+            return { guard: createToolGuard(context, 'readonly'), denied, executed };
+        };
+
+        it('allows a URL on an allowed host and records it', async () => {
+            const { guard, executed, denied } = buildWeb(['github.com']);
+            await expect(guard('WebFetch', { url: 'https://github.com/org/repo', prompt: 'x' }, opts)).resolves.toMatchObject({ behavior: 'allow' });
+            expect(denied).toEqual([]);
+            expect(executed).toEqual([{ tool: 'WebFetch', url: 'https://github.com/org/repo', host: 'github.com', decision: 'allowed' }]);
+        });
+
+        it('denies a host off the list, naming it, and records the refusal', async () => {
+            const { guard, denied, executed } = buildWeb(['github.com']);
+            const result = await guard('WebFetch', { url: 'https://evil.com', prompt: 'x' }, opts);
+            expect(result).toMatchObject({ behavior: 'deny' });
+            expect((result as { message: string }).message).toBe("evil.com is not in the project's web allowlist, so it may not be fetched");
+            expect(executed).toEqual([]);
+            expect(denied).toEqual([
+                expect.objectContaining({ tool: 'WebFetch', url: 'https://evil.com', host: 'evil.com', decision: 'denied' }),
+            ]);
+        });
+
+        it.each(['https://github.com.evil.com/org/repo', 'https://notgithub.com/', 'https://github.com@evil.com/', 'file:///etc/passwd'])(
+            'denies a lookalike or non-web URL: %s',
+            async url => {
+                const { guard } = buildWeb(['github.com']);
+                await expect(guard('WebFetch', { url }, opts)).resolves.toMatchObject({ behavior: 'deny' });
+            },
+        );
+
+        it('denies a call with no URL at all', async () => {
+            const { guard } = buildWeb(['github.com']);
+            await expect(guard('WebFetch', {}, opts)).resolves.toMatchObject({ behavior: 'deny' });
+        });
+
+        it('refuses the hop when an allowed URL redirects off the list', async () => {
+            // The engine does not follow a cross-host redirect: it hands the target back for a new
+            // call. That new call is judged on its own host, so the allowed first URL buys nothing.
+            const { guard, executed, denied } = buildWeb(['github.com']);
+            await expect(guard('WebFetch', { url: 'https://github.com/org/repo/releases/latest' }, opts)).resolves.toMatchObject({
+                behavior: 'allow',
+            });
+            await expect(guard('WebFetch', { url: 'https://objects.evil.com/release.tar.gz' }, opts)).resolves.toMatchObject({
+                behavior: 'deny',
+            });
+            expect(executed.map(e => e.host)).toEqual(['github.com']);
+            expect(denied.map(e => e.host)).toEqual(['objects.evil.com']);
+        });
+
+        it('keeps the old refusal, word for word, when the list is empty', async () => {
+            const { guard, denied } = buildWeb([]);
+            const result = await guard('WebFetch', { url: 'https://github.com/org/repo' }, opts);
+            expect((result as { message: string }).message).toBe('WebFetch is not available to this stage');
+            expect(denied).toEqual([{ tool: 'WebFetch', reason: 'WebFetch is not available to this stage' }]);
+        });
+
+        it('allows WebSearch nothing, whatever the list says', async () => {
+            const { guard } = buildWeb(['github.com']);
+            await expect(guard('WebSearch', { query: 'github.com' }, opts)).resolves.toMatchObject({ behavior: 'deny' });
+        });
+
+        it('adds WebFetch to the engine surface only when a host is allowed', () => {
+            expect(engineTools([])).toEqual(ENGINE_TOOLS);
+            expect(engineTools([])).not.toContain('WebFetch');
+            expect(engineTools(['github.com'])).toEqual([...ENGINE_TOOLS, 'WebFetch']);
+        });
     });
 
     describe('repeat denials', () => {
