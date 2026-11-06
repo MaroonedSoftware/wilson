@@ -646,7 +646,13 @@ export class StageDispatcher {
                 cardId,
                 stage: stageName,
                 type: 'stage.failed',
-                payload: { error: reason, patchPath, failureClass: 'error', reason: reason.slice(0, REASON_LIMIT) },
+                // A lost host is the process failing, not the stage: classed so, and counted apart.
+                payload: {
+                    error: reason,
+                    patchPath,
+                    failureClass: err instanceof HostLostError ? 'hostLost' : 'error',
+                    reason: reason.slice(0, REASON_LIMIT),
+                },
             });
             throw err;
         }

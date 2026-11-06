@@ -137,11 +137,15 @@ describe('foldGateStats touchpoints', () => {
     });
 
     it('counts a card held for a process failure apart from one out of retries', () => {
-        const figures = foldGateStats([flag({ failureClass: 'engineApi' }), flag({ cardId: '0002', failureClass: 'engine' })]);
+        const figures = foldGateStats([
+            flag({ failureClass: 'engineApi' }),
+            flag({ cardId: '0002', failureClass: 'engine' }),
+            flag({ cardId: '0003', failureClass: 'hostLost' }),
+        ]);
 
         expect(figures.touchpoints).toEqual(
             expect.arrayContaining([
-                { cause: 'processFailure', count: 1 },
+                { cause: 'processFailure', count: 2 },
                 { cause: 'kickbackLimit', count: 1 },
             ]),
         );

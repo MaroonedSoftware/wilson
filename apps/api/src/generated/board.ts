@@ -302,6 +302,7 @@ export const ProjectGateFailure = z.strictObject({
         'budget',
         'engine',
         'engineApi',
+        'hostLost',
         'loop',
         'error',
     ]),
@@ -335,8 +336,8 @@ export type ProjectGateRule = z.infer<typeof ProjectGateRule>;
 
 /**
  * A card flagged for a person by what flagged it. A flag on a card still flagged counts once.
- * `processFailure` is a card held for a fault outside its work, such as an engine API error, with no
- * retry spent.
+ * `processFailure` is a card held for a fault outside its work, such as an engine API error or a host
+ * that kept dropping, with no retry spent.
  * generated from [ProjectGateTouchpoint](../../data/contracts/board.ck)
  */
 export const ProjectGateTouchpoint = z.strictObject({

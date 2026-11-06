@@ -310,7 +310,17 @@ export interface ProjectGateKickback {
  */
 export interface ProjectGateFailure {
     failureClass:
-        'verifier' | 'reportRejected' | 'schemaInvalid' | 'noReport' | 'resultDropped' | 'budget' | 'engine' | 'engineApi' | 'loop' | 'error';
+        | 'verifier'
+        | 'reportRejected'
+        | 'schemaInvalid'
+        | 'noReport'
+        | 'resultDropped'
+        | 'budget'
+        | 'engine'
+        | 'engineApi'
+        | 'hostLost'
+        | 'loop'
+        | 'error';
     count: number;
     matched: number;
 }
@@ -338,8 +348,8 @@ export interface ProjectGateRule {
 
 /**
  * A card flagged for a person by what flagged it. A flag on a card still flagged counts once.
- * `processFailure` is a card held for a fault outside its work, such as an engine API error, with no
- * retry spent.
+ * `processFailure` is a card held for a fault outside its work, such as an engine API error or a host
+ * that kept dropping, with no retry spent.
  * generated from [ProjectGateTouchpoint](../../../../apps/api/data/contracts/board.ck)
  */
 export interface ProjectGateTouchpoint {

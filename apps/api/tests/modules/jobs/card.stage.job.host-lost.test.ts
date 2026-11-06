@@ -115,7 +115,8 @@ describe('CardStageJob when a stage loses its host', () => {
             needsHuman: true,
             needsHumanReason: expect.stringContaining(`lost its host ${MAX_HOST_LOSSES} times in a row, most recently my-mac`),
         });
-        expect(event).toMatchObject({ stage: 'testing', payload: { to: 'testing', needsHuman: true } });
+        expect(event).toMatchObject({ stage: 'testing', payload: { to: 'testing', needsHuman: true, failureClass: 'hostLost' } });
+        expect(event.payload).not.toHaveProperty('retries');
     });
 
     it('still lets the queue retry any other transient failure', async () => {

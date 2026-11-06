@@ -264,6 +264,7 @@ const FAILURE_LABEL: Record<ProjectGateStats['failures'][number]['failureClass']
     budget: 'Ran out of budget',
     engine: 'The engine failed',
     engineApi: 'The model API refused it',
+    hostLost: 'Its host was lost',
     loop: 'Stopped in a loop',
     error: 'The stage threw',
 };

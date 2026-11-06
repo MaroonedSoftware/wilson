@@ -10,7 +10,7 @@ import { HostLostError } from '#modules/host/placement.js';
 import { Notifier } from '#modules/notify/notifier.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { StageDispatcher } from '#modules/stages/stage.dispatcher.js';
-import type { ReviewFinding } from '#modules/stages/stage.result.js';
+import type { FailureClass, ReviewFinding } from '#modules/stages/stage.result.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { decideChain } from './chain.decision.js';
 import { CardJobs } from './card.jobs.js';
@@ -254,7 +254,7 @@ export class CardStageJob extends Job<CardStagePayload> {
     ): Promise<void> {
         if (hostLosses >= MAX_HOST_LOSSES) {
             const reason = `lost its host ${hostLosses} times in a row, most recently ${error.hostName}: ${error.detail}`;
-            await this.flagForHuman(cardId, stageName, reason, `Flag ${cardId}: lost its host`);
+            await this.flagForHuman(cardId, stageName, reason, `Flag ${cardId}: lost its host`, 'hostLost');
             await this.cardJobs.clear(cardId);
             return;
         }
@@ -352,8 +352,11 @@ export class CardStageJob extends Job<CardStagePayload> {
         await this.flagForHuman(cardId, stageName, reason, `Flag ${cardId}: context overflow`);
     }
 
-    /** Leave a card where it is, flagged for a person, with its retries untouched, and tell them. */
-    private async flagForHuman(cardId: string, stageName: string, reason: string, message: string): Promise<void> {
+    /**
+     * Leave a card where it is, flagged for a person, with its retries untouched, and tell them.
+     * `failureClass` goes on the transition when the flag is for a process failure, so it is counted as one.
+     */
+    private async flagForHuman(cardId: string, stageName: string, reason: string, message: string, failureClass?: FailureClass): Promise<void> {
         // Captured from the fresh row `writeWithEvent` reads inside its own transaction, the same
         // redelivery guard `flagRebaseConflict`/`poisonCard` use: a job that lands here again after
         // an earlier attempt already flagged this card has nothing new to report.
@@ -375,7 +378,7 @@ export class CardStageJob extends Job<CardStagePayload> {
                 cardId,
                 stage: stageName,
                 type: 'transition.written',
-                payload: { from: stageName, to: stageName, by: 'runner', needsHuman: true, reason },
+                payload: { from: stageName, to: stageName, by: 'runner', needsHuman: true, reason, ...(failureClass && { failureClass }) },
             },
         );
 

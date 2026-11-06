@@ -319,8 +319,8 @@ data class ProjectGateRule(
 
 /**
  * A card flagged for a person by what flagged it. A flag on a card still flagged counts once.
- * `processFailure` is a card held for a fault outside its work, such as an engine API error, with no
- * retry spent.
+ * `processFailure` is a card held for a fault outside its work, such as an engine API error or a host
+ * that kept dropping, with no retry spent.
  */
 @Serializable
 data class ProjectGateTouchpoint(
@@ -1327,6 +1327,7 @@ enum class ProjectGateFailureFailureClass {
     BUDGET,
     ENGINE,
     ENGINE_API,
+    HOST_LOST,
     LOOP,
     ERROR,
 
@@ -1349,6 +1350,7 @@ object ProjectGateFailureFailureClassSerializer : SdkEnumSerializer<ProjectGateF
     ProjectGateFailureFailureClass.BUDGET to "budget",
     ProjectGateFailureFailureClass.ENGINE to "engine",
     ProjectGateFailureFailureClass.ENGINE_API to "engineApi",
+    ProjectGateFailureFailureClass.HOST_LOST to "hostLost",
     ProjectGateFailureFailureClass.LOOP to "loop",
     ProjectGateFailureFailureClass.ERROR to "error",
 )

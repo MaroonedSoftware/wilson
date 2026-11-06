@@ -254,6 +254,8 @@ export type FailureClass =
     | 'engine'
     /** The model API refused the engine's request with a client error, which a retry would repeat. */
     | 'engineApi'
+    /** The host the stage ran on stopped answering. `CardStageJob` sends it again later, then flags it. */
+    | 'hostLost'
     /** The run was stopped for repeating the same tool call. */
     | 'loop'
     /** The stage threw before it reached an outcome. */
@@ -261,9 +263,10 @@ export type FailureClass =
 
 /**
  * Failures of the process around the stage rather than of the stage: no attempt at the card's work was
- * made, so none is charged to it. `engineApi` holds the card for a person (`StageOutcome.processFailure`).
+ * made, so none is charged to it. `engineApi` holds the card for a person (`StageOutcome.processFailure`);
+ * `hostLost` sends the stage again with a growing delay and flags it after `MAX_HOST_LOSSES`.
  */
-export const PROCESS_FAILURE_CLASSES: ReadonlySet<string> = new Set<FailureClass>(['engineApi']);
+export const PROCESS_FAILURE_CLASSES: ReadonlySet<string> = new Set<FailureClass>(['engineApi', 'hostLost']);
 
 /** The longest `reason` an event carries. The whole text stays in `failures`, or on the card. */
 export const REASON_LIMIT = 500;

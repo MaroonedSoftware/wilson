@@ -505,8 +505,8 @@ public sealed record ProjectGateRule
 
 /// <summary>
 /// A card flagged for a person by what flagged it. A flag on a card still flagged counts once.
-/// `processFailure` is a card held for a fault outside its work, such as an engine API error, with no
-/// retry spent.
+/// `processFailure` is a card held for a fault outside its work, such as an engine API error or a host
+/// that kept dropping, with no retry spent.
 /// </summary>
 public sealed record ProjectGateTouchpoint
 {
@@ -2375,6 +2375,9 @@ public enum ProjectGateFailureFailureClass
     [JsonStringEnumMemberName("engineApi")]
     EngineApi,
 
+    [JsonStringEnumMemberName("hostLost")]
+    HostLost,
+
     [JsonStringEnumMemberName("loop")]
     Loop,
 
@@ -2417,6 +2420,7 @@ public sealed class ProjectGateFailureFailureClassConverter : JsonConverter<Proj
         "budget" => ProjectGateFailureFailureClass.Budget,
         "engine" => ProjectGateFailureFailureClass.Engine,
         "engineApi" => ProjectGateFailureFailureClass.EngineApi,
+        "hostLost" => ProjectGateFailureFailureClass.HostLost,
         "loop" => ProjectGateFailureFailureClass.Loop,
         "error" => ProjectGateFailureFailureClass.Error,
         _ => ProjectGateFailureFailureClass.Unknown,
@@ -2432,6 +2436,7 @@ public sealed class ProjectGateFailureFailureClassConverter : JsonConverter<Proj
         ProjectGateFailureFailureClass.Budget => "budget",
         ProjectGateFailureFailureClass.Engine => "engine",
         ProjectGateFailureFailureClass.EngineApi => "engineApi",
+        ProjectGateFailureFailureClass.HostLost => "hostLost",
         ProjectGateFailureFailureClass.Loop => "loop",
         ProjectGateFailureFailureClass.Error => "error",
         _ => throw new JsonException($"ProjectGateFailureFailureClass.{value} has no wire spelling, so it cannot be sent."),
