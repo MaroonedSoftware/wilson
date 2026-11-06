@@ -235,6 +235,13 @@ guard's own decision logic is unchanged by any of this; a call seen through both
 records its deny credit, `tool.denied`/`tool.executed` events, and the repeat-refusal
 counter once, keyed by the engine's own `tool_use` id, not twice.
 
+**Bash runs in the foreground.** The guard refuses a Bash call with
+`run_in_background: true`, even for an allowlisted command, and the stage prompt says
+so. A stage has no tool to read a background command back, and the engine does not
+wake a finished turn when one completes, so an agent that backgrounded the suite and
+ended its turn to wait for it never reported, and the stage failed with no result.
+The denial tells it to run the command in the foreground with a Bash `timeout`.
+
 **`allowedTools` must not be set.** Listing a tool there marks it _pre-approved_ and
 the engine never consults `canUseTool` for it — so naming Write and Bash as allowed,
 which reads like granting exactly the intended permissions, silently disables every

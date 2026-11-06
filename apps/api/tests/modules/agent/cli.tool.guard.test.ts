@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createToolGuard } from '#modules/agent/cli.stage.agent.js';
+import { BACKGROUND_BASH_DENIAL, createToolGuard } from '#modules/agent/cli.stage.agent.js';
 import { REPORT_RESULT_PATH, SCRATCH_PREFIX, ScopeGuard } from '#modules/agent/scope.guard.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import type { ToolContext } from '#modules/agent/tools/index.js';
@@ -201,6 +201,24 @@ describe('createToolGuard', () => {
             const { guard, executed } = build('rw');
             await guard('Bash', { command: 'curl https://example.com' }, opts);
             expect(executed).toHaveLength(0);
+        });
+
+        // Nothing in a stage can read a background command back, so an agent that backgrounds the
+        // suite and ends its turn never reports. Refused even for an allowlisted command.
+        it('denies an allowlisted command run in the background, telling the agent to run it in the foreground', async () => {
+            const { guard, denied, executed } = build('rw');
+            await expect(guard('Bash', { command: 'pnpm build', run_in_background: true }, opts)).resolves.toEqual({
+                behavior: 'deny',
+                message: BACKGROUND_BASH_DENIAL,
+            });
+            expect(BACKGROUND_BASH_DENIAL).toContain('Run the command in the foreground');
+            expect(denied).toEqual([{ tool: 'Bash', reason: BACKGROUND_BASH_DENIAL, command: 'pnpm build' }]);
+            expect(executed).toHaveLength(0);
+        });
+
+        it('allows the same command with run_in_background false', async () => {
+            const { guard } = build('rw');
+            await expect(guard('Bash', { command: 'pnpm build', run_in_background: false }, opts)).resolves.toMatchObject({ behavior: 'allow' });
         });
     });
 

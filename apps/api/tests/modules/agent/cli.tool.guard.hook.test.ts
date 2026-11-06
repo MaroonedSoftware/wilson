@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createToolGuard, toolGuardHook } from '#modules/agent/cli.stage.agent.js';
+import { BACKGROUND_BASH_DENIAL, createToolGuard, toolGuardHook } from '#modules/agent/cli.stage.agent.js';
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import type { ToolContext } from '#modules/agent/tools/index.js';
@@ -51,6 +51,14 @@ describe('toolGuardHook', () => {
                 permissionDecision: 'deny',
                 permissionDecisionReason: "command is not in this stage's allowlist. Allowed: pnpm build.",
             },
+        });
+    });
+
+    it('denies a backgrounded Bash call through the hook, with the run-it-in-the-foreground message as the reason', async () => {
+        const { hook } = build('rw');
+        const result = await hook(preToolUse('Bash', { command: 'pnpm build', run_in_background: true }, 'toolu_bg'), 'toolu_bg', hookOpts);
+        expect(result).toEqual({
+            hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: BACKGROUND_BASH_DENIAL },
         });
     });
 
