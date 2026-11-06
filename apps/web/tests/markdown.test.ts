@@ -305,8 +305,40 @@ describe('Markdown', () => {
         expect(card).not.toHaveBeenCalled();
     });
 
+    it('draws an image attached to a card, fetched through the context SDK', async () => {
+        const { chat } = fetchers();
+        const card = vi.spyOn(wilson.context, 'fetchAnAttachment').mockResolvedValue({
+            contentType: 'image/png',
+            data: new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }),
+            headers: { xContentTypeOptions: 'nosniff', contentSecurityPolicy: "default-src 'none'" },
+        });
+        renderMarkdown('![a diagram](/api/cards/0155/attachments/9)');
+        const image = await screen.findByAltText('a diagram');
+        expect(image.getAttribute('src')).toBe('blob:test/1');
+        expect(card).toHaveBeenCalledWith('0155', '9');
+        expect(chat).not.toHaveBeenCalled();
+    });
+
+    it('keeps an image inside its paragraph, with no block-level wrapper', async () => {
+        fetchers();
+        renderMarkdown('See ![a chart](/api/chat/threads/1/attachments/2) here.');
+        const image = await screen.findByAltText('a chart');
+        const paragraph = image.closest('p');
+        expect(paragraph).not.toBeNull();
+        expect(paragraph?.querySelector('div')).toBeNull();
+    });
+
+    it('falls back to the alt text when the fetch fails, without retrying', async () => {
+        const chat = vi.spyOn(wilson.chat, 'fetchAChatImage').mockRejectedValue(new Error('gone'));
+        const { container } = renderMarkdown('![a chart](/api/chat/threads/1/attachments/2)');
+        await waitFor(() => expect(screen.getByText('a chart').getAttribute('title')).toBe('the image could not be loaded'));
+        expect(container.querySelector('img')).toBeNull();
+        expect(chat).toHaveBeenCalledTimes(1);
+    });
+
     it.each([
         ['https://evil.example/x.png', 'images from other sites are not shown'],
+        ['data:image/svg+xml;base64,AA==', 'that is not an image data URI'],
         ['//host/x.png', 'images from other sites are not shown'],
         ['javascript:alert(1)', 'that image source is not allowed'],
         ['data:text/html;base64,AA==', 'that is not an image data URI'],

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_DATA_URI_CHARS, imageSource } from '#src/lib/images.js';
+import { MAX_DATA_URI_CHARS, cardImageKey, chatImageKey, imageSource } from '#src/lib/images.js';
 
 const OTHER_SITE = 'images from other sites are not shown';
 const NOT_IMAGE_DATA = 'that is not an image data URI';
@@ -47,5 +47,35 @@ describe('imageSource', () => {
 
     it('compares the data: scheme case-insensitively', () => {
         expect(imageSource('DATA:IMAGE/PNG;BASE64,iVBORw0KGgo=')).toMatchObject({ kind: 'data' });
+    });
+
+    it('allows a data: image exactly at the cap', () => {
+        const prefix = 'data:image/png;base64,';
+        const atCap = `${prefix}${'A'.repeat(MAX_DATA_URI_CHARS - prefix.length)}`;
+        expect(atCap.length).toBe(MAX_DATA_URI_CHARS);
+        expect(imageSource(atCap)).toMatchObject({ kind: 'data' });
+    });
+
+    it.each([
+        ['https://wilson.local/api/chat/threads/1/attachments/2', OTHER_SITE],
+        ['/api/chat/threads/1/attachments/2/', NOT_ALLOWED],
+        ['/api/chat/threads/1/attachments/%2e%2e', NOT_ALLOWED],
+        ['/api/chat/threads/01/attachments/2', NOT_ALLOWED],
+        ['/api/cards/0155/attachments/0', NOT_ALLOWED],
+        ['/api/cards/abc/attachments/1', NOT_ALLOWED],
+        ['data:image/png,notbase64', NOT_IMAGE_DATA],
+    ])('blocks the near miss %s', (url, reason) => {
+        expect(imageSource(url)).toEqual({ kind: 'blocked', reason });
+    });
+
+    it('allows a zero-padded card id of 0', () => {
+        expect(imageSource('/api/cards/0000/attachments/1')).toEqual({ kind: 'card', cardId: '0000', attachmentId: '1' });
+    });
+});
+
+describe('image query keys', () => {
+    it('keys chat and card images apart', () => {
+        expect(chatImageKey('7', '3')).toEqual(['chat-image', '7', '3']);
+        expect(cardImageKey('0155', '3')).toEqual(['card-image', '0155', '3']);
     });
 });

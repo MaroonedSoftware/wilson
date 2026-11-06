@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { createElement, type ReactNode } from 'react';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, createMemoryHistory, createRootRoute, createRouter } from '@tanstack/react-router';
 import { MantineProvider } from '@mantine/core';
@@ -129,5 +129,30 @@ describe('InlineImage', () => {
         expect(image.getAttribute('src')).toBe(made);
         unmount();
         await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith(made));
+    });
+
+    it('builds the object URL from the SDK Blob, whatever contentType claims', async () => {
+        const svg = new Blob(['<svg xmlns="http://www.w3.org/2000/svg"/>'], { type: 'image/svg+xml' });
+        vi.mocked(wilson.chat.fetchAChatImage).mockResolvedValue({
+            contentType: 'image/png',
+            data: svg,
+            headers: { xContentTypeOptions: 'nosniff', contentSecurityPolicy: "default-src 'none'" },
+        });
+        show(createElement(UserMessage, { text: '', threadId: '7', attachments: [attachment('1', 'drawing.svg')] }));
+        const image = await screen.findByAltText('drawing.svg');
+        expect(URL.createObjectURL).toHaveBeenCalledWith(svg);
+        expect(image.getAttribute('src')).toMatch(/^blob:/);
+    });
+
+    it.each([
+        ['a click', (image: HTMLElement) => fireEvent.click(image)],
+        ['Enter', (image: HTMLElement) => fireEvent.keyDown(image, { key: 'Enter' })],
+    ])('opens the enlarged image on %s', async (_label, open) => {
+        show(createElement(UserMessage, { text: '', threadId: '7', attachments: [attachment('1', 'first.png')] }));
+        const image = await screen.findByAltText('first.png');
+        expect(screen.queryByRole('dialog')).toBeNull();
+        open(image);
+        const dialog = await screen.findByRole('dialog');
+        expect(within(dialog).getByAltText('first.png')).toBeTruthy();
     });
 });
