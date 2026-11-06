@@ -646,7 +646,13 @@ export class StageDispatcher {
                 cardId,
                 stage: stageName,
                 type: 'stage.failed',
-                payload: { error: reason, patchPath, failureClass: 'error', reason: reason.slice(0, REASON_LIMIT) },
+                // A lost host is the process failing, not the stage: classed so, and counted apart.
+                payload: {
+                    error: reason,
+                    patchPath,
+                    failureClass: err instanceof HostLostError ? 'hostLost' : 'error',
+                    reason: reason.slice(0, REASON_LIMIT),
+                },
             });
             throw err;
         }
@@ -748,6 +754,17 @@ export class StageDispatcher {
         // are left. Ahead of the halt below, whose reason says less about what to do.
         if (outcome.needsHumanReason) {
             decision = { target: stageName, retries: decision.retries, needsHuman: { reason: outcome.needsHumanReason } };
+        }
+
+        // A failure of the process rather than the stage (an engine API error) is no attempt at the
+        // work, so it spends none of the card's retries, and a retry would fail the same way in
+        // seconds. The card waits where it is, with its counters as they were, for a person to fix it.
+        if (outcome.processFailure && !outcome.passed) {
+            decision = {
+                target: stageName,
+                retries: head.frontmatter.retries,
+                needsHuman: { reason: `"${stageName}" is held, with no retry spent: ${outcome.processFailure}` },
+            };
         }
 
         // Card 0200: a card whose ticket closed externally while this stage was running halts here

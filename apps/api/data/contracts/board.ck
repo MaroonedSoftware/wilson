@@ -391,7 +391,7 @@ contract ProjectGateKickback: {
 # Every failed attempt by why, including those that retried in place and judged nothing. `matched` is as
 # on `ProjectGateKickback`, and older failures that match no known message count as `verifier`.
 contract ProjectGateFailure: {
-    failureClass: enum(verifier, reportRejected, schemaInvalid, noReport, resultDropped, budget, engine, loop, error)
+    failureClass: enum(verifier, reportRejected, schemaInvalid, noReport, resultDropped, budget, engine, engineApi, hostLost, loop, error)
     count: int
     matched: int
 }
@@ -412,8 +412,10 @@ contract ProjectGateRule: {
 }
 
 # A card flagged for a person by what flagged it. A flag on a card still flagged counts once.
+# `processFailure` is a card held for a fault outside its work, such as an engine API error or a host
+# that kept dropping, with no retry spent.
 contract ProjectGateTouchpoint: {
-    cause: enum(question, kickbackLimit, overBudget, contextOverflow, rebaseConflict, poisoned, dead, sourceClosed)
+    cause: enum(question, kickbackLimit, overBudget, contextOverflow, rebaseConflict, poisoned, dead, sourceClosed, processFailure)
     count: int
 }
 

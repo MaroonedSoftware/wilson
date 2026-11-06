@@ -136,6 +136,21 @@ describe('foldGateStats touchpoints', () => {
         expect(figures.questions.asked).toBe(1);
     });
 
+    it('counts a card held for a process failure apart from one out of retries', () => {
+        const figures = foldGateStats([
+            flag({ failureClass: 'engineApi' }),
+            flag({ cardId: '0002', failureClass: 'engine' }),
+            flag({ cardId: '0003', failureClass: 'hostLost' }),
+        ]);
+
+        expect(figures.touchpoints).toEqual(
+            expect.arrayContaining([
+                { cause: 'processFailure', count: 2 },
+                { cause: 'kickbackLimit', count: 1 },
+            ]),
+        );
+    });
+
     it('names a death rather than the poisoning it caused, and ignores one already resolved', () => {
         const figures = foldGateStats([
             row('stage.dead'),

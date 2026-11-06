@@ -246,6 +246,13 @@ export const executeStage = async (deps: StageExecutionDeps, input: StageExecuti
         failures.unshift(run.engineFailure);
     }
 
+    // Ahead even of that: the model API turned the engine's request down, so the stage never ran at
+    // all, and the API's own words say what to fix.
+    const processFailure = run.engineApiError
+        ? `the model API refused the engine's request, so the stage never ran: ${run.engineApiError}`
+        : undefined;
+    if (processFailure) failures.unshift(processFailure);
+
     // None of the checks above is a verdict on the code: a truncated run, a budget or engine
     // cutoff, a missing report and an unparseable result are all the stage failing to finish, not
     // a judgment of what it produced. Left `false` when a verifier's own substantive checks are
@@ -263,6 +270,7 @@ export const executeStage = async (deps: StageExecutionDeps, input: StageExecuti
             run.truncated ||
             Boolean(run.budgetFailure) ||
             Boolean(run.engineFailure) ||
+            Boolean(processFailure) ||
             Boolean(verification.reportRejected));
 
     // Only the verifier's own failures may stand: one added above means the run did not finish,
@@ -284,8 +292,10 @@ export const executeStage = async (deps: StageExecutionDeps, input: StageExecuti
         trace: run.trace,
         ...(run.truncated && { truncated: true }),
         ...(verification.reportRejected && { reportRejected: true }),
+        ...(processFailure && { processFailure }),
         ...(failures.length > 0 && {
             failureClass: failureClassOf({
+                engineApiError: run.engineApiError,
                 engineFailure: run.engineFailure,
                 budgetFailure: run.budgetFailure,
                 truncated: run.truncated,

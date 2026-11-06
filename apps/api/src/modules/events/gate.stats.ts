@@ -1,5 +1,5 @@
 import { isOverBudgetMessage } from '#modules/agent/budget.js';
-import type { FailureClass } from '#modules/stages/stage.result.js';
+import { PROCESS_FAILURE_CLASSES, type FailureClass } from '#modules/stages/stage.result.js';
 import type { ProjectGateKickback, ProjectGateTouchpoint } from '../../generated/board.js';
 
 type TouchpointCause = ProjectGateTouchpoint['cause'];
@@ -68,6 +68,12 @@ const CAUSE_OF: Partial<Record<string, TouchpointCause>> = {
     'rebase.conflict': 'rebaseConflict',
     'stage.dead': 'dead',
     'stage.poisoned': 'poisoned',
+};
+
+/** What raised a runner's flag that no event before it named. */
+const flagCause = (row: GateEventRow): TouchpointCause => {
+    if (row.failureClass && PROCESS_FAILURE_CLASSES.has(row.failureClass)) return 'processFailure';
+    return row.reason === 'source-closed' ? 'sourceClosed' : 'kickbackLimit';
 };
 
 const bump = <K>(counts: Map<K, number>, key: K, by = 1): void => {
@@ -170,7 +176,7 @@ export const foldGateStats = (rows: GateEventRow[]): GateFigures => {
 
         if (row.by === 'runner' && (row.needsHuman || row.to === 'poisoned')) {
             if (!flagged.has(row.cardId)) {
-                bump(touchpoints, causes.get(row.cardId) ?? (row.reason === 'source-closed' ? 'sourceClosed' : 'kickbackLimit'));
+                bump(touchpoints, causes.get(row.cardId) ?? flagCause(row));
             }
             causes.delete(row.cardId);
             flagged.add(row.cardId);

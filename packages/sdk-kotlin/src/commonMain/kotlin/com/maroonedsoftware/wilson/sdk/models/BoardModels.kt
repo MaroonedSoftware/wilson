@@ -317,7 +317,11 @@ data class ProjectGateRule(
     val unavailable: Long,
 )
 
-/** A card flagged for a person by what flagged it. A flag on a card still flagged counts once. */
+/**
+ * A card flagged for a person by what flagged it. A flag on a card still flagged counts once.
+ * `processFailure` is a card held for a fault outside its work, such as an engine API error or a host
+ * that kept dropping, with no retry spent.
+ */
 @Serializable
 data class ProjectGateTouchpoint(
     val cause: ProjectGateTouchpointCause,
@@ -1322,6 +1326,8 @@ enum class ProjectGateFailureFailureClass {
     RESULT_DROPPED,
     BUDGET,
     ENGINE,
+    ENGINE_API,
+    HOST_LOST,
     LOOP,
     ERROR,
 
@@ -1343,6 +1349,8 @@ object ProjectGateFailureFailureClassSerializer : SdkEnumSerializer<ProjectGateF
     ProjectGateFailureFailureClass.RESULT_DROPPED to "resultDropped",
     ProjectGateFailureFailureClass.BUDGET to "budget",
     ProjectGateFailureFailureClass.ENGINE to "engine",
+    ProjectGateFailureFailureClass.ENGINE_API to "engineApi",
+    ProjectGateFailureFailureClass.HOST_LOST to "hostLost",
     ProjectGateFailureFailureClass.LOOP to "loop",
     ProjectGateFailureFailureClass.ERROR to "error",
 )
@@ -1357,6 +1365,7 @@ enum class ProjectGateTouchpointCause {
     POISONED,
     DEAD,
     SOURCE_CLOSED,
+    PROCESS_FAILURE,
 
     /**
      * A value this SDK does not know, such as a member the service added after it was generated.
@@ -1377,6 +1386,7 @@ object ProjectGateTouchpointCauseSerializer : SdkEnumSerializer<ProjectGateTouch
     ProjectGateTouchpointCause.POISONED to "poisoned",
     ProjectGateTouchpointCause.DEAD to "dead",
     ProjectGateTouchpointCause.SOURCE_CLOSED to "sourceClosed",
+    ProjectGateTouchpointCause.PROCESS_FAILURE to "processFailure",
 )
 
 @Serializable

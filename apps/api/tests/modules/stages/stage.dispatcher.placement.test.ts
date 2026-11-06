@@ -452,6 +452,10 @@ describe('StageDispatcher placement', () => {
         const card = await board.read('0001');
         expect(card.frontmatter.stage).toBe('implementing');
         expect(card.frontmatter.retries).toEqual({});
+        // Recorded as the process failing, not the stage.
+        expect(events.append).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'stage.failed', payload: expect.objectContaining({ failureClass: 'hostLost' }) }),
+        );
         expect(worktrees.commit).not.toHaveBeenCalled();
         expect(worktrees.reclaim).toHaveBeenCalledWith('0001', placement);
     });
