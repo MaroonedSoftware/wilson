@@ -109,6 +109,22 @@ describe('PostgresStageConfigStore', () => {
         expect(Object.isFrozen(stages.stages[0]!.allowedCommands)).toBe(true);
     });
 
+    it('stores a project webAllow list in its own column and loads it back (card 0019)', async () => {
+        const withWeb = uniqueProject();
+        await seedStageConfig(db, withWeb, `webAllow:\n  - github.com\n  - "*.githubusercontent.com"\n${VALID}`);
+        const webStore = new PostgresStageConfigStore(new StaticBoardConfig(withWeb, '/tmp/code', '/tmp/wt', '/tmp/run'), db);
+
+        const row = await db.selectFrom('wilson.projectLaneSettings').selectAll().where('project', '=', withWeb).executeTakeFirstOrThrow();
+        expect(row.webAllow).toEqual(['github.com', '*.githubusercontent.com']);
+        expect((await webStore.load()).webAllow).toEqual(['github.com', '*.githubusercontent.com']);
+    });
+
+    it('stores and loads an empty webAllow when the document names none (card 0019)', async () => {
+        const row = await db.selectFrom('wilson.projectLaneSettings').selectAll().where('project', '=', project).executeTakeFirstOrThrow();
+        expect(row.webAllow).toEqual([]);
+        expect((await store.load()).webAllow).toEqual([]);
+    });
+
     it('answers for the project on the call stack under runAsProject', async () => {
         const alpha = uniqueProject();
         const beta = uniqueProject();
