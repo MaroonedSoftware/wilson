@@ -432,6 +432,27 @@ describe('ChallengeVerifier', () => {
             expect(outcome.passed).toBe(true);
         });
 
+        // Card 0016: a review that reported `"1"` and a challenge that reports `"AC1"` name the same criterion.
+        it('matches an incoming criterion reported by bare number to the same criterion reported by ID', async () => {
+            const worktree = await manager.create(cardId, 'card/0001-thing');
+            await makeDiff(worktree);
+            const planCard = cardWithCriteria('1. does the thing');
+            const verifier = buildVerifier([reviewPassedEventWithCriteria([blocker('needs work')], [unmetCriterion('1')])]);
+
+            const result = {
+                summary: 'challenged',
+                verdict: 'pass',
+                findings: [],
+                refuted: [{ problem: 'needs work', reason: 'already handled' }],
+                criteria: [metCriterion('AC1')],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, planCard));
+
+            expect(outcome.failures).toEqual([]);
+            expect(outcome.passed).toBe(true);
+        });
+
         // AC2: blockers refuted, one criterion still unmet, verdict revise verifies...
         it('verifies a "revise" verdict when every blocker is refuted but a criterion is still unmet', async () => {
             const worktree = await manager.create(cardId, 'card/0001-thing');

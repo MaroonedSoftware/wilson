@@ -7,7 +7,7 @@ import type { StageAttachment } from '#modules/agent/stage.agent.js';
 import { withFindings } from '#modules/board/append.findings.js';
 import type { BoardConfig } from '#modules/board/board.config.js';
 import { serializeCard } from '#modules/board/card.parser.js';
-import { filesInScope, type Card } from '#modules/board/card.js';
+import { acceptanceCriteria, filesInScope, type Card } from '#modules/board/card.js';
 import type { CardAttachmentRepository } from '#modules/context/card.attachment.repository.js';
 import type { EventLog } from '#modules/events/event.log.js';
 import type { RemotePlacement } from '#modules/host/placement.js';
@@ -132,8 +132,33 @@ const otherStagesScopeNote = (stages: ProjectStages, currentStageName: string): 
 };
 
 /** What a stage's plan file holds: the card, then the scope notes, then any evidence. */
+/** How long a criterion's text may run in `criteriaIdsNote` before it is cut. */
+const CRITERION_PREVIEW = 80;
+
+/**
+ * The ID each acceptance criterion is checked under, with the start of its text. A plan that numbers
+ * its criteria `1.`, `2.` gets positional `AC<n>` IDs it never prints, so without this the agent can
+ * only guess them, and a review that reports `"1"` had every report rejected on that alone (card 0016).
+ * Empty when the plan has no acceptance criteria.
+ */
+const criteriaIdsNote = (card: Card): string => {
+    const criteria = acceptanceCriteria(card);
+    if (criteria.length === 0) return '';
+
+    const preview = (text: string) => (text.length > CRITERION_PREVIEW ? `${text.slice(0, CRITERION_PREVIEW).trimEnd()}…` : text);
+    return [
+        '## Acceptance criteria IDs',
+        '',
+        'Each acceptance criterion above is identified by the ID below. Use exactly these IDs when reporting criteria:',
+        '',
+        ...criteria.map(criterion => `- \`${criterion.id}\`: ${preview(criterion.text)}`),
+    ].join('\n');
+};
+
 export const planMaterial = (card: Card, stages: ProjectStages, stage: StageConfig, evidence?: string): string => {
-    const notes = [ownScopeNote(stage), otherStagesScopeNote(stages, stage.name), evidence ?? ''].filter(note => note.length > 0);
+    const notes = [criteriaIdsNote(card), ownScopeNote(stage), otherStagesScopeNote(stages, stage.name), evidence ?? ''].filter(
+        note => note.length > 0,
+    );
     return notes.length > 0 ? `${serializeCard(card).trimEnd()}\n\n${notes.join('\n\n')}\n` : serializeCard(card);
 };
 
