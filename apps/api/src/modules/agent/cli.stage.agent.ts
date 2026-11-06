@@ -189,6 +189,17 @@ const WRITE_TOOLS = ['Write', 'Edit'];
 const EXEC_TOOLS = ['Bash'];
 
 /**
+ * Why a Bash call with `run_in_background: true` is refused. A stage has no tool to read a
+ * background command's output back (`ENGINE_TOOLS` has no BashOutput), and the engine does not wake
+ * a finished turn when one completes, so an agent that backgrounds the suite and ends its turn "to
+ * wait for it" never reports and the stage fails with no result. Measured on the board between
+ * 2026-10-31 and 2026-11-06: four stage failures and a human flag across cards 0007, 0016 and 0017.
+ * Bash's own default timeout is two minutes, which is why the message names `timeout` too.
+ */
+export const BACKGROUND_BASH_DENIAL =
+    'run_in_background is not available in this stage: nothing can read a background command back, and the stage ends when your turn does. Run the command in the foreground and wait for it, setting the Bash timeout parameter (in milliseconds) if it may take longer than two minutes.';
+
+/**
  * Every built-in a stage can use: the ones `createToolGuard` has a rule for, and no others. Passed as
  * `tools`, because a native engine build leaves Glob and Grep out of its default set in favour of
  * `find` and `grep` through Bash, which `CommandAllowlist` refuses by pointing at those same tools.
@@ -678,6 +689,11 @@ export class CliStageAgent extends StageAgent {
                       `goes under ${SCRATCH_PREFIX} in the worktree. That path is writable in every stage,`,
                       `including this one if it is read-only, and everything under it is wiped once the run`,
                       `ends, so nothing written there is ever delivered, committed, or reviewed.`,
+                      '',
+                      `Run every Bash command in the foreground and wait for its result, the test suite included:`,
+                      `run_in_background is refused, because this stage ends when your turn does and nothing can`,
+                      `read a background command back. Set Bash's timeout (milliseconds) for anything that may take`,
+                      `longer than two minutes.`,
                       '',
                       `When the work is done and the build passes, call ${qualifiedReportTool()}; it defaults to`,
                       'that path, so no argument is needed unless you wrote the result somewhere else.',
@@ -1515,6 +1531,8 @@ export const createToolGuard = (
 
         if (EXEC_TOOLS.includes(toolName)) {
             const command = String(input.command ?? '');
+            // Checked before the allowlist, so even an allowed command is refused in the background.
+            if (input.run_in_background === true) return deny(BACKGROUND_BASH_DENIAL, { command });
             const decision = context.commands.check(command);
             if (!decision.allowed) return deny(decision.reason, { command });
             // Recorded once the command is allowed, not gated on its exit code — same reasoning as

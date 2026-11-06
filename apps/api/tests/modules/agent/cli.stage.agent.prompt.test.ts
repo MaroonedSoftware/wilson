@@ -145,4 +145,15 @@ describe('CliStageAgent prompt wiring', () => {
 
         expect(promptFromCall()).toContain('git diff cafef00d');
     });
+
+    it('tells the agent to run Bash in the foreground rather than in the background', async () => {
+        queryMock.mockReturnValue(emptyStream());
+        const agent = new CliStageAgent(silentLogger as never);
+
+        await agent.run(runInput(makeStage({ worktree: 'readonly' }), 'cafef00d') as never);
+
+        const prompt = promptFromCall();
+        expect(prompt).toContain('Run every Bash command in the foreground');
+        expect(prompt).toContain('run_in_background is refused');
+    });
 });
