@@ -412,13 +412,17 @@ verified until the stage finishes, so a resumed run is held to the same exit con
 
 **So a deploy does not have to wait.** A restart costs a running `cli` stage a pause of about a minute
 rather than its work: a 2026-11-02 run against a real engine stopped in under a second, resumed the same
-session, re-ran the tool the restart killed, and passed with no retry spent. Reopening a tree on a worker
-has since been proven by dropped connections, but no daemon restart has been run with one connected.
+session, re-ran the tool the restart killed, and passed with no retry spent. A stage placed on a worker
+does the same. A 2026-11-06 run restarted the daemon during a `remote` stage's command on a connected
+worker. The daemon stopped in under a second, the stage recorded a shutdown rather than a lost host, and
+nothing was left running on the worker. The worker reconnected by itself and the same session resumed in
+the same tree there. It re-ran the killed command and passed with no retry spent, and its commit came
+back to the daemon's clone. That worker ran from source on macOS, not in the `worker` image, and had one
+slot.
 
 **Drain when a restart must not interrupt anything.** That is a deploy that changes what a running stage
-depends on (its tools, its result contract, or how a resumed run behaves), one where a command stage,
-an `api` stage or a plan draft is running, since those are not resumed, and any restart until placed
-stages have been proven. `wilson server drain` lets running stages finish and starts nothing new,
+depends on (its tools, its result contract, or how a resumed run behaves), or one where a command stage,
+an `api` stage or a plan draft is running, since those are not resumed. `wilson server drain` lets running stages finish and starts nothing new,
 across every project. Auto-mode cannot do this, because a stage that passes enqueues its next stage
 directly. The drain is enforced where every stage arrives, as a pre-dispatch check
 (`holdWhileDraining`): a job that would have dispatched is sent again for 30 seconds later and hands
