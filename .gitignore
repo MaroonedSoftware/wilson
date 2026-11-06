@@ -15,6 +15,9 @@ coverage
 # Written by the testing stage's test command and read by its verifier. A generated
 # artifact: commit-on-pass does `git add -A`, so without this it lands on the branch.
 .vitest-report.json
+# A stage's scratch directory. The runner wipes it when a stage ends, but a process the agent
+# started can still be writing there afterwards, and `git add -A` would commit what it leaves.
+.wilson-scratch/
 
 # Env
 .env
