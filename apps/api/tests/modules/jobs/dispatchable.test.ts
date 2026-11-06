@@ -27,6 +27,7 @@ const makeStage = (overrides: Partial<StageConfig> = {}): StageConfig => ({
 const stages = (overrides: Partial<StageConfig>[] = []): ProjectStages => ({
     scopeViolation: 'widen',
     alwaysAllowed: [],
+    webAllow: [],
     deny: [],
     // Card 0260: findStage now reads stages.sandbox.enabled unconditionally when resolving a
     // stage — this fixture predates that field, and without it every call below that reaches
