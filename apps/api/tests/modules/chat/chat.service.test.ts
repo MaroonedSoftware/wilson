@@ -240,6 +240,37 @@ describe('ChatService', () => {
             expect(imagesIn(model.prompts)).toEqual([0, 0]);
             expect(JSON.stringify(model.prompts.at(-1))).not.toContain('[An earlier image was attached here.]');
         });
+
+        it("never lets a drawn image push a person's photo out of the replay window", async () => {
+            const drawingTurns = REPLAYED_IMAGE_MESSAGES + 1;
+            const { service, model } = setup([
+                says('A photo.'),
+                ...Array.from({ length: drawingTurns }, () => [draws, says('Drawn: ![the flow](/drawn)')]).flat(),
+                says('Still here.'),
+            ]);
+            const thread = await service.startThread();
+            await service.sendMessage(thread.id, { text: 'my photo', attachments: [await upload(thread.id)] });
+            for (let i = 0; i < drawingTurns; i++) await service.sendMessage(thread.id, { text: `draw ${i}` });
+
+            await service.sendMessage(thread.id, { text: 'and the photo?' });
+
+            expect(imagesIn(model.prompts)).toEqual([1, ...Array.from({ length: drawingTurns }, () => 0), 0]);
+            expect(JSON.stringify(model.prompts.at(-1))).not.toContain('[An earlier image was attached here.]');
+        });
+
+        it('publishes no event of its own for a drawn image, only the ones the answer would anyway', async () => {
+            const { service } = setup([draws, says('Here it is: ![the flow](/drawn)')]);
+            const thread = await service.startThread();
+            const heard: ChatStreamEvent[] = [];
+            const stop = onChatEvent(thread.id, event => heard.push(event));
+
+            const turn = await service.sendMessage(thread.id, { text: 'Draw the flow' });
+            stop();
+
+            expect(turn.reply.attachments).toHaveLength(1);
+            expect(heard.map(event => event.event)).toEqual(['delta', 'done']);
+            expect(heard.at(-1)).toEqual({ event: 'done', data: { seq: turn.reply.seq } });
+        });
     });
 
     it('starts an untitled thread on the chosen engine, and names it after its first message', async () => {
