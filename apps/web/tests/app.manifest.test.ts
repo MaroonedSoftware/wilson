@@ -78,9 +78,11 @@ describe('readAppManifest', () => {
         expect(reason(readAppManifest(html))).toContain(expected);
     });
 
-    // By the working directory, which is the package's, as jsdom's `URL` will not resolve a file one.
+    // By this file's own directory, not the working directory: the runner starts vitest from the
+    // repo root. `import.meta.dirname` rather than `new URL(..., import.meta.url)`, since jsdom's
+    // `URL` will not resolve a file one.
     it('reads the example app', () => {
-        const html = readFileSync(join(process.cwd(), 'examples/apps/board-summary.html'), 'utf8');
+        const html = readFileSync(join(import.meta.dirname, '../examples/apps/board-summary.html'), 'utf8');
 
         expect(readAppManifest(html)).toMatchObject({ ok: true, manifest: { id: 'board-summary', apiVersion: 1 } });
     });
