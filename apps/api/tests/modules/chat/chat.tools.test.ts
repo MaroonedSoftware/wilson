@@ -5,7 +5,7 @@ import { MAX_PROPOSED_APP_HTML_BYTES, PROPOSE_APP_DESCRIPTION, PROPOSED_APP_OPER
 import { orchestratorSession } from '#modules/goal/orchestrator.session.js';
 import { AppGrant } from '#src/generated/apps.js';
 import { QUESTION_TTL } from '#modules/chat/chat.questions.js';
-import { chatTools, PROPOSAL_TTL, RESULT_CAP, type ChatTool, type ChatToolEvent } from '#modules/chat/chat.tools.js';
+import { canDrawImages, chatTools, PROPOSAL_TTL, RESULT_CAP, type ChatTool, type ChatToolEvent } from '#modules/chat/chat.tools.js';
 import {
     fakeCatalog,
     fakeChatAttachments,
@@ -139,6 +139,59 @@ describe('the chat tools', () => {
             await tool('create_image').execute({ kind: 'svg', svg: SVG, filename: 'chart.svg', alt: 'a chart' });
 
             expect(events).toEqual([]);
+        });
+
+        it("refuses bytes the decoder will not take in the decoder's own words, storing nothing", async () => {
+            const { tool, context, attachments } = setup();
+
+            const notBase64 = await tool('create_image').execute({ kind: 'bytes', bytes: 'not base64!', filename: 'a.png', alt: 'a' });
+            const notAnImage = await tool('create_image').execute({
+                kind: 'bytes',
+                bytes: Buffer.from('just some text, no picture').toString('base64'),
+                filename: 'a.png',
+                alt: 'a',
+            });
+
+            expect(notBase64).toContain('not valid base64');
+            expect(notAnImage).toContain('not a PNG, JPEG, WebP or GIF');
+            expect(attachments.stored).toEqual([]);
+            expect(context.created).toEqual([]);
+        });
+
+        it('uses the argument kind names when both are sent, and ignores the other', async () => {
+            const { tool, context, attachments } = setup();
+
+            await tool('create_image').execute({ kind: 'bytes', bytes: PNG, svg: SVG, filename: 'a', alt: 'a' });
+            await tool('create_image').execute({ kind: 'svg', svg: SVG, bytes: PNG, filename: 'b', alt: 'b' });
+
+            expect(attachments.stored.map(stored => stored.contentType)).toEqual(['image/png', 'image/svg+xml']);
+            expect(context.created.map(created => created.id)).toEqual(['1', '2']);
+        });
+
+        it('still accepts a call after a refused one, which did not count toward the cap', async () => {
+            const { tool, context } = setup();
+            for (let i = 0; i < 4; i++) await tool('create_image').execute({ kind: 'svg', svg: SVG, filename: 'chart.svg', alt: 'a chart' });
+            await tool('create_image').execute({ kind: 'bytes', bytes: 'not base64!', filename: 'a.png', alt: 'a' });
+
+            const answer = await tool('create_image').execute({ kind: 'svg', svg: SVG, filename: 'chart.svg', alt: 'the fifth' });
+
+            expect(answer).toContain('![the fifth](/api/chat/threads/42/attachments/5)');
+            expect(context.created).toHaveLength(5);
+        });
+
+        it('falls back to "image" for alt text that is nothing but brackets and newlines', async () => {
+            const { tool } = setup();
+
+            const answer = await tool('create_image').execute({ kind: 'svg', svg: SVG, filename: 'a.svg', alt: '[]\n[' });
+
+            expect(answer).toContain('![image](/api/chat/threads/42/attachments/1)');
+        });
+    });
+
+    describe('canDrawImages', () => {
+        it('lets a person draw, and a goal wake-up not', () => {
+            expect(canDrawImages(fakeSession)).toBe(true);
+            expect(canDrawImages(orchestratorSession())).toBe(false);
         });
     });
 

@@ -30,6 +30,7 @@ import { ChatThreadRepository } from '#modules/chat/chat.thread.repository.js';
 import { ChatUsageRepository } from '#modules/chat/chat.usage.repository.js';
 import type { DB } from '#modules/data/db.js';
 import { GoalRepository } from '#modules/goal/goal.repository.js';
+import { orchestratorSession } from '#modules/goal/orchestrator.session.js';
 import { testDb } from '#tests/support/test.db.js';
 import { fakeCatalog, fakeContainer, fakeHandler, fakeSession, refusal, type FakeCall } from './chat.fakes.js';
 import { calls, says, scriptedModel } from './chat.model.fake.js';
@@ -191,6 +192,36 @@ describe('ChatService', () => {
             expect(await repository.readUnclaimed(thread.id, [String(drawn[0]!.id)])).toEqual([
                 expect.objectContaining({ contentType: 'image/svg+xml', messageSeq: undefined }),
             ]);
+        });
+
+        it('stores the answer with no image when the drawing was refused, and keeps no row', async () => {
+            const refused = calls('create_image', {
+                kind: 'svg',
+                svg: '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+                filename: 'x.svg',
+                alt: 'x',
+            });
+            const { service, model } = setup([refused, says('I could not draw it.')]);
+            const thread = await service.startThread();
+
+            const turn = await service.sendMessage(thread.id, { text: 'Draw the flow' });
+
+            expect(turn.reply.content).toBe('I could not draw it.');
+            expect(turn.reply.attachments).toBeUndefined();
+            expect(JSON.stringify(model.prompts.at(-1))).toContain('script');
+            const rows = await db.selectFrom('wilson.chatAttachments').select('id').where('threadId', '=', BigInt(thread.id)).execute();
+            expect(rows).toEqual([]);
+        });
+
+        it('claims every image a turn drew on its one answer', async () => {
+            const { service } = setup([draws, draws, says('Two: ![a](/x) ![b](/y)')]);
+            const thread = await service.startThread();
+
+            const turn = await service.sendMessage(thread.id, { text: 'Draw it twice' });
+
+            expect(turn.reply.attachments).toHaveLength(2);
+            const claimed = await new ChatAttachmentRepository(db).listClaimed(thread.id);
+            expect(claimed.map(attachment => attachment.messageSeq)).toEqual([turn.reply.seq, turn.reply.seq]);
         });
 
         it('never replays, or reads the bytes of, an image on an answer', async () => {
@@ -402,6 +433,17 @@ describe('ChatService', () => {
 
             expect(outcome?.proposed.map(action => action.status)).toEqual(['pending']);
             expect(operationCalls).toEqual([]);
+        });
+
+        it('does not offer a goal wake-up drawing, where a person asking does get it', async () => {
+            const { service, model } = setup([says('Noted.'), says('Sure.')], noRequest);
+            const thread = await service.startThread();
+
+            await service.runNote(thread.id, '(A note from Wilson.) 0007 passed.', orchestratorSession());
+            await service.runNote(thread.id, '(A note from Wilson.) 0008 passed.', fakeSession);
+
+            expect(JSON.stringify(model.prompts[0])).not.toContain('as SVG');
+            expect(JSON.stringify(model.prompts[1])).toContain('as SVG');
         });
 
         it('rejects when the turn fails, where a follow-up would only log it', async () => {
