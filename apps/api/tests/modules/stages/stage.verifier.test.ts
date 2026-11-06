@@ -90,6 +90,7 @@ describe('assertRoutesResolve', () => {
     const config = (...stages: ReturnType<typeof stage>[]) => ({
         scopeViolation: 'widen' as const,
         alwaysAllowed: [],
+        webAllow: [],
         deny: [],
         sandbox: { enabled: false, allowedDomains: [] },
         stages,
