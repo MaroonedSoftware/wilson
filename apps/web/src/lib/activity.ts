@@ -17,6 +17,7 @@ const SUMMARIES: Record<string, ActivitySummary> = {
     'stage.dead': { label: 'Gave up on {stage}', color: 'red' },
     'stage.stale': { label: 'Abandoned a stale {stage} run', color: 'orange' },
     'test.flaky': { label: 'Found a flaky test', color: 'orange' },
+    'test.preexisting': { label: 'Found a test already failing before this card', color: 'orange' },
     'rebase.conflict': { label: 'Hit a rebase conflict', color: 'red' },
     'context.overflow': { label: 'Ran out of context in {stage}', color: 'red' },
     'dispatch.deferred': { label: 'Deferred dispatch', color: 'gray' },

@@ -2024,7 +2024,9 @@ describe('BoardWriteService', () => {
             reReviewOnMerge = false,
             placer?: HostPlacer,
         ) => {
-            const events = { append: vi.fn(async () => {}) };
+            // What `tail` returns: the card's history as the merge check reads it (`test.preexisting`).
+            const history: Array<{ id: string; stage: string | null; type: string; payload: Record<string, unknown> }> = [];
+            const events = { append: vi.fn(async () => {}), tail: vi.fn(async () => history) };
             const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
             const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
             const logger = fakeLogger();
@@ -2044,7 +2046,7 @@ describe('BoardWriteService', () => {
                 stages,
                 placer,
             );
-            return { board, events, service };
+            return { board, events, history, service };
         };
 
         it('refuses a card that is not in ready, touching none of the git plumbing', async () => {
@@ -2405,6 +2407,87 @@ describe('BoardWriteService', () => {
             // Proves the rerun actually ran, not just that the outcome matches today's.
             const calls = (await readFile(join(dir, 'calls.log'), 'utf8')).trim().split('\n');
             expect(calls).toHaveLength(2);
+        });
+
+        const redMergeSuite = async (cardId: string, tests: Array<{ file: string; name: string }>) => {
+            const dir = await mkdtemp(join(tmpdir(), 'board-write-service-merge-preexisting-'));
+            const scriptPath = await writeFakeMergeSuite(dir, { reportPath: 'report.json', tests, rerunExit: 1 });
+            const mergeStages = new StaticStageConfigStore(
+                [
+                    'stages:',
+                    '  - name: testing',
+                    '    mode: agent',
+                    '    model: claude-opus',
+                    '    instructions: test the thing',
+                    `    testCommand: node ${scriptPath}`,
+                    '    testReportPath: report.json',
+                    '    onPass: merged',
+                    '    onFail: testing',
+                    '',
+                ].join('\n'),
+            );
+            const worktrees = mergeWorktrees({
+                create: vi.fn(async () => ({ path: dir, branch: `card/${cardId}-merge-check`, baseSha: 'merge-commit-sha' })),
+            });
+            return freshMergeBoard(worktrees, mergeStages);
+        };
+
+        it('merges when every merge-check failure is one the testing stage recorded as failing on the baseline too', async () => {
+            const { board, events, history, service } = await redMergeSuite('0201', [{ file: 'env.test.ts', name: 'needs a database' }]);
+            history.push({
+                id: '1',
+                stage: 'testing',
+                type: 'test.preexisting',
+                payload: { tests: ['env.test.ts > needs a database'], run: 'testing' },
+            });
+            await board.create(card('0201', { stage: 'ready' }), 'seed');
+
+            const result = await service.merge('0201');
+
+            expect(result.merged).toBe(true);
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    cardId: '0201',
+                    type: 'test.preexisting',
+                    payload: { tests: ['env.test.ts > needs a database'], run: 'merge-check' },
+                }),
+            );
+        });
+
+        it('still refuses a merge with a failure the baseline did not share, naming only that one', async () => {
+            const { board, history, service } = await redMergeSuite('0202', [
+                { file: 'env.test.ts', name: 'needs a database' },
+                { file: 'thing.test.ts', name: 'really broken' },
+            ]);
+            history.push({
+                id: '1',
+                stage: 'testing',
+                type: 'test.preexisting',
+                payload: { tests: ['env.test.ts > needs a database'], run: 'testing' },
+            });
+            await board.create(card('0202', { stage: 'ready' }), 'seed');
+
+            const result = await service.merge('0202');
+
+            expect(result.merged).toBe(false);
+            expect(result.reason).toContain('1 failing: thing.test.ts > really broken');
+            expect(result.reason).not.toContain('needs a database');
+        });
+
+        it('does not exempt a failure a merge check, rather than the testing stage, recorded', async () => {
+            const { board, history, service } = await redMergeSuite('0203', [{ file: 'env.test.ts', name: 'needs a database' }]);
+            history.push({
+                id: '1',
+                stage: 'ready',
+                type: 'test.preexisting',
+                payload: { tests: ['env.test.ts > needs a database'], run: 'merge-check' },
+            });
+            await board.create(card('0203', { stage: 'ready' }), 'seed');
+
+            const result = await service.merge('0203');
+
+            expect(result.merged).toBe(false);
+            expect(result.reason).toContain('env.test.ts > needs a database');
         });
 
         it('lands a clean merge whose suite passes, and moves the card to merged', async () => {

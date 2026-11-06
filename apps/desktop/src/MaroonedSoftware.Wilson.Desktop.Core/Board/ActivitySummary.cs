@@ -29,6 +29,7 @@ public static class ActivitySummary
         ["stage.dead"] = new("Gave up on {stage}", ActivityTone.Bad),
         ["stage.stale"] = new("Abandoned a stale {stage} run", ActivityTone.Caution),
         ["test.flaky"] = new("Found a flaky test", ActivityTone.Caution),
+        ["test.preexisting"] = new("Found a test already failing before this card", ActivityTone.Caution),
         ["rebase.conflict"] = new("Hit a rebase conflict", ActivityTone.Bad),
         ["context.overflow"] = new("Ran out of context in {stage}", ActivityTone.Bad),
         ["dispatch.deferred"] = new("Deferred dispatch", ActivityTone.Quiet),

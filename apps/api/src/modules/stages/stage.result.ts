@@ -327,6 +327,8 @@ export interface StageOutcome {
     needsHuman?: boolean;
     /** The verifier's `needsHumanReason`: flag the card with this, whatever retries it has left. */
     needsHumanReason?: string;
+    /** The verifier's `preExistingFailures`: tests red on the baseline tree too, so not counted. */
+    preExistingFailures?: string[];
     /**
      * Set on a failing outcome the process caused rather than the stage (a `PROCESS_FAILURE_CLASSES`
      * class): why the card is held. `writeTransition` flags the card with this and leaves its retries
