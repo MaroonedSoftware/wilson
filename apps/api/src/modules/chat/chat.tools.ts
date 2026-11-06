@@ -13,6 +13,9 @@ import {
     proposedAppSummary,
     type ProposedAppArguments,
 } from './chat.app.proposal.js';
+import type { StoredChatAttachment } from './chat.attachment.repository.js';
+import { ChatAttachmentService } from './chat.attachment.service.js';
+import { MAX_CREATED_IMAGES_PER_TURN } from './chat.image.js';
 import type { ChatOperation } from './chat.message.repository.js';
 import { ChatPendingActionRepository, type PendingAction } from './chat.pending.action.repository.js';
 import { ChatQuestionRepository, type PendingQuestion } from './chat.question.repository.js';
@@ -37,8 +40,9 @@ export type ChatToolEvent =
     { type: 'operation'; operation: ChatOperation } | { type: 'proposed'; action: PendingAction } | { type: 'asked'; question: PendingQuestion };
 
 /**
- * One turn's state, shared by its tools. `operations`, `proposed` and `asked` are what the turn did,
- * kept on the stored answer; `emit` passes each one on as it happens.
+ * One turn's state, shared by its tools. `operations`, `proposed`, `asked` and `created` are what the
+ * turn did, kept on the stored answer; `emit` passes the first three on as they happen. A created image
+ * has no event of its own: it reaches the browser with the answer that claims it.
  */
 export interface ChatTurnContext {
     threadId: string;
@@ -51,6 +55,8 @@ export interface ChatTurnContext {
     operations: ChatOperation[];
     proposed: PendingAction[];
     asked: PendingQuestion[];
+    /** The images this turn drew, claimed by the answer when it is stored. */
+    created: StoredChatAttachment[];
     emit?: (event: ChatToolEvent) => void;
 }
 
@@ -87,14 +93,29 @@ const ARGUMENTS = z
     );
 
 /**
+ * Whether a turn run as `session` may draw images: not a goal's wake-up, which nobody asked for, so
+ * there is no person for the picture to be for. A follow-up after a person's confirm runs as them, and may.
+ */
+export const canDrawImages = (session: AuthenticationSession): boolean => session.subject !== ORCHESTRATOR_SUBJECT;
+
+/** `]` would end the markdown image node early, and a newline would break it; nothing else needs escaping. */
+const markdownAlt = (alt: string): string => alt.replace(/[[\]\r\n]+/g, ' ').trim() || 'image';
+
+/**
  * The tools the chat's agent gets, in the shape of ats's meta tools: one to find an operation, one to
  * read its input schema, one to run a read, one to propose a change, one to propose an operator app,
- * and one to ask the person a structured question. Nothing here runs a change. `propose_change` and
- * `propose_app` store it as a pending action, and only the person's confirm runs it; `ask_user` stores
- * a pending question the same way, and only their submission answers it.
+ * one to draw an image, and one to ask the person a structured question. Nothing here runs a change.
+ * `propose_change` and `propose_app` store it as a pending action, and only the person's confirm runs
+ * it; `ask_user` stores a pending question the same way, and only their submission answers it.
  *
- * A goal's wake-up does not get `propose_app`: nobody asked for that turn, and an app's source is what
- * a person is asked to read, so it should not arrive unbidden from text the turn read.
+ * `create_image` does write a row, and is still inside that rule: it adds a picture to the thread it
+ * is already answering in, seen only by the person it is answering, and changes nothing on the board,
+ * so there is nothing for them to confirm. The row stays unclaimed until the answer that shows it is
+ * stored, and a turn that stores no answer leaves it for `sweepUnclaimed`.
+ *
+ * A goal's wake-up gets neither `propose_app` nor `create_image`: nobody asked for that turn, an app's
+ * source is what a person is asked to read, so it should not arrive unbidden from text the turn read,
+ * and a picture is for the person being answered ({@link canDrawImages}).
  */
 export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatTool[] => {
     const record = (operation: ChatOperation) => {
@@ -137,6 +158,45 @@ export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatT
             return `Proposed as change ${action.id}. It has not been installed. The person will read it and confirm or decline it within ${PROPOSAL_TTL.as('minutes')} minutes.`;
         },
     };
+
+    const createImage: ChatTool = {
+        name: 'create_image',
+        description:
+            'Draw an image to show in your answer: an SVG document you write yourself (not Mermaid, and not a prompt to an image model), or base64 image bytes. ' +
+            'It answers with a line of markdown. Paste that markdown into this same answer where the image belongs: nothing is shown unless you do. ' +
+            `At most ${MAX_CREATED_IMAGES_PER_TURN} images in one answer.`,
+        input: z.object({
+            kind: z.enum(['svg', 'bytes']).describe('svg for an SVG document you write yourself, bytes for base64 image bytes.'),
+            svg: z
+                .string()
+                .optional()
+                .describe('The whole SVG document, when kind is svg. Declare xmlns="http://www.w3.org/2000/svg" on its root, and use no scripts, event handlers or links.'),
+            bytes: z.string().optional().describe('Base64 PNG, JPEG, WebP or GIF bytes, when kind is bytes.'),
+            filename: z.string().min(1).max(120).describe('A short file name for the image, e.g. "stage-flow.svg".'),
+            alt: z.string().min(1).max(200).describe('Alt text saying what the image shows.'),
+        }),
+        execute: async input => {
+            const { kind, svg, bytes, filename, alt } = input as { kind: 'svg' | 'bytes'; svg?: string; bytes?: string; filename: string; alt: string };
+            if (context.created.length >= MAX_CREATED_IMAGES_PER_TURN)
+                return `You have already made ${MAX_CREATED_IMAGES_PER_TURN} images in this answer, which is the most one answer can show. Use one of those instead.`;
+            if (kind === 'svg' && !svg)
+                return 'You asked for kind "svg" but sent no SVG source. Call again with the SVG document in the svg argument.';
+            if (kind === 'bytes' && !bytes)
+                return 'You asked for kind "bytes" but sent no base64 image bytes. Call again with the base64 image bytes in the bytes argument.';
+            let stored: StoredChatAttachment;
+            try {
+                stored = await context.container
+                    .get(ChatAttachmentService)
+                    .create(context.threadId, kind === 'svg' ? { kind: 'svg', source: svg! } : { kind: 'bytes', base64: bytes! }, filename);
+            } catch (err) {
+                return explainError(err);
+            }
+            context.created.push(stored);
+            return `Made image ${stored.id}. Show it in your answer as: ![${markdownAlt(alt)}](/api/chat/threads/${context.threadId}/attachments/${stored.id}) — nothing is shown unless you do.`;
+        },
+    };
+
+    const drawing = canDrawImages(context.session);
 
     return [
         ...(context.session.subject === ORCHESTRATOR_SUBJECT ? [] : [proposeApp]),
@@ -231,6 +291,7 @@ export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatT
                 return `Proposed as change ${action.id}: "${summary}". It has not been made. The person will confirm or decline it within ${PROPOSAL_TTL.as('minutes')} minutes.`;
             },
         },
+        ...(drawing ? [createImage] : []),
         {
             name: 'ask_user',
             description:

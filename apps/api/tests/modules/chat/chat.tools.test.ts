@@ -8,6 +8,7 @@ import { QUESTION_TTL } from '#modules/chat/chat.questions.js';
 import { chatTools, PROPOSAL_TTL, RESULT_CAP, type ChatTool, type ChatToolEvent } from '#modules/chat/chat.tools.js';
 import {
     fakeCatalog,
+    fakeChatAttachments,
     fakeContainer,
     fakeHandler,
     fakeProposals,
@@ -21,32 +22,124 @@ import {
 /**
  * The tools the chat's agent gets. The rule they enforce is the chat's whole safety model: the
  * agent may run a read, but a change only ever becomes a pending action and a question only ever a
- * pending question, both for the person alone to decide.
+ * pending question, both for the person alone to decide. The one tool that writes, `create_image`,
+ * adds a picture to the thread being answered and changes nothing on the board.
  */
 describe('the chat tools', () => {
     const setup = (calls: FakeCall[] = []) => {
         const proposals = fakeProposals();
         const questions = fakeQuestions();
+        const attachments = fakeChatAttachments();
         const catalog = fakeCatalog([
             fakeHandler('list_cards', true, calls, { result: [{ id: '0007', stage: 'review' }] }),
             fakeHandler('get_card', true, calls, { fails: refusal('card 0099 not found') }),
             fakeHandler('get_card_diff', true, calls, { result: 'x'.repeat(RESULT_CAP * 2) }),
             fakeHandler('move_card', false, calls, { result: { id: '0007' } }),
         ]);
-        const context = turnContext(fakeContainer(proposals.repository, questions.repository), '42');
+        const context = turnContext(fakeContainer(proposals.repository, questions.repository, undefined, attachments.service), '42');
         const events: ChatToolEvent[] = [];
         context.emit = event => events.push(event);
         const tools = chatTools(catalog, context);
         const tool = (name: string): ChatTool => tools.find(candidate => candidate.name === name)!;
-        return { tool, context, events, proposals, questions, calls };
+        return { tool, context, events, proposals, questions, attachments, calls };
     };
 
-    it('offers exactly these tools, none of which makes a change', () => {
+    it('offers exactly these tools, of which only create_image writes, a picture, and none changes the board', () => {
         expect(
             chatTools(fakeCatalog([]), turnContext(fakeContainer()))
                 .map(tool => tool.name)
                 .sort(),
-        ).toEqual(['ask_user', 'describe', 'discover', 'dispatch_readonly', 'propose_app', 'propose_change']);
+        ).toEqual(['ask_user', 'create_image', 'describe', 'discover', 'dispatch_readonly', 'propose_app', 'propose_change']);
+    });
+
+    it('gives a goal wake-up no create_image, since nobody asked for the turn', () => {
+        const context = { ...turnContext(fakeContainer()), session: orchestratorSession() };
+
+        expect(
+            chatTools(fakeCatalog([]), context)
+                .map(tool => tool.name)
+                .sort(),
+        ).toEqual(['ask_user', 'describe', 'discover', 'dispatch_readonly', 'propose_change']);
+    });
+
+    describe('create_image', () => {
+        const SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8" fill="teal"/></svg>';
+        const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]).toString('base64');
+
+        it('stores a drawn SVG, records it on the turn, and hands back the markdown to embed', async () => {
+            const { tool, context, attachments } = setup();
+
+            const answer = await tool('create_image').execute({ kind: 'svg', svg: SVG, filename: 'chart.svg', alt: 'a chart' });
+
+            expect(attachments.stored).toEqual([expect.objectContaining({ threadId: '42', contentType: 'image/svg+xml' })]);
+            expect(context.created).toEqual([expect.objectContaining({ id: '1', contentType: 'image/svg+xml' })]);
+            expect(answer).toContain('![a chart](/api/chat/threads/42/attachments/1)');
+            expect(answer).toContain('nothing is shown unless you do');
+        });
+
+        it('stores base64 bytes under the type their bytes are, whatever the caller called them', async () => {
+            const { tool, context, attachments } = setup();
+
+            const answer = await tool('create_image').execute({ kind: 'bytes', bytes: PNG, filename: 'photo.jpg', alt: 'a dot' });
+
+            expect(attachments.stored).toEqual([expect.objectContaining({ contentType: 'image/png' })]);
+            expect(context.created).toHaveLength(1);
+            expect(answer).toContain('/api/chat/threads/42/attachments/1');
+        });
+
+        it("refuses an SVG with a script in the sanitiser's own words, storing nothing", async () => {
+            const { tool, context, attachments } = setup();
+
+            const answer = await tool('create_image').execute({
+                kind: 'svg',
+                svg: '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+                filename: 'x.svg',
+                alt: 'x',
+            });
+
+            expect(answer).toContain('script');
+            expect(attachments.stored).toEqual([]);
+            expect(context.created).toEqual([]);
+        });
+
+        it('refuses a sixth image in one turn, naming the cap and storing nothing', async () => {
+            const { tool, context, attachments } = setup();
+            for (let i = 0; i < 5; i++) await tool('create_image').execute({ kind: 'svg', svg: SVG, filename: 'chart.svg', alt: 'a chart' });
+
+            const answer = await tool('create_image').execute({ kind: 'svg', svg: SVG, filename: 'chart.svg', alt: 'a chart' });
+
+            expect(answer).toContain('5');
+            expect(answer).toContain('already made');
+            expect(attachments.stored).toHaveLength(5);
+            expect(context.created).toHaveLength(5);
+        });
+
+        it('refuses a kind that disagrees with the argument sent, storing nothing', async () => {
+            const { tool, context, attachments } = setup();
+
+            expect(await tool('create_image').execute({ kind: 'svg', bytes: PNG, filename: 'a.svg', alt: 'a' })).toContain('sent no SVG source');
+            expect(await tool('create_image').execute({ kind: 'bytes', svg: SVG, filename: 'a.png', alt: 'a' })).toContain(
+                'sent no base64 image bytes',
+            );
+            expect(attachments.stored).toEqual([]);
+            expect(context.created).toEqual([]);
+        });
+
+        it('keeps the markdown whole when the alt text has brackets or newlines in it', async () => {
+            const { tool } = setup();
+
+            const answer = await tool('create_image').execute({ kind: 'svg', svg: SVG, filename: 'a.svg', alt: 'the[draft]\nflow' });
+
+            expect(answer).toContain('![the draft flow](/api/chat/threads/42/attachments/1)');
+        });
+
+        it('emits no stream event for a created image', async () => {
+            const { tool, events } = setup();
+
+            await tool('create_image').execute({ kind: 'svg', svg: SVG, filename: 'chart.svg', alt: 'a chart' });
+
+            expect(events).toEqual([]);
+        });
     });
 
     it('finds operations by keyword, saying which are reads', async () => {

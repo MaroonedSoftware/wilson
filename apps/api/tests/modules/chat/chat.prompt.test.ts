@@ -83,6 +83,21 @@ describe('the chat system prompt', () => {
         expect(prompt).toContain('Settings, then Apps');
     });
 
+    it('says it can draw a picture as SVG, and must paste back what it gets in the same answer', () => {
+        const prompt = chatSystemPrompt({ threadId: '7', projects: [] });
+
+        expect(prompt).toContain('as SVG');
+        expect(prompt).toContain('into the same answer');
+        expect(prompt).toContain('nothing is shown unless you do');
+    });
+
+    it('says nothing of drawing to a turn that cannot draw', () => {
+        const prompt = chatSystemPrompt({ threadId: '7', projects: [], canDraw: false });
+
+        expect(prompt).not.toContain('SVG');
+        expect(prompt).not.toContain('draw a picture');
+    });
+
     it('asks for follow-ups to end the answer with', () => {
         expect(chatSystemPrompt({ threadId: '7', projects: [] })).toContain('<suggestions>');
     });

@@ -11,6 +11,7 @@ import { ProjectRepository } from '#modules/board/project.repository.js';
 import { ApiChatEngine } from '#modules/chat/api.chat.engine.js';
 import { PROPOSED_APP_OPERATION } from '#modules/chat/chat.app.proposal.js';
 import { ChatAttachmentRepository } from '#modules/chat/chat.attachment.repository.js';
+import { ChatAttachmentService } from '#modules/chat/chat.attachment.service.js';
 import { onChatEvent, type ChatStreamEvent } from '#modules/chat/chat.feed.js';
 import type { ChatEngineChoice } from '#modules/chat/chat.engine.setting.js';
 import { ChatMessageRepository } from '#modules/chat/chat.message.repository.js';
@@ -60,7 +61,12 @@ describe('ChatService', () => {
         ]);
         const actions = new ChatPendingActionRepository(db);
         const questions = new ChatQuestionRepository(db);
-        const container = fakeContainer(actions, questions);
+        const container = fakeContainer(
+            actions,
+            questions,
+            undefined,
+            new ChatAttachmentService(new ChatThreadRepository(db), new ChatAttachmentRepository(db)),
+        );
         const model = scriptedModel(steps);
         const service = new ChatService(
             container,
@@ -151,6 +157,57 @@ describe('ChatService', () => {
                 message => message.role === 'user',
             )!;
             expect(oldest.content[0]).toMatchObject({ text: '[An earlier image was attached here.]' });
+        });
+
+        const SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="teal"/></svg>';
+        const draws = calls('create_image', { kind: 'svg', svg: SVG, filename: 'flow.svg', alt: 'the flow' });
+
+        it('claims an image the turn drew with the answer that shows it, and returns it on the reply', async () => {
+            const { service } = setup([draws, says('Here it is: ![the flow](/drawn)')]);
+            const thread = await service.startThread();
+
+            const turn = await service.sendMessage(thread.id, { text: 'Draw the flow' });
+
+            expect(turn.reply.attachments).toMatchObject([{ contentType: 'image/svg+xml' }]);
+            const detail = await service.getThread(thread.id);
+            expect(detail.messages.map(message => message.attachments?.length)).toEqual([undefined, 1]);
+            const claimed = await new ChatAttachmentRepository(db).listClaimed(thread.id);
+            expect(claimed).toEqual([expect.objectContaining({ id: turn.reply.attachments![0]!.id, messageSeq: turn.reply.seq })]);
+        });
+
+        it(`leaves an image unclaimed when the turn that drew it stores no answer (${NOTHING_MORE})`, async () => {
+            const { service } = setup([proposeMove, says('Proposed.'), draws, says(NOTHING_MORE)]);
+            const thread = await service.startThread();
+            const { proposed } = await service.sendMessage(thread.id, { text: 'Move 0007' });
+
+            await service.decide(proposed[0]!.id, { decision: 'confirm' });
+            await service.whenIdle();
+
+            expect((await service.getThread(thread.id)).messages).toHaveLength(2);
+            const repository = new ChatAttachmentRepository(db);
+            expect(await repository.listClaimed(thread.id)).toEqual([]);
+            const drawn = await db.selectFrom('wilson.chatAttachments').select('id').where('threadId', '=', BigInt(thread.id)).execute();
+            expect(drawn).toHaveLength(1);
+            expect(await repository.readUnclaimed(thread.id, [String(drawn[0]!.id)])).toEqual([
+                expect.objectContaining({ contentType: 'image/svg+xml', messageSeq: undefined }),
+            ]);
+        });
+
+        it('never replays, or reads the bytes of, an image on an answer', async () => {
+            const { service, model } = setup([draws, says('Here it is: ![the flow](/drawn)'), says('Still here.')]);
+            const thread = await service.startThread();
+            const turn = await service.sendMessage(thread.id, { text: 'Draw the flow' });
+            const read = vi.spyOn(ChatAttachmentRepository.prototype, 'readForMessages');
+
+            try {
+                await service.sendMessage(thread.id, { text: 'and now?' });
+                for (const [, seqs] of read.mock.calls) expect(seqs).not.toContain(turn.reply.seq);
+            } finally {
+                read.mockRestore();
+            }
+
+            expect(imagesIn(model.prompts)).toEqual([0, 0]);
+            expect(JSON.stringify(model.prompts.at(-1))).not.toContain('[An earlier image was attached here.]');
         });
     });
 
@@ -333,7 +390,7 @@ describe('ChatService', () => {
 
             const outcome = await service.runNote(thread.id, '(A note from Wilson.) 0007 passed.', fakeSession);
 
-            expect(outcome).toEqual({ proposed: [], asked: [] });
+            expect(outcome).toEqual({ proposed: [], asked: [], created: [] });
             expect((await service.getThread(thread.id)).messages).toEqual([]);
         });
 

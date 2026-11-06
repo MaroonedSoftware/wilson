@@ -13,6 +13,8 @@ export interface ChatPromptContext {
     goal?: Pick<Goal, 'id' | 'project' | 'title' | 'outcome' | 'status'>;
     /** The outside services this turn can reach, by connection name. */
     outsideServices?: readonly string[];
+    /** Whether this turn can draw images (`canDrawImages`); true unless left out deliberately. */
+    canDraw?: boolean;
 }
 
 /**
@@ -22,7 +24,7 @@ export interface ChatPromptContext {
  * reason. The 'cli' engine serves the tools over MCP, which qualifies their names, so a name written
  * here would be wrong on one engine or the other. Each tool's own description says what it is for.
  */
-export const chatSystemPrompt = ({ projects, currentProject, threadId, goal, outsideServices = [] }: ChatPromptContext): string =>
+export const chatSystemPrompt = ({ projects, currentProject, threadId, goal, outsideServices = [], canDraw = true }: ChatPromptContext): string =>
     [
         'You are the chat inside Wilson, a stage-based agent runner over a kanban board of cards for several code projects.',
         'The person uses you to see and drive the board: what is in each stage, why a card is stuck, what it cost, and to move, edit, approve, start, release or merge cards.',
@@ -50,6 +52,11 @@ export const chatSystemPrompt = ({ projects, currentProject, threadId, goal, out
               ]
             : []),
         '- Answer briefly, in Markdown. Refer to cards by id, e.g. 0007.',
+        ...(canDraw
+            ? [
+                  '- You can draw a picture yourself when one explains better than prose — a diagram, a chart, a flow — by writing it as SVG and handing it over. Paste the markdown you get back into the same answer, with alt text saying what the picture shows: nothing is shown unless you do.',
+              ]
+            : []),
         `- ${QUESTIONS_INSTRUCTION}`,
         `- ${SUGGESTIONS_INSTRUCTION}`,
         '',

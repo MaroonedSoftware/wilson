@@ -6,7 +6,10 @@ import { DateTime } from 'luxon';
 import { BoardConfig, StaticBoardConfig } from '#modules/board/board.config.js';
 import { currentProject } from '#modules/board/project.context.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
+import { ChatAttachmentRepository, type NewChatAttachment, type StoredChatAttachmentWithBytes } from '#modules/chat/chat.attachment.repository.js';
+import { ChatAttachmentService } from '#modules/chat/chat.attachment.service.js';
 import { ChatCatalog } from '#modules/chat/chat.catalog.js';
+import { ChatThreadRepository } from '#modules/chat/chat.thread.repository.js';
 import { McpConnectionsService } from '#modules/connections/mcp.connections.service.js';
 import { ChatPendingActionRepository, type NewPendingAction, type PendingAction } from '#modules/chat/chat.pending.action.repository.js';
 import { ChatQuestionRepository, type NewPendingQuestion, type PendingQuestion } from '#modules/chat/chat.question.repository.js';
@@ -113,14 +116,44 @@ export const fakeQuestions = (): { stored: PendingQuestion[]; repository: ChatQu
 };
 
 /**
+ * Images a fake attachment repository has stored, behind the real `ChatAttachmentService`, so a
+ * refusal `create_image` answers is the sanitiser's own sentence and no check is copied into a test.
+ * The thread repository answers every thread as existing.
+ */
+export const fakeChatAttachments = (): { stored: StoredChatAttachmentWithBytes[]; service: ChatAttachmentService } => {
+    const stored: StoredChatAttachmentWithBytes[] = [];
+    const repository = {
+        insert: async (threadId: string, attachment: NewChatAttachment): Promise<StoredChatAttachmentWithBytes> => {
+            const created: StoredChatAttachmentWithBytes = {
+                id: String(stored.length + 1),
+                threadId,
+                filename: attachment.filename,
+                contentType: attachment.contentType,
+                byteSize: attachment.bytes.length,
+                contentHash: attachment.contentHash,
+                createdAt: DateTime.now(),
+                bytes: attachment.bytes,
+            };
+            stored.push(created);
+            return created;
+        },
+        sweepUnclaimed: async () => 0,
+    } as unknown as ChatAttachmentRepository;
+    const threads = { get: async () => ({}) } as unknown as ChatThreadRepository;
+    return { stored, service: new ChatAttachmentService(threads, repository) };
+};
+
+/**
  * A container with what `ChatCatalog.run` and the tools resolve: a board fixed to `default-project`,
- * a project repository that knows only `wilson` and `other`, and the given pending-action and
- * pending-question repositories.
+ * a project repository that knows only `wilson` and `other`, the given pending-action and
+ * pending-question repositories, and the given attachment service (`create_image`'s). `configure`
+ * registers anything else a test needs.
  */
 export const fakeContainer = (
     proposals: ChatPendingActionRepository = fakeProposals().repository,
     questions: ChatQuestionRepository = fakeQuestions().repository,
     configure?: (registry: InjectKitRegistry) => void,
+    attachments: ChatAttachmentService = fakeChatAttachments().service,
 ): ScopedContainer => {
     const registry = new InjectKitRegistry();
     registry.register(BoardConfig).useValue(new StaticBoardConfig('default-project', '/tmp/code', '/tmp/wt', '/tmp/run'));
@@ -130,6 +163,7 @@ export const fakeContainer = (
     } as unknown as ProjectRepository);
     registry.register(ChatPendingActionRepository).useValue(proposals);
     registry.register(ChatQuestionRepository).useValue(questions);
+    registry.register(ChatAttachmentService).useValue(attachments);
     registry.register(McpConnectionsService).useValue({ usableTools: async () => [] } as unknown as McpConnectionsService);
     configure?.(registry);
     return registry.build();
@@ -143,4 +177,5 @@ export const turnContext = (container: Container, threadId = '1'): ChatTurnConte
     operations: [],
     proposed: [],
     asked: [],
+    created: [],
 });
