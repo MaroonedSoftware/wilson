@@ -2,6 +2,7 @@ import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { PROVIDERS } from '#modules/agent/model.registry.js';
 import { DONE, DONE_REASONS } from './terminal.js';
+import { isWebAllowEntry } from './web.allow.js';
 
 /**
  * The longest a single stage run may be configured to take.
@@ -465,6 +466,23 @@ export const ProjectStagesSchema = z.object({
     scopeViolation: z.enum(['widen', 'kickback']).default('widen'),
     /** Machine-owned paths no plan should have to mention. */
     alwaysAllowed: z.array(z.string()).default([]),
+    /**
+     * Hosts a stage may fetch pages from (card 0019; the guard that reads it is card 0020's). Bare
+     * hostnames, optionally `*.`-prefixed for subdomains — see `web.allow.ts`. Empty means no web.
+     */
+    webAllow: z
+        .array(z.string())
+        .superRefine((entries, ctx) => {
+            entries.forEach((entry, index) => {
+                if (isWebAllowEntry(entry)) return;
+                ctx.addIssue({
+                    code: 'custom',
+                    path: [index],
+                    message: `webAllow entry "${entry}" must be a bare hostname, optionally led by "*.", with no scheme, path, port or whitespace`,
+                });
+            });
+        })
+        .default([]),
     deny: z.array(z.string()).default([]),
     /**
      * Project-wide sandbox default (card 0260). `enabled` turns on the SDK's own OS-level sandbox

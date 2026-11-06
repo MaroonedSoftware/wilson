@@ -26,6 +26,7 @@ const makeStage = (overrides: Partial<StageConfig> = {}): StageConfig => ({
 const stages = (overrides: Partial<StageConfig>[] = []): ProjectStages => ({
     scopeViolation: 'widen',
     alwaysAllowed: [],
+    webAllow: [],
     deny: [],
     sandbox: { enabled: false, allowedDomains: [] },
     stages: overrides.length ? overrides.map(o => makeStage(o)) : [makeStage()],
