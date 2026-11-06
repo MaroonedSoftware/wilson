@@ -23,6 +23,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     private ThreadsViewModel? _chat;
     private BoardViewModel? _board;
     private ProjectsViewModel? _projects;
+    private GoalsViewModel? _goals;
     private HostsViewModel? _hosts;
     private SettingsViewModel? _settingsPage;
     private CancellationTokenSource? _watchingDrain;
@@ -35,6 +36,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     [NotifyPropertyChangedFor(nameof(OnChat))]
     [NotifyPropertyChangedFor(nameof(OnBoard))]
     [NotifyPropertyChangedFor(nameof(OnProjects))]
+    [NotifyPropertyChangedFor(nameof(OnGoals))]
     [NotifyPropertyChangedFor(nameof(OnHosts))]
     [NotifyPropertyChangedFor(nameof(OnSettings))]
     [NotifyPropertyChangedFor(nameof(Feed))]
@@ -87,6 +89,8 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     public bool OnBoard => Section is BoardViewModel;
 
     public bool OnProjects => Section is ProjectsViewModel;
+
+    public bool OnGoals => Section is GoalsViewModel;
 
     public bool OnHosts => Section is HostsViewModel;
 
@@ -185,6 +189,10 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
 
     [RelayCommand]
     public void ShowProjects() => Go(_projects ??= new ProjectsViewModel(this));
+
+    /// <summary>Every goal, across projects, so it needs no project in front. Kept, as the other sections are.</summary>
+    [RelayCommand]
+    public void ShowGoals() => Go(_goals ??= new GoalsViewModel(this));
 
     [RelayCommand]
     public void ShowHosts() => Go(_hosts ??= new HostsViewModel(this));
@@ -430,11 +438,13 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
         _chat?.Dispose();
         _board?.Dispose();
         _projects?.Dispose();
+        _goals?.Dispose();
         _hosts?.Dispose();
         _settingsPage?.Dispose();
         _chat = null;
         _board = null;
         _projects = null;
+        _goals = null;
         _hosts = null;
         _settingsPage = null;
         Replace(new SignInViewModel(this));

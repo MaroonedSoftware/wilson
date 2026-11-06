@@ -20,6 +20,7 @@
                 </Button>
                 <Button Classes="section" Classes.current="{Binding OnChat}" Content="Chat" Command="{Binding ShowChatCommand}" VerticalAlignment="Center" />
                 <Button Classes="section" Classes.current="{Binding OnBoard}" Content="Board" Command="{Binding ShowBoardCommand}" VerticalAlignment="Center" />
+                <Button Classes="section" Classes.current="{Binding OnGoals}" Content="Goals" Command="{Binding ShowGoalsCommand}" VerticalAlignment="Center" />
                 <Button Classes="section" Classes.current="{Binding OnProjects}" Content="Projects" Command="{Binding ShowProjectsCommand}" VerticalAlignment="Center" />
                 <Button Classes="section" Classes.current="{Binding OnHosts}" Content="Hosts" Command="{Binding ShowHostsCommand}" VerticalAlignment="Center" />
                 <Button Classes="section" Classes.current="{Binding OnSettings}" Content="Settings" Command="{Binding ShowSettingsCommand}" VerticalAlignment="Center" />

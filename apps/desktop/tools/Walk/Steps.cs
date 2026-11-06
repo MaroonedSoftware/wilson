@@ -188,6 +188,12 @@ internal static class Steps
             return;
         }
 
+        if (only == "goals")
+        {
+            await GoalsAsync(walk);
+            return;
+        }
+
         await AppearanceAsync(walk);
         walk.Shell.ShowBoardCommand.Execute(null);
 
@@ -196,6 +202,9 @@ internal static class Steps
         await walk.UntilAsync("the feed live in the header", () => walk.Shell.OnBoard && walk.Shell.Feed is { Live: true });
         walk.Shot("03-board");
         await ProjectsAsync(walk, board);
+        await GoalsAsync(walk);
+        walk.Shell.ShowBoardCommand.Execute(null);
+        await walk.UntilAsync("back on the same board", () => walk.Shell.Page == board && board.Live);
         await FlaggedAsync(walk, board);
         await ActivityAsync(walk, board);
         await FilterAsync(walk, board);
@@ -914,6 +923,88 @@ internal static class Steps
         settings.ChatEngine.Model = chat.Model;
         await settings.ChatEngine.SaveCommand.ExecuteAsync(null);
         await walk.UntilAsync("the chat engine put back", () => settings.ChatEngine.Stored == chat);
+    }
+
+    /// <summary>
+    /// The goals page under the header: none, then goals written to the throwaway database and found by the
+    /// page's own reading, open first and finished under their heading, each newest first, in both
+    /// appearances. Each goal has a thread of its own, archived, and its wake-ups held, so no agent turn runs.
+    /// </summary>
+    private static async Task GoalsAsync(Walker walk)
+    {
+        const string Walked = "walk-goal-";
+        Walker.Sql($"delete from wilson.chat_threads where title like '{Walked}%'");
+        walk.Shell.ShowGoalsCommand.Execute(null);
+        var goals = walk.Page<GoalsViewModel>();
+        await walk.UntilAsync("the goals read, under Goals, a section with no Back", () => !goals.Loading && walk.Shell.OnGoals && !walk.Shell.CanGoBack);
+        if (goals.NoGoals)
+        {
+            walk.Shot("12-goals-none");
+        }
+        else
+        {
+            Console.WriteLine($"     goals: {goals.Open.Count + goals.Finished.Count} already there, so the empty state was not drawn");
+        }
+
+        var project = Walker.Query("select name from wilson.projects order by name limit 1");
+        Walker.Sql(
+            "with made as (insert into wilson.chat_threads (title, engine, archived_at) "
+            + $"select '{Walked}' || n, 'cli', now() from generate_series(1, 4) as n returning id, title) "
+            + "insert into wilson.goals (thread_id, project, title, outcome, status, wake_held_until, updated_at) "
+            + $"select made.id, '{project}', goal.title, goal.outcome, goal.status, now() + interval '1 day', now() - make_interval(mins => goal.age) "
+            + "from made join (values "
+            + $"('{Walked}1', 'Walk: desktop shows goals', 'The desktop app lists goals the way the web app does.', 'active', 1), "
+            + $"('{Walked}2', 'Walk: paused while the API settles', 'Wait for the contract to stop moving.', 'paused', 5), "
+            + $"('{Walked}3', 'Walk: first goal, finished', 'Done, and merged.', 'done', 30), "
+            + $"('{Walked}4', 'Walk: an idea let go', 'Not worth the cards it would take.', 'abandoned', 60)"
+            + ") as goal(thread, title, outcome, status, age) on goal.thread = made.title");
+        var original = walk.Shell.Appearance;
+        try
+        {
+            await walk.UntilAsync(
+                "the walk's goals found by the page's own reading",
+                () => goals.Open.Count(row => row.Title.StartsWith("Walk:", StringComparison.Ordinal)) == 2 && goals.Finished.Count(row => row.Title.StartsWith("Walk:", StringComparison.Ordinal)) == 2,
+                seconds: 30);
+            var open = goals.Open.Where(row => row.Title.StartsWith("Walk:", StringComparison.Ordinal)).ToList();
+            var finished = goals.Finished.Where(row => row.Title.StartsWith("Walk:", StringComparison.Ordinal)).ToList();
+            if (open[0].Status != "active" || !open[0].Active || open[1].Status != "paused" || !open[1].Paused
+                || finished[0].Status != "done" || !finished[0].Done || finished[1].Status != "abandoned" || !finished[1].Abandoned
+                || open[0].Project != project)
+            {
+                throw new InvalidOperationException($"goals out of order or mislabelled: {string.Join(", ", open.Concat(finished).Select(row => $"{row.Title} {row.Status} {row.Project}"))}");
+            }
+
+            Console.WriteLine($"     goals: open {string.Join(", ", goals.Open.Select(row => row.Status))}; finished {string.Join(", ", goals.Finished.Select(row => row.Status))}");
+            foreach (var appearance in new[] { Appearance.Light, Appearance.Dark })
+            {
+                await AppearAsync(walk, appearance);
+                walk.Shot($"12-goals-{appearance.ToString().ToLowerInvariant()}");
+            }
+        }
+        finally
+        {
+            Walker.Sql($"delete from wilson.chat_threads where title like '{Walked}%'");
+            await AppearAsync(walk, original);
+        }
+
+        await walk.UntilAsync("the walk's goals gone on a later reading", () => goals.Open.Concat(goals.Finished).All(row => !row.Title.StartsWith("Walk:", StringComparison.Ordinal)), seconds: 30);
+    }
+
+    /// <summary>Presses the header's appearance button until the app is drawn as asked.</summary>
+    private static async Task AppearAsync(Walker walk, Appearance appearance)
+    {
+        while (walk.Shell.Appearance != appearance)
+        {
+            walk.Shell.NextAppearanceCommand.Execute(null);
+        }
+
+        var variant = appearance switch
+        {
+            Appearance.Light => ThemeVariant.Light,
+            Appearance.Dark => ThemeVariant.Dark,
+            _ => ThemeVariant.Default,
+        };
+        await walk.UntilAsync($"the app drawn {appearance}", () => Application.Current!.RequestedThemeVariant == variant);
     }
 
     /// <summary>

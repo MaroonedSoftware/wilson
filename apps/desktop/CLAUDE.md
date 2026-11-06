@@ -52,7 +52,7 @@ cd apps/desktop && dotnet run --project tools/Walk -- /tmp/walk http://localhost
 
 Then Read the PNGs. Add a step for what you built, and pass `light` as a fifth argument for the other
 appearance. `admin` as a sixth walks only hosts, settings and security, which waits out the five minutes a
-session must age for a step-up, so a whole walk's end is that wait too. `plan` walks only planning, on a card of its own. `question` walks answering a stage's question, on a board that has one. `images` walks only sending an image in chat. `actions` walks only proposed changes, written to the throwaway database and read back through the API, with no agent turn. `lanes` walks only the lanes page, then waits out those five minutes for a save behind a step-up. `merge` walks only the merge status, and needs a card in `ready`. `dock` walks only the chat dock, and is
+session must age for a step-up, so a whole walk's end is that wait too. `plan` walks only planning, on a card of its own. `question` walks answering a stage's question, on a board that has one. `images` walks only sending an image in chat. `actions` walks only proposed changes, written to the throwaway database and read back through the API, with no agent turn. `lanes` walks only the lanes page, then waits out those five minutes for a save behind a step-up. `merge` walks only the merge status, and needs a card in `ready`. `goals` walks only the goals list, on goals written to the throwaway database on threads of their own, archived and with wake-ups held so no agent turn runs, and draws it in both appearances whichever is passed. `dock` walks only the chat dock, and is
 the one walk that starts with it open, as a person does: the others close it to keep their pages whole. A planning or chat step sends a real turn to the agent, using the machine's Claude login.
 The older diff step needs a card with a branch: that API's `code_root` is its own scratch repo (see
 `wilson.projects`), so make a branch there and set `wilson.cards.branch`. `Walker.ScratchBranch` does
@@ -174,8 +174,9 @@ so a GitHub that did not answer never reads as up to date.
 ## Against the web app
 
 Here: sign-in, the board and its feed, card detail and every card action, creating and editing,
-planning, chat, the diff, projects, hosts, settings, opening operator apps and making the first account. Not
-here yet, so this still needs the web app: installing an operator app, and making a passkey, which an app signed
+planning, chat, the diff, projects, the goals list, hosts, settings, opening operator apps and making the first account. Not
+here yet, so this still needs the web app: a goal's own page and its status actions, the goal strip above a chat,
+installing an operator app, and making a passkey, which an app signed
 ad hoc cannot do. Settings lists and removes passkeys and opens the web app to add one.
 Splitting a card is not
 here either, but the web app has no such control: it only shows a split's progress. There are no
@@ -225,6 +226,17 @@ The web app's rules are in `PROJECT.md`, decision 12 and Operator apps. This run
 ## Lanes
 
 `LanesViewModel` has no web page to follow. Lanes belong to a project, so the header's Lanes opens it from a page with a project and it reads through `ForProject`. Instructions and `settings` are edited here, and `settings` is a JSON box because the server alone knows which keys exist. `LaneRules.ReadSettings` sends only what changed, with a removed key as null, as the API patches. Mode, worktree and routes are only shown, so they still take `wilson stages`. The page's Stage routing is `StageRoutingControl` on that project's client. The same control in Settings, like the web app's, sends no project and so covers the server's default project, which it says. Its templates are in `App.axaml` for both pages.
+
+## Goals
+
+`GoalsViewModel` is `routes/goals.index.tsx` and `GoalRules` is `lib/goals.ts`'s `isOpen`, `statusColor` and
+`GOAL_REFRESH_MS`, kept in step by hand. Goals belong to no one project in the list, so it is a section, reached
+from anywhere, and `GoalReads` takes the connection's unscoped `Sdk` rather than `ForProject`. It takes the status and
+thread filters `ListGoalsQuery` has, and refuses `Unknown`, which has no wire spelling. The feed says nothing of goals,
+so the page reads every ten seconds, as the web app does, and redraws only what changed. Open goals (`active`,
+`paused`) come first and the rest under Finished, each newest first. The badge is green, yellow, blue and gray as on the
+web: `Good`, `Caution`, `Done` and `Quiet`, and `Done` is the one brush in the app that is only for this. A row opens
+nothing yet, as the goal's own page is not here.
 
 ## Hosts
 
