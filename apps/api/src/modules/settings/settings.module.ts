@@ -13,6 +13,7 @@ import { LocalStageSlotsSettingService } from './local.stage.slots.setting.servi
 import { NotifyWebhookSettingService } from './notify.webhook.setting.service.js';
 import { ClaudeConfigDirSettingService } from './claude.config.dir.setting.service.js';
 import { EngineTokenSettingService } from './engine.token.setting.service.js';
+import { AutoPlanSettingService } from './auto.plan.setting.service.js';
 import { AutoSplitSettingService } from './auto.split.setting.service.js';
 import { OrchestratorSettingService } from './orchestrator.setting.service.js';
 import { DryRunSettingService } from './dry.run.setting.service.js';
@@ -58,6 +59,7 @@ export const SettingsModule: ServerKitModule = {
         registry.register(EngineTokenSettingService).useClass(EngineTokenSettingService).asTransient();
         registry.register(DryRunSettingService).useClass(DryRunSettingService).asTransient();
         registry.register(AutoSplitSettingService).useClass(AutoSplitSettingService).asTransient();
+        registry.register(AutoPlanSettingService).useClass(AutoPlanSettingService).asTransient();
         registry.register(OrchestratorSettingService).useClass(OrchestratorSettingService).asTransient();
         registry.register(GitHubAppSettingService).useClass(GitHubAppSettingService).asTransient();
     },

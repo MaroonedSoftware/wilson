@@ -198,6 +198,23 @@ export interface SetAutoSplitSettingRequest {
 }
 
 /**
+ * Whether the poller has an agent draft the plan of a card waiting in `planning` without one. Each draft
+ * is a model run, once per card, and the card still waits for a person to approve it. See
+ * `auto.plan.setting.ts` for the default (off).
+ * generated from [AutoPlanSetting](../../../../apps/api/data/contracts/settings.ck)
+ */
+export interface AutoPlanSetting {
+    enabled: boolean;
+}
+
+/**
+ * generated from [SetAutoPlanSettingRequest](../../../../apps/api/data/contracts/settings.ck)
+ */
+export interface SetAutoPlanSettingRequest {
+    enabled: boolean;
+}
+
+/**
  * Which engine and model judge a project's checked rules. Separate from every lane's routing so a review
  * lane on any engine still has judges, since a judge needs only a one-shot model call. Behind step-up
  * for the reason `rules.ck`'s writes are: who judges a rule is as much the gate as what it says.

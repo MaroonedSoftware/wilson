@@ -1,4 +1,5 @@
 import { ServerKitRouter, bodyParserMiddleware, requirePolicy } from '@maroonedsoftware/koa';
+import { AutoPlanSettingService } from '#modules/settings/auto.plan.setting.service.js';
 import { AutoSplitSettingService } from '#modules/settings/auto.split.setting.service.js';
 import { CardStageConcurrencySettingService } from '#modules/settings/card.stage.concurrency.setting.service.js';
 import { ChatEngineSettingService } from '#modules/chat/chat.engine.setting.service.js';
@@ -14,6 +15,7 @@ import { PollerIntervalSettingService } from '#modules/settings/poller.interval.
 import { PollerSettingService } from '#modules/settings/poller.setting.service.js';
 import { RuleJudgeSettingService } from '#modules/rules/rule.judge.setting.service.js';
 import {
+    AutoPlanSetting,
     AutoSplitSetting,
     CardStageConcurrency,
     ChatEngineSetting,
@@ -28,6 +30,7 @@ import {
     PollerInterval,
     PollerSetting,
     RuleJudgeSetting,
+    SetAutoPlanSettingRequest,
     SetAutoSplitSettingRequest,
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
@@ -276,6 +279,32 @@ SettingsRouter.put('/api/settings/auto-split', requirePolicy({ policy: 'wilson.m
 
     const service = ctx.container.get(AutoSplitSettingService);
     const result: AutoSplitSetting = await service.set(body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/auto-plan`
+ */
+SettingsRouter.get('/api/settings/auto-plan', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const service = ctx.container.get(AutoPlanSettingService);
+    const result: AutoPlanSetting = await service.get();
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/auto-plan`
+ */
+SettingsRouter.put('/api/settings/auto-plan', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const body = await parseAndValidate(ctx.parsedBody, SetAutoPlanSettingRequest);
+
+    const service = ctx.container.get(AutoPlanSettingService);
+    const result: AutoPlanSetting = await service.set(body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

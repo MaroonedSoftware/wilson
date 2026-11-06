@@ -1,4 +1,5 @@
 import type {
+    AutoPlanSetting,
     AutoSplitSetting,
     CardStageConcurrency,
     ChatEngineSetting,
@@ -13,6 +14,7 @@ import type {
     PollerInterval,
     PollerSetting,
     RuleJudgeSetting,
+    SetAutoPlanSettingRequest,
     SetAutoSplitSettingRequest,
     SetCardStageConcurrencyRequest,
     SetClaudeConfigDirSettingRequest,
@@ -177,6 +179,22 @@ export class SettingsClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return await parseJson<AutoSplitSetting>(result);
+    }
+
+    /** @name Get auto plan setting */
+    async getAutoPlanSetting(): Promise<AutoPlanSetting> {
+        const result = await this.fetch(`/api/settings/auto-plan`, { method: 'GET' });
+        return await parseJson<AutoPlanSetting>(result);
+    }
+
+    /** @name Set auto plan setting */
+    async setAutoPlanSetting(body: SetAutoPlanSettingRequest): Promise<AutoPlanSetting> {
+        const result = await this.fetch(`/api/settings/auto-plan`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<AutoPlanSetting>(result);
     }
 
     /** @name Get rule judge setting */

@@ -6,6 +6,7 @@ import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import { requireMcpPolicy, type McpToolHandler, type McpToolHandlerMap, type McpToolContext } from '@maroonedsoftware/mcp';
 import { PolicyService } from '@maroonedsoftware/policies';
 import { parseAndValidate } from '@maroonedsoftware/zod';
+import { AutoPlanSettingService } from '#modules/settings/auto.plan.setting.service.js';
 import { AutoSplitSettingService } from '#modules/settings/auto.split.setting.service.js';
 import { CardStageConcurrencySettingService } from '#modules/settings/card.stage.concurrency.setting.service.js';
 import { ChatEngineSettingService } from '#modules/chat/chat.engine.setting.service.js';
@@ -20,6 +21,7 @@ import { PollerIntervalSettingService } from '#modules/settings/poller.interval.
 import { PollerSettingService } from '#modules/settings/poller.setting.service.js';
 import { RuleJudgeSettingService } from '#modules/rules/rule.judge.setting.service.js';
 import {
+    AutoPlanSetting,
     AutoSplitSetting,
     CardStageConcurrency,
     ChatEngineSetting,
@@ -69,6 +71,7 @@ const GetDryRunSettingArgs = z.object({});
 const SetDryRunSettingArgs = z.object({ body: SetDryRunSettingRequest });
 const GetAutoSplitSettingArgs = z.object({});
 const SetAutoSplitSettingArgs = z.object({ body: SetAutoSplitSettingRequest });
+const GetAutoPlanSettingArgs = z.object({});
 const GetRuleJudgeSettingArgs = z.object({});
 const GetChatEngineSettingArgs = z.object({});
 const SetChatEngineSettingArgs = z.object({ body: ChatEngineSetting });
@@ -423,6 +426,27 @@ export class SetAutoSplitSettingMcpTool implements McpToolHandler {
 }
 
 /**
+ * from [settings.ck](../../../../data/contracts/settings.ck) `GET /api/settings/auto-plan`
+ */
+@Injectable()
+export class GetAutoPlanSettingMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'get_auto_plan_setting',
+        inputSchema: z.toJSONSchema(GetAutoPlanSettingArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(AutoPlanSetting, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
+    };
+
+    async handle(_args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
+        const result = await container.get(AutoPlanSettingService).get();
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
  * from [settings.ck](../../../../data/contracts/settings.ck) `GET /api/settings/rule-judge`
  */
 @Injectable()
@@ -613,6 +637,7 @@ export function registerSettingsMcpCatalog(map: McpToolHandlerMap, container: Co
     map.set('set_dry_run_setting', container.get(SetDryRunSettingMcpTool));
     map.set('get_auto_split_setting', container.get(GetAutoSplitSettingMcpTool));
     map.set('set_auto_split_setting', container.get(SetAutoSplitSettingMcpTool));
+    map.set('get_auto_plan_setting', container.get(GetAutoPlanSettingMcpTool));
     map.set('get_rule_judge_setting', container.get(GetRuleJudgeSettingMcpTool));
     map.set('get_chat_engine_setting', container.get(GetChatEngineSettingMcpTool));
     map.set('set_chat_engine_setting', container.get(SetChatEngineSettingMcpTool));
@@ -641,6 +666,7 @@ export function registerSettingsMcpToolClasses(registry: Registry): void {
     registry.register(SetDryRunSettingMcpTool).useClass(SetDryRunSettingMcpTool).asSingleton();
     registry.register(GetAutoSplitSettingMcpTool).useClass(GetAutoSplitSettingMcpTool).asSingleton();
     registry.register(SetAutoSplitSettingMcpTool).useClass(SetAutoSplitSettingMcpTool).asSingleton();
+    registry.register(GetAutoPlanSettingMcpTool).useClass(GetAutoPlanSettingMcpTool).asSingleton();
     registry.register(GetRuleJudgeSettingMcpTool).useClass(GetRuleJudgeSettingMcpTool).asSingleton();
     registry.register(GetChatEngineSettingMcpTool).useClass(GetChatEngineSettingMcpTool).asSingleton();
     registry.register(SetChatEngineSettingMcpTool).useClass(SetChatEngineSettingMcpTool).asSingleton();
