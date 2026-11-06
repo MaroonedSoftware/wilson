@@ -23,7 +23,11 @@ const GIF = Buffer.concat([Buffer.from('GIF89a'), Buffer.alloc(16, 1)]);
 const service = () => new ChatAttachmentService(new ChatThreadRepository(db), new ChatAttachmentRepository(db));
 const newThread = async () => (await new ChatThreadRepository(db).create('a thread', 'api')).id;
 const rowsIn = (threadId: string) =>
-    db.selectFrom('wilson.chatAttachments').select(['id', 'contentType', 'messageSeq', 'bytes', 'filename']).where('threadId', '=', BigInt(threadId)).execute();
+    db
+        .selectFrom('wilson.chatAttachments')
+        .select(['id', 'contentType', 'messageSeq', 'bytes', 'filename'])
+        .where('threadId', '=', BigInt(threadId))
+        .execute();
 
 const refusalOf = async (promise: Promise<unknown>): Promise<{ statusCode: number; details?: { reason?: string } }> => {
     try {
@@ -62,7 +66,12 @@ describe('ChatAttachmentService.create', () => {
 
     it('sweeps old unclaimed uploads as it stores', async () => {
         const thread = await newThread();
-        const old = await new ChatAttachmentRepository(db).insert(thread, { filename: 'old.png', contentType: 'image/png', contentHash: 'h', bytes: PNG });
+        const old = await new ChatAttachmentRepository(db).insert(thread, {
+            filename: 'old.png',
+            contentType: 'image/png',
+            contentHash: 'h',
+            bytes: PNG,
+        });
         await db
             .updateTable('wilson.chatAttachments')
             .set({ createdAt: DateTime.now().minus({ hours: UNCLAIMED_ATTACHMENT_HOURS + 1 }) })
@@ -100,7 +109,12 @@ describe('ChatAttachmentService.create', () => {
 
     it('stores nothing for SVG over the cap, and does not sweep on a refusal', async () => {
         const thread = await newThread();
-        const old = await new ChatAttachmentRepository(db).insert(thread, { filename: 'old.png', contentType: 'image/png', contentHash: 'h', bytes: PNG });
+        const old = await new ChatAttachmentRepository(db).insert(thread, {
+            filename: 'old.png',
+            contentType: 'image/png',
+            contentHash: 'h',
+            bytes: PNG,
+        });
         await db
             .updateTable('wilson.chatAttachments')
             .set({ createdAt: DateTime.now().minus({ hours: UNCLAIMED_ATTACHMENT_HOURS + 1 }) })

@@ -234,7 +234,8 @@ const attributeRefusal = (element: string, name: string, value: string, isRoot: 
 /** Why the text run `text` may not appear, or `undefined` if it may. */
 const textRefusal = (text: string): string | undefined => {
     for (let at = text.indexOf('&'); at !== -1; at = text.indexOf('&', at + 1)) {
-        if (!matchAt(TEXT_ENTITY_AT, text, at)) return 'the SVG text uses an entity or character reference other than &amp; &lt; &gt; &quot; or &apos;';
+        if (!matchAt(TEXT_ENTITY_AT, text, at))
+            return 'the SVG text uses an entity or character reference other than &amp; &lt; &gt; &quot; or &apos;';
     }
     if (text.includes(']]>')) return 'the SVG text contains "]]>"';
     return undefined;
@@ -283,7 +284,12 @@ export const sanitiseSvg = (source: string): SanitisedSvg => {
             if (!closing) return refuse('the SVG has a malformed closing tag');
             const name = closing[1]!;
             const open = stack.pop();
-            if (open !== name) return refuse(open ? `the SVG closes </${name}> where <${open}> is open; tags must balance` : `the SVG closes </${name}>, which was never opened`);
+            if (open !== name)
+                return refuse(
+                    open
+                        ? `the SVG closes </${name}> where <${open}> is open; tags must balance`
+                        : `the SVG closes </${name}>, which was never opened`,
+                );
             at += closing[0].length;
             continue;
         }
