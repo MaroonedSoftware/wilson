@@ -299,9 +299,7 @@ describe('createToolGuard', () => {
             expect(result).toMatchObject({ behavior: 'deny' });
             expect((result as { message: string }).message).toBe("evil.com is not in the project's web allowlist, so it may not be fetched");
             expect(executed).toEqual([]);
-            expect(denied).toEqual([
-                expect.objectContaining({ tool: 'WebFetch', url: 'https://evil.com', host: 'evil.com', decision: 'denied' }),
-            ]);
+            expect(denied).toEqual([expect.objectContaining({ tool: 'WebFetch', url: 'https://evil.com', host: 'evil.com', decision: 'denied' })]);
         });
 
         it.each(['https://github.com.evil.com/org/repo', 'https://notgithub.com/', 'https://github.com@evil.com/', 'file:///etc/passwd'])(

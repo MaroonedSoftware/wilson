@@ -346,8 +346,7 @@ describe('ScopeGuard', () => {
     });
 
     describe('checkWeb (card 0020)', () => {
-        const web = (webAllow?: string[]) =>
-            new ScopeGuard({ worktreeRoot: root, allow: [], alwaysAllowed: [], ...(webAllow ? { webAllow } : {}) });
+        const web = (webAllow?: string[]) => new ScopeGuard({ worktreeRoot: root, allow: [], alwaysAllowed: [], ...(webAllow ? { webAllow } : {}) });
 
         it('allows a URL whose host is on the list, naming the host', () => {
             expect(web(['github.com']).checkWeb('https://github.com/org/repo')).toEqual({
@@ -366,12 +365,9 @@ describe('ScopeGuard', () => {
             });
         });
 
-        it.each(['https://github.com.evil.com/', 'https://evilgithub.com/', 'https://github.com@evil.com/'])(
-            'denies the lookalike %s',
-            url => {
-                expect(web(['github.com']).checkWeb(url)).toMatchObject({ allowed: false });
-            },
-        );
+        it.each(['https://github.com.evil.com/', 'https://evilgithub.com/', 'https://github.com@evil.com/'])('denies the lookalike %s', url => {
+            expect(web(['github.com']).checkWeb(url)).toMatchObject({ allowed: false });
+        });
 
         it('allows a subdomain only through a *. entry', () => {
             expect(web(['github.com']).checkWeb('https://api.github.com/')).toMatchObject({ allowed: false });
