@@ -137,6 +137,8 @@ public sealed class ChatClient(SdkHttp http)
                 return new FetchAChatImageResponse.ImageWebp(response.Bytes, headers);
             case "image/gif":
                 return new FetchAChatImageResponse.ImageGif(response.Bytes, headers);
+            case "image/svg+xml":
+                return new FetchAChatImageResponse.ImageSvgXml(response.Bytes, headers);
             default:
                 return new FetchAChatImageResponse.ImagePng(response.Bytes, headers);
         }
@@ -202,4 +204,6 @@ public abstract record FetchAChatImageResponse
     public sealed record ImageWebp(byte[] Data, FetchAChatImageHeaders Headers) : FetchAChatImageResponse;
 
     public sealed record ImageGif(byte[] Data, FetchAChatImageHeaders Headers) : FetchAChatImageResponse;
+
+    public sealed record ImageSvgXml(byte[] Data, FetchAChatImageHeaders Headers) : FetchAChatImageResponse;
 }

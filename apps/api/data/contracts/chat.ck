@@ -329,12 +329,15 @@ operation /api/chat/threads/{id}/attachments/{attachmentId}: {
         service: ChatAttachmentService.bytes
         response: {
             # The two headers are fixed, as on a card's attachment, so an upload can never be served
-            # as something a browser will execute.
+            # as something a browser will execute. `image/svg+xml` is only ever an image the chat
+            # created: the SVG scanner is the one thing that writes that type, and it refuses rather
+            # than rewrites. Uploads stay the four raster types.
             200: {
                 image/png: binary
                 image/jpeg: binary
                 image/webp: binary
                 image/gif: binary
+                image/svg+xml: binary
                 headers: {
                     x-content-type-options: string
                     content-security-policy: string

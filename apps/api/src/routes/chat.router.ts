@@ -171,7 +171,7 @@ ChatRouter.get('/api/chat/threads/:id/attachments/:attachmentId', requirePolicy(
 
     const service = ctx.container.get(ChatAttachmentService);
     const result: {
-        contentType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+        contentType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif' | 'image/svg+xml';
         body: Buffer;
         headers: { xContentTypeOptions: string; contentSecurityPolicy: string };
     } = await service.bytes(id, attachmentId);
