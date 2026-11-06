@@ -1,5 +1,11 @@
 # @wilson/desktop
 
+## 0.20.2
+
+### Patch Changes
+
+- bc129ee: A card's activity names a test that was already failing before the card, which the testing stage and the merge check no longer hold against it.
+
 ## 0.20.1
 
 ### Patch Changes
