@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acceptanceCriteria } from '#modules/board/card.js';
+import { acceptanceCriteria, normalizeCriterionId } from '#modules/board/card.js';
 import type { Card } from '#modules/board/card.js';
 
 /**
@@ -184,5 +184,29 @@ describe('acceptanceCriteria', () => {
             { id: 'AC1', text: 'first line, no marker' },
             { id: 'AC2', text: 'second line, no marker' },
         ]);
+    });
+});
+
+/**
+ * Card 0016: how a criterion ID an agent reported maps onto the `AC<n>` form `acceptanceCriteria`
+ * gives the plan's own. A reviewer reading a plain `1.` list reports `"1"`.
+ */
+describe('normalizeCriterionId', () => {
+    it.each([
+        ['AC1', 'AC1'],
+        ['1', 'AC1'],
+        [' 3 ', 'AC3'],
+        ['ac2', 'AC2'],
+        ['AC-4', 'AC4'],
+        ['AC 5', 'AC5'],
+        ['#6', 'AC6'],
+        ['AC07', 'AC7'],
+    ])('maps %j to %j', (reported, expected) => {
+        expect(normalizeCriterionId(reported)).toBe(expected);
+    });
+
+    it('leaves an ID that names no number alone, so it still fails as unknown', () => {
+        expect(normalizeCriterionId(' criterion one ')).toBe('criterion one');
+        expect(normalizeCriterionId('AC1a')).toBe('AC1a');
     });
 });

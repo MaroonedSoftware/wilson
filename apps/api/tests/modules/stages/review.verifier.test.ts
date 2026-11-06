@@ -204,6 +204,50 @@ describe('ReviewVerifier', () => {
             expect(outcome.failures.some(f => f.includes('AC2') && f.toLowerCase().includes('missing'))).toBe(true);
         });
 
+        // Card 0016: a plan numbering its criteria `1.`, `2.` gets positional `AC<n>` IDs, and the
+        // reviewer, reading the plan's text, reports `"1"`. That names the same criterion.
+        it("passes a review that reports a numbered plan's criteria by bare number", async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await makeDiff(worktree);
+            const card = cardWithCriteria('1. does the thing\n2. does the other thing');
+
+            const result = {
+                summary: 'reviewed',
+                verdict: 'pass',
+                findings: [],
+                criteria: [
+                    { id: '1', status: 'met', file: 'src/changed.ts', line: 1, note: 'implemented' },
+                    { id: 'ac-2', status: 'met', file: 'src/changed.ts', line: 2, note: 'implemented' },
+                ],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, card));
+
+            expect(outcome.failures).toEqual([]);
+            expect(outcome.passed).toBe(true);
+        });
+
+        it('fails the same criterion reported once by number and once by ID', async () => {
+            const worktree = await manager.create('0001', 'card/0001-thing');
+            await makeDiff(worktree);
+            const card = cardWithCriteria('1. does the thing');
+
+            const result = {
+                summary: 'reviewed',
+                verdict: 'pass',
+                findings: [],
+                criteria: [
+                    { id: '1', status: 'met', file: 'src/changed.ts', line: 1, note: 'implemented' },
+                    { id: 'AC1', status: 'met', file: 'src/changed.ts', line: 2, note: 'again' },
+                ],
+            };
+
+            const outcome = await verifier.verify(verifyInput(worktree, result, card));
+
+            expect(outcome.passed).toBe(false);
+            expect(outcome.failures.some(f => f.includes('AC1') && f.includes('more than once'))).toBe(true);
+        });
+
         it('fails an ID the review reports that the pinned plan never named', async () => {
             const worktree = await manager.create('0001', 'card/0001-thing');
             await makeDiff(worktree);

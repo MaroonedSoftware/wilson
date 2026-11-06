@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { Injectable } from 'injectkit';
 import { Logger } from '@maroonedsoftware/logger';
-import { acceptanceCriteria } from '#modules/board/card.js';
+import { acceptanceCriteria, normalizeCriterionId } from '#modules/board/card.js';
 import { WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { ReviewResultSchema } from './stage.result.js';
 import type { StageVerifier, VerificationInput, VerificationOutcome } from './stage.verifier.js';
@@ -116,15 +116,17 @@ export class ReviewVerifier implements StageVerifier {
             const seenIds = new Set<string>();
 
             for (const criterion of criteria) {
-                if (!planIds.has(criterion.id)) {
-                    failures.push(`criterion "${criterion.id}" is not among the pinned plan's acceptance criteria`);
+                // `"1"` for `AC1`: the reviewer reads a plain numbered list in the plan's text.
+                const id = normalizeCriterionId(criterion.id);
+                if (!planIds.has(id)) {
+                    failures.push(`criterion "${criterion.id}" is not among the pinned plan's acceptance criteria (${[...planIds].join(', ')})`);
                     continue;
                 }
-                if (seenIds.has(criterion.id)) {
-                    failures.push(`criterion "${criterion.id}" is reported more than once`);
+                if (seenIds.has(id)) {
+                    failures.push(`criterion "${id}" is reported more than once`);
                     continue;
                 }
-                seenIds.add(criterion.id);
+                seenIds.add(id);
 
                 if (criterion.status !== 'met') continue;
                 // Unlike a `defect` finding, a `met` criterion is not required to cite the diff: "the

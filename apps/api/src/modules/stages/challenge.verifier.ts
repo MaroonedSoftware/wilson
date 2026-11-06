@@ -1,5 +1,6 @@
 import { Injectable } from 'injectkit';
 import { BoardConfig } from '#modules/board/board.config.js';
+import { normalizeCriterionId } from '#modules/board/card.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { ChallengeResultSchema, ReviewResultSchema, type ReviewCriterion, type ReviewFinding } from './stage.result.js';
 import { ReviewVerifier } from './review.verifier.js';
@@ -152,20 +153,23 @@ export class ChallengeVerifier implements StageVerifier {
         // no criteria (a plan without acceptance criteria bullets) leaves this off entirely, matching
         // `ReviewVerifier`'s own plan-criteria check in that case.
         if (incoming.criteria.length > 0) {
-            const incomingById = new Map(incoming.criteria.map(criterion => [criterion.id, criterion]));
+            // Both sides compared as `AC<n>`, so a review that wrote `"1"` and a challenge that wrote
+            // `"AC1"` (or the reverse) still name the same criterion.
+            const incomingById = new Map(incoming.criteria.map(criterion => [normalizeCriterionId(criterion.id), criterion]));
             const seenIds = new Set<string>();
 
             for (const criterion of criteria) {
-                const before = incomingById.get(criterion.id);
+                const id = normalizeCriterionId(criterion.id);
+                const before = incomingById.get(id);
                 if (before === undefined) {
                     failures.push(`criteria reports "${criterion.id}", which was not among the incoming review's criteria`);
                     continue;
                 }
-                if (seenIds.has(criterion.id)) {
-                    failures.push(`criterion "${criterion.id}" is reported more than once`);
+                if (seenIds.has(id)) {
+                    failures.push(`criterion "${id}" is reported more than once`);
                     continue;
                 }
-                seenIds.add(criterion.id);
+                seenIds.add(id);
 
                 const allowed = criterion.status === before.status || (before.status === 'unmet' && criterion.status === 'met');
                 if (!allowed) {

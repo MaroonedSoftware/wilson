@@ -359,6 +359,22 @@ export const expectedSecretPaths = (card: Card): string[] => {
     });
 };
 
+/** A reported criterion ID that names a number: `AC1`, `ac-1`, `AC 1`, `#1` or a bare `1`. */
+const REPORTED_CRITERION_ID = /^(?:AC)?[-\s#]*(\d+)$/i;
+
+/**
+ * A criterion ID as an agent reported it, in the `AC<n>` form `acceptanceCriteria` gives the plan's own.
+ *
+ * A plan that numbers its criteria as a plain `1.`, `2.` list gets positional `AC<n>` IDs, but the
+ * agent reads the plan's text and sees `1`, so it reports `"1"`. Every form that names a number maps to
+ * `AC<n>`; anything else is returned trimmed and unchanged, so an ID the plan does not have still fails.
+ */
+export const normalizeCriterionId = (reported: string): string => {
+    const trimmed = reported.trim();
+    const match = REPORTED_CRITERION_ID.exec(trimmed);
+    return match ? `AC${Number(match[1])}` : trimmed;
+};
+
 export const acceptanceCriteria = (card: Card): { id: string; text: string }[] => {
     const raw = card.sections['Acceptance criteria'];
     if (!raw) return [];
