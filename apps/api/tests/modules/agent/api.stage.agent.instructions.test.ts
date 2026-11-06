@@ -125,7 +125,9 @@ describe('ApiStageAgent instructions wiring', () => {
             text: '',
             steps: [{ toolCalls }],
         });
-        const promptOf = (): string => (generateMock.mock.calls[0]![0] as { prompt: string }).prompt;
+        // The prompt is one user message whose first part is the text (card 0010).
+        const promptOf = (): string =>
+            (generateMock.mock.calls[0]![0] as { prompt: { content: { type: string; text?: string }[] }[] }).prompt[0]!.content[0]!.text!;
 
         it('hands back the question from the step that asked it', async () => {
             generateMock.mockResolvedValue(generated([{ toolName: 'report_blocked', input: question }]));

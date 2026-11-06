@@ -13,6 +13,7 @@ import { StageHeldError, StageInterruptedError, type InterruptedAttempt } from '
 import { ScopeGuard } from '#modules/agent/scope.guard.js';
 import { ScopeKickbackError } from '#modules/agent/tools/index.js';
 import { StageAgentMap } from '#modules/agent/stage.agent.js';
+import { CardAttachmentRepository } from '#modules/context/card.attachment.repository.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { HostPlacer, NoHostAvailable } from '#modules/host/host.placer.js';
 import { HostLostError, type RemotePlacement } from '#modules/host/placement.js';
@@ -225,6 +226,10 @@ export class StageDispatcher {
         private readonly rules?: RuleStore,
         // And left undefined, no rule is ever judged.
         private readonly ruleJudge?: RuleJudge,
+        // Optional for the reason the ones above are (card 0010). Left undefined, no image is
+        // materialised and the adapter gets none, the same outcome a card with no attachments
+        // reaches. Production wiring resolves the one `ContextModule` registers.
+        private readonly attachmentRepository?: CardAttachmentRepository,
     ) {}
 
     /** `interrupted` names the tree a shutdown left, for a stage being sent again after one. */
@@ -482,7 +487,7 @@ export class StageDispatcher {
             }
         }
 
-        const { planPath, learningsPath, scoped, scope, ruleVerdicts } = await prepareStage(
+        const { planPath, learningsPath, attachments, scoped, scope, ruleVerdicts } = await prepareStage(
             {
                 config: this.config,
                 worktrees: this.worktrees,
@@ -491,6 +496,7 @@ export class StageDispatcher {
                 learnings: this.learnings,
                 rules: this.rules,
                 ruleJudge: this.ruleJudge,
+                attachmentRepository: this.attachmentRepository,
             },
             { cardId, stageName, stages, stage, card, pinnedSha, worktree, placement, port, boardCards },
         );
@@ -505,6 +511,7 @@ export class StageDispatcher {
                 model: stage.model,
                 planPath,
                 scope: scoped,
+                attachments: attachments.length,
                 ...(stage.depth && { depth: stage.depth }),
                 ...(pinnedSha ? { planVersionId: pinnedSha } : {}),
             },
@@ -519,6 +526,7 @@ export class StageDispatcher {
                 scope,
                 planPath,
                 learningsPath,
+                attachments,
                 stages,
                 port,
                 ...(ruleVerdicts && { ruleVerdicts }),

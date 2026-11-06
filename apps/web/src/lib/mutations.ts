@@ -3,6 +3,7 @@ import { notifications } from '@mantine/notifications';
 import {
     SdkError,
     type AttachContextRequest,
+    type CardAttachment,
     type CardDetail,
     type CardSummary,
     type ContextSnapshot,
@@ -13,6 +14,7 @@ import {
     type PlanTurn,
 } from '@wilson/sdk';
 import { wilson } from './sdk.js';
+import { useWilsonSdk } from './sdk-context.js';
 
 /**
  * Card 0155: deleting the top-level `/` and `/cards/$cardId` routes left `['cards']`/`['card', id]`
@@ -68,6 +70,22 @@ const matchesContextList = (queryKey: readonly unknown[], id: string) => {
 
 export function invalidateContextList(queryClient: QueryClient, id: string) {
     void queryClient.invalidateQueries({ predicate: query => matchesContextList(query.queryKey, id) });
+}
+
+/**
+ * Card 0010: a card's image list lives at `['project', project, 'card', id, 'attachments']` — the
+ * same one-segment-longer trap `matchesContextList` above exists for: `matchesCard` needs the key's
+ * last two elements to be `['card', id]`, so a plain `invalidateCard` silently misses this key. The
+ * bytes of one image are keyed `[..., 'attachment', attachmentId]`, deliberately not ending in
+ * `'attachments'`, so a change to the list never refetches every image's bytes.
+ */
+const matchesAttachmentList = (queryKey: readonly unknown[], id: string) => {
+    const last = queryKey.length - 1;
+    return queryKey[last] === 'attachments' && queryKey[last - 1] === id;
+};
+
+export function invalidateAttachmentList(queryClient: QueryClient, id: string) {
+    void queryClient.invalidateQueries({ predicate: query => matchesAttachmentList(query.queryKey, id) });
 }
 
 const isGatewayStatus = (status: number): boolean => status === 502 || status === 503 || status === 504;
@@ -462,6 +480,48 @@ export function useRemoveContext(id: string) {
         },
         onError: err => {
             notifications.show({ color: 'red', title: 'Could not remove the snapshot', message: reasonFor(err) });
+        },
+    });
+}
+
+/**
+ * Card 0010: uploads one image to a card (card 0009's `POST .../attachments`, multipart). The
+ * attachment service is the sole validator — type sniffed from the bytes, 5 MB per image, 10 images
+ * and 20 MB per card — so a refusal is only ever its own sentence, via `reasonFor`. Success
+ * invalidates the list rather than writing the new row into it: no optimistic rendering, the same
+ * rule `useAttachContext` follows.
+ *
+ * Reads its client from `useWilsonSdk()`, not the `wilson` singleton, so the upload carries the
+ * project the card page was reached under (cards 0156/0266).
+ */
+export function useAttachImage(id: string) {
+    const client = useWilsonSdk();
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (body: FormData): Promise<CardAttachment> => client.context.attachAnImageToACard(id, body),
+        onSuccess: () => {
+            invalidateAttachmentList(queryClient, id);
+        },
+        onError: err => {
+            notifications.show({ color: 'red', title: 'Could not add the image', message: reasonFor(err) });
+        },
+    });
+}
+
+/**
+ * Card 0010: removes one image (`DELETE .../attachments/:attachmentId`) — a real delete. Same
+ * invalidate-and-notify shape, and the same `useWilsonSdk()` client, as `useAttachImage` above.
+ */
+export function useRemoveAttachment(id: string) {
+    const client = useWilsonSdk();
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (attachmentId: string): Promise<void> => client.context.removeAnAttachment(id, attachmentId),
+        onSuccess: () => {
+            invalidateAttachmentList(queryClient, id);
+        },
+        onError: err => {
+            notifications.show({ color: 'red', title: 'Could not remove the image', message: reasonFor(err) });
         },
     });
 }

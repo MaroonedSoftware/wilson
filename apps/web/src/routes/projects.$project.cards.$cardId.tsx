@@ -48,6 +48,12 @@ function ProjectCardDetailRoute() {
         queryKey: ['project', project, 'card', cardId, 'context'],
         queryFn: () => client.context.listCardContext(cardId),
     });
+    // Card 0010: `[..., cardId, 'attachments']`, the same one-segment-longer shape `context` above
+    // uses — `lib/mutations.ts`'s `matchesAttachmentList` is written to match exactly this key.
+    const attachments = useQuery({
+        queryKey: ['project', project, 'card', cardId, 'attachments'],
+        queryFn: () => client.context.listCardAttachments(cardId),
+    });
     // Card 0263: `[..., cardId, 'usage']`, the same one-segment-longer shape `context` above uses —
     // there is no mutation that writes usage, so nothing needs to invalidate this key by name.
     const usage = useQuery({
@@ -92,6 +98,8 @@ function ProjectCardDetailRoute() {
                 versionsError={versions.error}
                 context={context.data}
                 contextError={context.error}
+                attachments={attachments.data}
+                attachmentsError={attachments.error}
                 usage={usage.data}
                 usageError={usage.error}
                 columns={columns.data}

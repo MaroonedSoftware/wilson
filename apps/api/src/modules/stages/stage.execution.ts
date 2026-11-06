@@ -3,7 +3,7 @@ import type { Logger } from '@maroonedsoftware/logger';
 import { budgetedInputTokens } from '#modules/agent/budget.js';
 import { CommandAllowlist } from '#modules/agent/command.allowlist.js';
 import type { ScopeGuard } from '#modules/agent/scope.guard.js';
-import type { StageAgentMap } from '#modules/agent/stage.agent.js';
+import type { StageAgentMap, StageAttachment } from '#modules/agent/stage.agent.js';
 import { StageHeldError, StageInterruptedError, type InterruptedAttempt } from '#modules/agent/stage.interrupt.js';
 import { REPORT_TOOL, type ToolContext } from '#modules/agent/tools/index.js';
 import type { Card } from '#modules/board/card.js';
@@ -36,6 +36,8 @@ export interface StageExecutionInput {
     planPath: string;
     /** Set only when the project's learnings document is non-empty — see `materializeLearnings`. */
     learningsPath?: string;
+    /** The card's images, materialised by `prepareStage` (card 0010); empty or unset when it has none. */
+    attachments?: readonly StageAttachment[];
     stages: ProjectStages;
     /** `run`'s allocated dev server port for this worktree (card 0027), or `undefined` when no range is configured. */
     port?: number;
@@ -78,7 +80,7 @@ const withRuleFailures = async (result: unknown, verdicts: readonly RuleVerdict[
  * nothing about the work.
  */
 export const executeStage = async (deps: StageExecutionDeps, input: StageExecutionInput): Promise<StageOutcome> => {
-    const { card, stage, worktree, scope, planPath, learningsPath, stages, port, interrupted, ruleVerdicts } = input;
+    const { card, stage, worktree, scope, planPath, learningsPath, attachments, stages, port, interrupted, ruleVerdicts } = input;
 
     const context: ToolContext = {
         project: deps.project,
@@ -120,6 +122,7 @@ export const executeStage = async (deps: StageExecutionDeps, input: StageExecuti
         context,
         planPath,
         learningsPath,
+        attachments,
         title: card.frontmatter.title,
         resultSchema,
         baseSha: worktree.baseSha,
