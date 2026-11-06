@@ -15,18 +15,24 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -37,6 +43,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -48,6 +55,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.maroonedsoftware.wilson.sdk.models.ChatMessageRole
 import com.maroonedsoftware.wilson.sdk.models.ChatPendingAction
 import com.maroonedsoftware.wilson.sdk.models.ChatPendingActionStatus
+import com.maroonedsoftware.wilson.sdk.models.ChatPendingQuestion
 import com.maroonedsoftware.wilson.sdk.models.DecideChatActionRequestDecision
 import com.maroonedsoftware.wilson.ui.Centered
 import com.maroonedsoftware.wilson.ui.Loading
@@ -91,8 +99,10 @@ fun ChatScreen(model: ChatModel, onBack: () -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val list = rememberLazyListState()
+    val snackbars = remember { SnackbarHostState() }
     LaunchedEffect(Unit) { lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.follow() } }
-    LaunchedEffect(state.messages.size, state.draft.length, state.sent, state.actions.size) {
+    LaunchedEffect(Unit) { model.notices.collect { snackbars.showSnackbar(it, withDismissAction = true, duration = SnackbarDuration.Long) } }
+    LaunchedEffect(state.messages.size, state.draft.length, state.sent, state.actions.size, state.questions.size) {
         val last = list.layoutInfo.totalItemsCount - 1
         if (last >= 0) list.scrollToItem(last)
     }
@@ -100,11 +110,14 @@ fun ChatScreen(model: ChatModel, onBack: () -> Unit) {
         topBar = {
             TopAppBar(title = { Text(state.thread?.title ?: "Chat", maxLines = 1) }, navigationIcon = { TextButton(onClick = onBack) { Text("Back") } })
         },
+        snackbarHost = { SnackbarHost(snackbars) },
     ) { padding ->
         Column(Modifier.padding(padding).imePadding().fillMaxSize()) {
-            val suggestions = state.messages.lastOrNull()?.suggestions.orEmpty().takeIf { !state.sending }.orEmpty()
+            // As on web, a question waiting on the person takes the place of the follow-ups.
+            val asking = state.questions.any { isUnanswered(it, model.now()) }
+            val suggestions = state.messages.lastOrNull()?.suggestions.orEmpty().takeIf { !state.sending && !asking }.orEmpty()
             LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp), state = list, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(timeline(state.messages, state.actions), key = { it.key }) { entry ->
+                items(timeline(state.messages, state.actions, state.questions), key = { it.key }) { entry ->
                     when (entry) {
                         is ChatEntry.Said -> {
                             val message = entry.message
@@ -114,6 +127,7 @@ fun ChatScreen(model: ChatModel, onBack: () -> Unit) {
                             message.operations.forEach { Text("${if (it.ok) "✓" else "✗"} ${it.name}", style = MaterialTheme.typography.bodySmall) }
                         }
                         is ChatEntry.Proposal -> Proposed(entry.action, model)
+                        is ChatEntry.Asked -> QuestionCard(entry.question, state.answering == entry.question.id, model)
                     }
                 }
                 state.sent?.let { item { Text("You", style = MaterialTheme.typography.labelMedium); Text(it) } }
@@ -171,6 +185,67 @@ private fun Proposed(action: ChatPendingAction, model: ChatModel) {
             }
             action.error?.let { error ->
                 SelectionContainer { Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            }
+        }
+    }
+}
+
+/**
+ * A question the chat asked, answered here with a tap: its 1-4 prompts as radio buttons or checkboxes plus an
+ * "Other" box, one Submit for all of it, enabled only once every prompt has an answer. Past its expiry, or once
+ * dismissed by an ordinary message, it says so rather than offering a button the server would refuse. Once
+ * answered it keeps what was chosen in the conversation, with no controls. As web's `ChatQuestionCard`.
+ */
+@Composable
+private fun QuestionCard(question: ChatPendingQuestion, sending: Boolean, model: ChatModel) {
+    var draft by remember(question.id) { mutableStateOf(QuestionDraft.empty(question.questions)) }
+    val outcome = questionOutcome(question, model.now())
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row {
+                Text("Wilson asks", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                outcome?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            question.questions.forEachIndexed { i, q ->
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(q.header, style = MaterialTheme.typography.titleSmall)
+                    Text(q.text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (outcome != null) {
+                        answerText(q, question.answers?.getOrNull(i))?.let { SelectionContainer { Text(it) } }
+                    } else {
+                        q.options.forEachIndexed { index, option ->
+                            val picked = index in draft.chosen[i]
+                            val pick = { draft = draft.choose(question.questions, i, index) }
+                            Row(
+                                Modifier.fillMaxWidth().selectable(selected = picked, enabled = !sending, onClick = pick),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                if (q.multiSelect) Checkbox(picked, onCheckedChange = null, enabled = !sending)
+                                else RadioButton(picked, onClick = null, enabled = !sending)
+                                Column(Modifier.padding(start = 8.dp).weight(1f)) {
+                                    Text(option.label)
+                                    if (option.description.isNotEmpty()) {
+                                        Text(option.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            draft.other[i],
+                            { draft = draft.type(question.questions, i, it) },
+                            label = { Text("Other") },
+                            placeholder = { Text("Something else…") },
+                            enabled = !sending,
+                            maxLines = 4,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+            if (outcome == null) {
+                Button(onClick = { model.answer(question.id, draft.answers()) }, enabled = draft.complete && !sending) {
+                    Text(if (sending) "…" else "Submit")
+                }
             }
         }
     }

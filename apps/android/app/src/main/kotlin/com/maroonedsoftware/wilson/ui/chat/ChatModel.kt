@@ -7,10 +7,15 @@ import com.maroonedsoftware.wilson.auth.StreamSignal
 import com.maroonedsoftware.wilson.auth.liveStream
 import com.maroonedsoftware.wilson.net.HttpClients
 import com.maroonedsoftware.wilson.net.Patience
+import com.maroonedsoftware.wilson.sdk.models.AnswerChatQuestionsRequest
 import com.maroonedsoftware.wilson.sdk.models.ChatMessage
 import com.maroonedsoftware.wilson.sdk.models.ChatMessageRole
 import com.maroonedsoftware.wilson.sdk.models.ChatPendingAction
 import com.maroonedsoftware.wilson.sdk.models.ChatPendingActionStatus
+import com.maroonedsoftware.wilson.sdk.models.ChatPendingQuestion
+import com.maroonedsoftware.wilson.sdk.models.ChatPendingQuestionStatus
+import com.maroonedsoftware.wilson.sdk.models.ChatQuestion
+import com.maroonedsoftware.wilson.sdk.models.ChatQuestionAnswer
 import com.maroonedsoftware.wilson.sdk.models.ChatThread
 import com.maroonedsoftware.wilson.sdk.models.DecideChatActionRequest
 import com.maroonedsoftware.wilson.sdk.models.DecideChatActionRequestDecision
@@ -59,6 +64,68 @@ internal fun actionOutcome(action: ChatPendingAction, now: Instant): String? = w
     ChatPendingActionStatus.UNKNOWN -> "unknown"
 }
 
+/**
+ * The longest the person's free-text "Other" answer may be. The source of truth is `MAX_OTHER_LENGTH` in
+ * `apps/api/src/modules/chat/chat.questions.ts`, which this app cannot import; the web app keeps its own copy too.
+ */
+internal const val MAX_OTHER_LENGTH = 500
+
+/** Whether a question still waits on the person: past its expiry the server would refuse an answer. */
+internal fun isUnanswered(question: ChatPendingQuestion, now: Instant): Boolean =
+    question.status == ChatPendingQuestionStatus.PENDING && question.expiresAt > now
+
+/** How a question went, for its card. Null while it still waits on the person; past its expiry it reads as expired though it is stored as pending. */
+internal fun questionOutcome(question: ChatPendingQuestion, now: Instant): String? = when (question.status) {
+    ChatPendingQuestionStatus.PENDING -> if (isUnanswered(question, now)) null else "expired"
+    ChatPendingQuestionStatus.ANSWERED -> "answered"
+    ChatPendingQuestionStatus.DISMISSED -> "dismissed"
+    ChatPendingQuestionStatus.UNKNOWN -> "unknown"
+}
+
+/** The given answer as it reads in the conversation: the chosen labels, then any "Other" text, joined. Null when there is none. As web's `answerText`. */
+internal fun answerText(question: ChatQuestion, given: ChatQuestionAnswer?): String? {
+    if (given == null) return null
+    val labels = given.chosen.mapNotNull { question.options.getOrNull(it.toInt())?.label }
+    val parts = labels + listOfNotNull(given.other?.takeIf { it.isNotEmpty() })
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(", ")
+}
+
+/**
+ * What the person has picked so far on one question card: per question, the options ticked by index and
+ * the "Other" text. The same rules as web's `ChatQuestionCard`: a single choice is one answer, so picking an
+ * option clears "Other" and typing "Other" clears the option; "Other" is cut at [MAX_OTHER_LENGTH].
+ */
+internal data class QuestionDraft(val chosen: List<Set<Int>>, val other: List<String>) {
+    /** Ticks or unticks [option] on question [index]; on a single choice it replaces whatever was picked. */
+    fun choose(questions: List<ChatQuestion>, index: Int, option: Int): QuestionDraft {
+        if (!questions[index].multiSelect) return copy(chosen = chosen.replaced(index, setOf(option)), other = other.replaced(index, ""))
+        val now = chosen[index]
+        return copy(chosen = chosen.replaced(index, if (option in now) now - option else now + option))
+    }
+
+    /** Sets question [index]'s "Other" text, cut to [MAX_OTHER_LENGTH]; on a single choice, text replaces the option picked. */
+    fun type(questions: List<ChatQuestion>, index: Int, text: String): QuestionDraft {
+        val typed = text.take(MAX_OTHER_LENGTH)
+        val picked = if (!questions[index].multiSelect && typed.isNotBlank()) chosen.replaced(index, emptySet()) else chosen
+        return copy(chosen = picked, other = other.replaced(index, typed))
+    }
+
+    /** Whether Submit may be pressed: every question has a choice or non-blank "Other" text. */
+    val complete: Boolean get() = chosen.indices.all { chosen[it].isNotEmpty() || other[it].isNotBlank() }
+
+    /** The request body, one answer per question in order: indexes ascending, "Other" trimmed and left out when blank. */
+    fun answers(): List<ChatQuestionAnswer> = chosen.indices.map { i ->
+        ChatQuestionAnswer(chosen[i].sorted().map { it.toLong() }, other[i].trim().takeIf { it.isNotEmpty() })
+    }
+
+    companion object {
+        /** Nothing picked on any of [questions]. */
+        fun empty(questions: List<ChatQuestion>) = QuestionDraft(questions.map { emptySet() }, questions.map { "" })
+    }
+}
+
+private fun <T> List<T>.replaced(index: Int, value: T): List<T> = mapIndexed { i, entry -> if (i == index) value else entry }
+
 /** One thing in a conversation, in the order [timeline] puts them. */
 internal sealed interface ChatEntry {
     val key: String
@@ -70,26 +137,36 @@ internal sealed interface ChatEntry {
     data class Proposal(val action: ChatPendingAction) : ChatEntry {
         override val key get() = "a${action.id}"
     }
+
+    data class Asked(val question: ChatPendingQuestion) : ChatEntry {
+        override val key get() = "q${question.id}"
+    }
 }
 
 /**
- * Messages and actions in the order they happened, except that an action follows the answer of the turn
- * that proposed it. It is stored while the turn runs and the answer only at the end, so by time alone it
- * would sit above that answer, off a phone's screen, and move when the answer arrived. Here it stays last,
- * and a decided card does not jump away from the Confirm just pressed. The web app sorts by time alone.
+ * Messages, actions and questions in the order they happened, except that an action or question follows
+ * the answer of the turn that raised it. It is stored while the turn runs and the answer only at the end,
+ * so by time alone it would sit above that answer, off a phone's screen, and move when the answer arrived.
+ * Here it stays last, and a decided card does not jump away from the button just pressed. The web app
+ * sorts by time alone.
  */
-internal fun timeline(messages: List<ChatMessage>, actions: List<ChatPendingAction>): List<ChatEntry> {
-    val waiting = ArrayDeque(actions.sortedBy { it.createdAt })
+internal fun timeline(
+    messages: List<ChatMessage>,
+    actions: List<ChatPendingAction>,
+    questions: List<ChatPendingQuestion> = emptyList(),
+): List<ChatEntry> {
+    val raised: List<Pair<Instant, ChatEntry>> = actions.map { it.createdAt to ChatEntry.Proposal(it) } + questions.map { it.createdAt to ChatEntry.Asked(it) }
+    val waiting = ArrayDeque(raised.sortedBy { it.first })
     val entries = mutableListOf<ChatEntry>()
-    fun takeActionsUpTo(at: Instant) {
-        while (waiting.firstOrNull()?.let { it.createdAt <= at } == true) entries += ChatEntry.Proposal(waiting.removeFirst())
+    fun takeRaisedUpTo(at: Instant) {
+        while (waiting.firstOrNull()?.let { it.first <= at } == true) entries += waiting.removeFirst().second
     }
     messages.forEach { message ->
-        if (message.role == ChatMessageRole.USER) takeActionsUpTo(message.createdAt)
+        if (message.role == ChatMessageRole.USER) takeRaisedUpTo(message.createdAt)
         entries += ChatEntry.Said(message)
-        if (message.role != ChatMessageRole.USER) takeActionsUpTo(message.createdAt)
+        if (message.role != ChatMessageRole.USER) takeRaisedUpTo(message.createdAt)
     }
-    waiting.mapTo(entries) { ChatEntry.Proposal(it) }
+    waiting.mapTo(entries) { it.second }
     return entries
 }
 
@@ -123,6 +200,9 @@ data class ChatState(
     val thread: ChatThread? = null,
     val messages: List<ChatMessage> = emptyList(),
     val actions: List<ChatPendingAction> = emptyList(),
+    val questions: List<ChatPendingQuestion> = emptyList(),
+    /** The question whose answers are on their way, so its card cannot be submitted twice. */
+    val answering: String? = null,
     val draft: String = "",
     val composer: String = "",
     val sent: String? = null,
@@ -133,6 +213,9 @@ data class ChatState(
 class ChatModel(private val app: WilsonApp, private val id: String) : ViewModel() {
     val state = MutableStateFlow(ChatState())
 
+    /** One-off sentences for this screen's own snackbar. */
+    val notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
+
     init {
         viewModelScope.launch { load() }
     }
@@ -140,7 +223,7 @@ class ChatModel(private val app: WilsonApp, private val id: String) : ViewModel(
     private suspend fun load() {
         try {
             val detail = app.session.call { it.chat.getAChatThread(id) }
-            state.update { it.copy(thread = detail.thread, messages = detail.messages, actions = detail.actions) }
+            state.update { it.copy(thread = detail.thread, messages = detail.messages, actions = detail.actions, questions = detail.questions) }
         } catch (error: Exception) {
             state.update { it.copy(error = reasonFor(error)) }
         }
@@ -158,7 +241,7 @@ class ChatModel(private val app: WilsonApp, private val id: String) : ViewModel(
                 is StreamSignal.Event ->
                     when (signal.event.event) {
                         "delta" -> state.update { it.copy(draft = it.draft + signal.event.data) }
-                        "proposed" -> load()
+                        "proposed", "asked" -> load()
                         "done", "failed" -> {
                             state.update { it.copy(draft = "") }
                             load()
@@ -194,6 +277,26 @@ class ChatModel(private val app: WilsonApp, private val id: String) : ViewModel(
             } catch (error: Exception) {
                 load()
                 state.update { it.copy(error = reasonFor(error)) }
+            }
+        }
+    }
+
+    /**
+     * Answers a question the chat asked, one answer per question in order. The thread is read again either
+     * way, since that is the record; a refusal is said in the snackbar and the card stays answerable.
+     */
+    internal fun answer(questionId: String, answers: List<ChatQuestionAnswer>) {
+        if (state.value.answering != null) return
+        state.update { it.copy(answering = questionId) }
+        viewModelScope.launch {
+            try {
+                app.session.call(patience = Patience.LONG) { it.chat.answerChatQuestions(id, questionId, AnswerChatQuestionsRequest(answers)) }
+                load()
+                state.update { it.copy(answering = null) }
+            } catch (error: Exception) {
+                load()
+                state.update { it.copy(answering = null) }
+                notices.emit(reasonFor(error))
             }
         }
     }

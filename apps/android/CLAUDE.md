@@ -31,7 +31,8 @@ skill, and say plainly what you did not run. Record what you find here, dated.
 - `/api/feed` replays a snapshot on connecting and never what was missed, so reconnecting reloads.
 - The plan stream sends `turn` only on connecting and `delta` live, and the POST answers with the reply
   alone. The person's own turn is therefore put together locally (`withReply`).
-- Chat replays nothing: read the thread, then listen. Any reconnect reads the thread again.
+- Chat replays nothing: read the thread, then listen. Any reconnect reads the thread again. An `asked` event,
+  like `proposed`, only says a question was stored, so it reads the thread again too.
 - A merge runs the suite before answering, so it takes the long client, and a lost answer is unknown.
 - `POST /api/devices` needs `wilson.manage`, as every write does.
 
@@ -74,5 +75,10 @@ skill, and say plainly what you did not run. Record what you find here, dated.
   turn spends real usage, though what it proposes only runs if confirmed.
 - 2026-11-04: `verify.sh ui` leaves out any text containing a double quote, because the dump writes that attribute
   in single quotes. A screenshot showed the failed action's error while `ui` did not list it.
+- 2026-11-06, not run on a screen: chat questions (`ask_user`) are stored mid-turn like proposed actions, so a
+  question card follows the answer of the turn that asked it, by the same rule. A refused answer is the chat's
+  first snackbar; a refused Confirm or Decline still shows as the red line above the composer. Android is not a
+  changesets package, so its changesets carry no package and release nothing. To check the card, insert a row
+  into `wilson.chat_questions` in `wilson_android` as for actions.
 - 2026-11-04: the notification prompt comes back each time the activity is recreated, rotation included, until it
   is refused twice, because `AskForPush` asks from a `LaunchedEffect`. It covers the screen, so dismiss it first.
