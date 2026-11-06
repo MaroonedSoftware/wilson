@@ -95,7 +95,10 @@ describe('ApiStageAgent attachments (card 0010)', () => {
         const history = Array.from({ length: 60 }, (_, i) =>
             i % 2 === 0
                 ? { role: 'assistant', content: [{ type: 'tool-call', toolCallId: `c${i}`, toolName: 'read', input: {} }] }
-                : { role: 'tool', content: [{ type: 'tool-result', toolCallId: `c${i - 1}`, toolName: 'read', output: { type: 'text', value: 'x'.repeat(100) } }] },
+                : {
+                      role: 'tool',
+                      content: [{ type: 'tool-result', toolCallId: `c${i - 1}`, toolName: 'read', output: { type: 'text', value: 'x'.repeat(100) } }],
+                  },
         );
         const prepareStep = agentOptions[0]!.prepareStep as (args: { messages: unknown[] }) => { messages: { role: string; content: Part[] }[] };
         const { messages } = prepareStep({ messages: [first, ...history] });

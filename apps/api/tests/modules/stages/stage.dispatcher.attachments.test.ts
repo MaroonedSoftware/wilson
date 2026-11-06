@@ -165,7 +165,8 @@ const setUp = async (options: { withRepository?: boolean; placement?: RemotePlac
         });
 
     // Every dispatch moves the card on; put it back so the same stage can run again.
-    const resetStage = () => board.write('0001', 'back to testing', current => ({ ...current, frontmatter: { ...current.frontmatter, stage: 'testing' } }));
+    const resetStage = () =>
+        board.write('0001', 'back to testing', current => ({ ...current, frontmatter: { ...current.frontmatter, stage: 'testing' } }));
 
     const localDir = join(config.runRoot, 'cards', '0001', 'attachments');
     return { dispatcher, repository, events, probes, attach, resetStage, localDir, worktreeDir };
