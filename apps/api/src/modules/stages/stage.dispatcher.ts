@@ -597,6 +597,7 @@ export class StageDispatcher {
                     ...(outcome.blocked ? { blocked: outcome.blocked } : {}),
                     failures: outcome.failures,
                     changedPaths: outcome.changedPaths,
+                    ...(outcome.preExistingFailures ? { preExistingFailures: outcome.preExistingFailures } : {}),
                     grants: outcome.scopeGrants,
                     usage: outcome.usage,
                     // Who spent it, so spend can be summed by account. Absent on older events.

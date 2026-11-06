@@ -307,6 +307,7 @@ export const executeStage = async (deps: StageExecutionDeps, input: StageExecuti
         }),
         ...(supportedRefusal && { supportedRefusal }),
         ...(verification.needsHumanReason && { needsHumanReason: verification.needsHumanReason }),
+        ...(verification.preExistingFailures && { preExistingFailures: verification.preExistingFailures }),
     };
 };
 

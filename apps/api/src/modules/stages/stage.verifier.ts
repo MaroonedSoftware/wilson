@@ -56,6 +56,11 @@ export interface VerificationOutcome {
      * The card stays where it failed, flagged with this reason, however many retries it has left.
      */
     needsHumanReason?: string;
+    /**
+     * Set by `TestingVerifier` alone: failing tests it did not hold against the card because they
+     * fail on the baseline tree too (`failingTestKey`-formatted). Recorded, never a failure.
+     */
+    preExistingFailures?: string[];
 }
 
 export interface StageVerifier {

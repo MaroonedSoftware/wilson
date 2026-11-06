@@ -72,6 +72,12 @@ export type CardEventType =
     // recurring flake only reaches a human the ordinary way, through `testing.onFail: testing` and
     // then `maxKickbacks`.
     | 'test.flaky'
+    // A red run's failing tests that fail on the tree the card branched from too, so they were not
+    // held against it. `TestingVerifier` reads that tree's report from its own baseline check and
+    // appends this with `tests` (`failingTestKey`-formatted) and `run: 'testing'`; the merge check
+    // reads it back, since it runs no baseline of its own, and appends one with `run: 'merge-check'`
+    // when it exempts the same tests there.
+    | 'test.preexisting'
     // Card 0100. Appended by `CardStageJob` at the moment it is about to dispatch a stage, when the
     // commit this process is running is behind the commit the card's worktree is about to be cut
     // from — never when the daemon is current, and never when it is merely *ahead* (a daemon ahead

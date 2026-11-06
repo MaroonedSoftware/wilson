@@ -166,6 +166,51 @@ export const redRunDetail = (report: TestReport | undefined, run: CommandFailure
 };
 
 /**
+ * A failing test's identity across two trees: its file and name, never its message. A file that
+ * failed to load has no name, and its message can carry the worktree's own absolute path, so two
+ * trees that fail the same way would never match on `describeFailingTest`.
+ */
+export const failingTestKey = (test: FailingTest): string =>
+    test.name === undefined ? `${test.file} failed to load` : `${test.file} > ${test.name}`;
+
+/**
+ * Split a red run's failures into those `known` already fails (the baseline tree's report, or a
+ * `test.preexisting` event's keys) and those this card introduced. A failure that is red on the
+ * tree the card branched from is not the card's fault: on Tower between 2026-10-31 and 2026-11-06,
+ * about seven testing and merge failures were tests red for every card (an unreachable test
+ * database, a test reading a path relative to cwd, a test failing on `main`).
+ */
+export const partitionPreExisting = (
+    failing: readonly FailingTest[],
+    known: ReadonlySet<string>,
+): { preExisting: FailingTest[]; introduced: FailingTest[] } => {
+    const preExisting: FailingTest[] = [];
+    const introduced: FailingTest[] = [];
+    for (const test of failing) (known.has(failingTestKey(test)) ? preExisting : introduced).push(test);
+    return { preExisting, introduced };
+};
+
+/** The keys of every test a baseline report names as failing. */
+export const failingKeys = (report: TestReport | undefined): Set<string> => new Set((report?.failing ?? []).map(failingTestKey));
+
+/**
+ * A red run that the rerun did not clear. `failing` is set only when the report named failures,
+ * which is what a baseline can exempt; a crash or an unusable report has nothing to compare.
+ */
+interface RedRun {
+    report: TestReport | undefined;
+    run: CommandFailure;
+    archived: string | undefined;
+    failing?: FailingTest[];
+}
+
+/** What the baseline check found, and the baseline suite's own report for the red-run judgement. */
+interface BaselineCheck {
+    failures: string[];
+    report?: TestReport;
+}
+
+/**
  * Whether a baseline run proves the copied tests exercise this card's change.
  *
  * Either signal suffices, and the exit code is not merely a fallback for a missing report. A new
@@ -210,6 +255,9 @@ export const baselineRefusal = (testPaths: string[]): string =>
  * from. `stage.baselineCheck` is the escape hatch for when a baseline run cannot be completed at
  * all; its absence is recorded (logged, not folded into a pass) rather than silently passing —
  * "no baseline" is not the same claim as "no regressions".
+ *
+ * "Green" excuses what the card did not cause: a test that fails once and passes on a rerun
+ * (`judgeRedRun`), and a test that fails on that same baseline tree too (`judgePreExisting`).
  */
 @Injectable()
 export class TestingVerifier implements StageVerifier {
@@ -235,10 +283,13 @@ export class TestingVerifier implements StageVerifier {
         // this report's named failures, so the message needs the report before it can be assembled.
         const counts = await this.readReport(worktree, stage.testReportPath, failures, startedAt);
 
+        // The red-suite failure keeps its place in the list, but is decided only once the baseline
+        // suite below has said which of its tests were already red before this card.
+        const redIndex = failures.length;
+        let red: RedRun | string | undefined;
         if (run) {
             const archived = await this.archiveReport(cardId, worktree, stage);
-            const redFailure = await this.judgeRedRun(cardId, worktree, stage, counts, run, archived);
-            if (redFailure) failures.push(redFailure);
+            red = await this.judgeRedRun(cardId, worktree, stage, counts, run, archived);
         }
 
         // Formatting is an exit condition, not a habit an agent is asked to remember — this is
@@ -263,18 +314,63 @@ export class TestingVerifier implements StageVerifier {
             if (reason) failures.push(reason);
         }
 
+        let baselineReport: TestReport | undefined;
         if (stage.baselineCheck) {
-            failures.push(...(await this.checkBaseline(cardId, worktree, stage, changedPaths, counts, expectedSkippedTests(card) ?? 0)));
+            const baseline = await this.checkBaseline(cardId, worktree, stage, changedPaths, counts, expectedSkippedTests(card) ?? 0);
+            failures.push(...baseline.failures);
+            baselineReport = baseline.report;
         } else {
             this.logger.warn('baselineCheck disabled: the baseline and test-count checks were skipped, not passed');
         }
+
+        const judged = await this.judgePreExisting(cardId, stage, red, baselineReport);
+        if (judged.failure) failures.splice(redIndex, 0, judged.failure);
 
         return {
             passed: failures.length === 0,
             failures,
             changedPaths,
+            ...(judged.preExisting.length > 0 ? { preExistingFailures: judged.preExisting } : {}),
             ...(secrets.needsHumanReason ? { needsHumanReason: secrets.needsHumanReason } : {}),
         };
+    }
+
+    /**
+     * Settle a red run against the baseline suite's report: a failing test that also fails on the
+     * tree this card branched from is recorded as pre-existing, not held against the card. Only the
+     * baseline check's own run is read, so this costs no suite run of its own, and a stage without
+     * one (`baselineCheck` off, no new test files, a baseline that could not be set up or read)
+     * judges the run red exactly as before.
+     *
+     * Pre-existing failures are kept on the outcome (`preExistingFailures`, into `stage.passed` or
+     * `stage.failed`) and in a `test.preexisting` event, which the merge check reads to apply the
+     * same exemption without a baseline run of its own. A run with any failure the baseline does
+     * not share is still red, and names only those.
+     */
+    private async judgePreExisting(
+        cardId: string,
+        stage: StageConfig,
+        red: RedRun | string | undefined,
+        baseline: TestReport | undefined,
+    ): Promise<{ failure?: string; preExisting: string[] }> {
+        if (red === undefined || typeof red === 'string') return { failure: red, preExisting: [] };
+        if (!red.failing || !baseline) return { failure: redSuiteFailure(red.report, red.run, red.archived), preExisting: [] };
+
+        const { preExisting, introduced } = partitionPreExisting(red.failing, failingKeys(baseline));
+        const keys = preExisting.map(failingTestKey);
+        if (keys.length > 0) {
+            await this.events.append({
+                project: this.config.project,
+                cardId,
+                stage: stage.name,
+                type: 'test.preexisting',
+                payload: { tests: keys, run: 'testing' },
+            });
+        }
+        if (introduced.length === 0) return { preExisting: keys };
+
+        const report = red.report && { ...red.report, failing: introduced };
+        return { failure: redSuiteFailure(report, red.run, red.archived), preExisting: keys };
     }
 
     /**
@@ -359,6 +455,9 @@ export class TestingVerifier implements StageVerifier {
      * That is deliberately not a direct flag: a verifier cannot set `needsHuman` itself, so a
      * recurring flake only reaches a human the ordinary way, through `testing.onFail: testing` and
      * then `maxKickbacks`.
+     *
+     * A run still red after the rerun is returned rather than judged, so `judgePreExisting` can set
+     * aside the failures the baseline tree shares. `flaky: <names>` is a verdict already, a string.
      */
     private async judgeRedRun(
         cardId: string,
@@ -367,9 +466,9 @@ export class TestingVerifier implements StageVerifier {
         report: TestReport | undefined,
         run: CommandFailure,
         archived: string | undefined,
-    ): Promise<string | undefined> {
+    ): Promise<RedRun | string | undefined> {
         const failing = report?.failing ?? [];
-        if (failing.length === 0 || !stage.testCommand) return redSuiteFailure(report, run, archived);
+        if (failing.length === 0 || !stage.testCommand) return { report, run, archived };
 
         const files = [...new Set(failing.map(test => test.file))];
         const rerun = await runConfiguredCommand(
@@ -379,7 +478,7 @@ export class TestingVerifier implements StageVerifier {
             undefined,
             worktreeHost(worktree),
         );
-        if (rerun) return redSuiteFailure(report, run, archived);
+        if (rerun) return { report, run, archived, failing };
 
         const names = failing.map(describeFailingTest);
         const recurring = await this.recurringFlake(cardId, names);
@@ -465,7 +564,7 @@ export class TestingVerifier implements StageVerifier {
         changedPaths: string[],
         counts: TestCounts | undefined,
         allowedSkipRise: number,
-    ): Promise<string[]> {
+    ): Promise<BaselineCheck> {
         // `changedPaths` is every path the diff touches, deletions included — and a card that
         // deletes a test file has a path here that no longer exists in the worktree. Copying it into
         // the baseline tree fails with ENOENT and takes the whole stage down with it, which is what
@@ -484,24 +583,25 @@ export class TestingVerifier implements StageVerifier {
                 ),
             )
         ).filter((path): path is string => path !== undefined);
-        if (testPaths.length === 0) return [];
+        if (testPaths.length === 0) return { failures: [] };
 
         const failures: string[] = [];
-        return withBaselineWorktree<string[]>(
+        return withBaselineWorktree<BaselineCheck>(
             this.worktrees,
             this.logger,
             { id: `${cardId}-baseline`, source: worktree, setupCommand: stage.setupCommand, setupLabel: `${cardId} testing baseline setup` },
-            reason => [`the baseline worktree could not be set up: ${reason}`],
+            reason => ({ failures: [`the baseline worktree could not be set up: ${reason}`] }),
             async baseline => {
                 if (!stage.testCommand) {
                     failures.push('no testCommand configured: the baseline check could not run');
-                    return failures;
+                    return { failures };
                 }
 
                 // A failing baseline suite is not this check's business — the pre-change tree's own
                 // health is unrelated to whether this card's tests exercise its change. parseTestReport
                 // does not care whether tests failed, only whether the report is readable, so a failing
-                // suite reaches here as ordinary counts rather than a pushed failure.
+                // suite reaches here as ordinary counts rather than a pushed failure. Its failing
+                // tests are returned too: they are what `judgePreExisting` exempts a red run by.
                 const baselineStartedAt = Date.now();
                 await runConfiguredCommand(baseline.path, stage.testCommand, stage.testTimeoutMs, undefined, worktreeHost(baseline));
                 const baselineCounts = await this.readReport(baseline, stage.testReportPath, failures, baselineStartedAt);
@@ -537,7 +637,7 @@ export class TestingVerifier implements StageVerifier {
                     failures.push(baselineRefusal(testPaths));
                 }
 
-                return failures;
+                return { failures, ...(baselineCounts ? { report: baselineCounts } : {}) };
             },
         );
     }

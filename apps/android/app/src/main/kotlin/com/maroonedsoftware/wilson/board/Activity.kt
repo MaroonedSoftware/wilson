@@ -24,6 +24,7 @@ private val SUMMARIES = mapOf(
     "stage.dead" to ActivitySummary("Gave up on {stage}", ActivityTone.BAD),
     "stage.stale" to ActivitySummary("Abandoned a stale {stage} run", ActivityTone.WARNING),
     "test.flaky" to ActivitySummary("Found a flaky test", ActivityTone.WARNING),
+    "test.preexisting" to ActivitySummary("Found a test already failing before this card", ActivityTone.WARNING),
     "rebase.conflict" to ActivitySummary("Hit a rebase conflict", ActivityTone.BAD),
     "context.overflow" to ActivitySummary("Ran out of context in {stage}", ActivityTone.BAD),
     "dispatch.deferred" to ActivitySummary("Deferred dispatch", ActivityTone.QUIET),

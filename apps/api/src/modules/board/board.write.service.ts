@@ -15,8 +15,8 @@ import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token
 import { findStage, StageConfigError, stepOn, validTargets, type StageConfig } from '#modules/stages/stage.config.js';
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { pnpmStoreLock, runConfiguredCommand, type CommandFailure } from '#modules/stages/run.command.js';
-import { describeFailingTest, redRunDetail } from '#modules/stages/testing.verifier.js';
-import { parseTestReport } from '#modules/stages/test.report.js';
+import { describeFailingTest, failingTestKey, partitionPreExisting, redRunDetail } from '#modules/stages/testing.verifier.js';
+import { parseTestReport, type FailingTest, type TestReport } from '#modules/stages/test.report.js';
 import { archiveTestReport } from '#modules/stages/test.report.archive.js';
 import { whyNotDispatchable } from '#modules/jobs/dispatchable.js';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
@@ -1104,7 +1104,9 @@ export class BoardWriteService {
      * cleanly but named no failures.
      *
      * No named failures means the run is judged red with `run.reason` alone. A rerun of just the
-     * failing files that comes back red too is judged red with `redRunDetail`, naming the tests from
+     * failing files that comes back red too goes to `judgePreExistingAtMerge`, which lets the merge
+     * through if the testing stage already found every one of them red on the card's baseline, and
+     * otherwise judges it red with `redRunDetail`, naming the tests from
      * `run`'s own report, not the rerun's — this was not a flake. A rerun that comes back
      * green appends a `test.flaky` event naming the tests and lets the merge proceed, `run:
      * 'merge-check'` distinguishing it in the card's history from a `test.flaky` event
@@ -1125,7 +1127,7 @@ export class BoardWriteService {
             undefined,
             worktreeHost(worktree),
         );
-        if (rerun) return { ok: false, reason: redRunDetail(report, run, archived) };
+        if (rerun) return this.judgePreExistingAtMerge(id, report, failing, run, archived);
 
         await this.eventLog.append({
             project: this.boardConfig.project,
@@ -1138,6 +1140,48 @@ export class BoardWriteService {
             payload: { tests: failing.map(describeFailingTest), run: 'merge-check' },
         });
         return { ok: true };
+    }
+
+    /**
+     * The testing stage's baseline rule, applied at merge: a test the testing stage recorded as
+     * already red on the card's merge base (`test.preexisting`, `run: 'testing'`) is not held
+     * against the merge either. Read from the card's events rather than a baseline run of its own,
+     * so the merge check costs no extra suite; a card with no such event is judged as before. A
+     * failure that event does not name still refuses the merge, and is the only one named.
+     */
+    private async judgePreExistingAtMerge(
+        id: string,
+        report: TestReport | undefined,
+        failing: FailingTest[],
+        run: CommandFailure,
+        archived: string | undefined,
+    ): Promise<MergeProof> {
+        const known = await this.preExistingTests(id);
+        const { preExisting, introduced } = partitionPreExisting(failing, known);
+        if (preExisting.length > 0) {
+            await this.eventLog.append({
+                project: this.boardConfig.project,
+                cardId: id,
+                stage: 'ready',
+                type: 'test.preexisting',
+                payload: { tests: preExisting.map(failingTestKey), run: 'merge-check' },
+            });
+        }
+        if (introduced.length === 0) return { ok: true };
+        return { ok: false, reason: redRunDetail(report && { ...report, failing: introduced }, run, archived) };
+    }
+
+    /** Every test the testing stage recorded as failing on this card's baseline tree too. */
+    private async preExistingTests(id: string): Promise<Set<string>> {
+        const rows = await this.eventLog.tail(this.boardConfig.project, id, PRE_EXISTING_LOOKBACK);
+        const known = new Set<string>();
+        for (const row of rows) {
+            if (row.type !== 'test.preexisting' || row.payload?.run !== 'testing') continue;
+            const tests = row.payload?.tests;
+            if (!Array.isArray(tests)) continue;
+            for (const test of tests) if (typeof test === 'string') known.add(test);
+        }
+        return known;
     }
 
     /**
@@ -1328,3 +1372,6 @@ const HUMAN_FINDINGS_NOTE = '_A human left these comments on the diff._';
  * event history runs past it before the refusal it should find.
  */
 const DIVISION_LOOKBACK = 2000;
+
+/** As deep as `DIVISION_LOOKBACK`: a card reaches `ready` long after its testing stage's events. */
+const PRE_EXISTING_LOOKBACK = 2000;
