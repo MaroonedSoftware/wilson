@@ -1,9 +1,9 @@
 import { Fragment } from 'react';
 import { Box, Group, Loader, Paper, Text, Tooltip } from '@mantine/core';
 import { IconBolt } from '@tabler/icons-react';
-import type { ChatMessage, ChatOperation } from '@wilson/sdk';
+import type { ChatAttachment, ChatMessage, ChatOperation } from '@wilson/sdk';
+import { InlineImage } from '#src/components/InlineImage.js';
 import { Markdown } from '#src/components/Markdown.js';
-import { imagesCaption } from '#src/lib/chat.js';
 
 /** `list_cards` in `demo` → `list cards in demo`: an operation as a person would say it. */
 const operationLabel = ({ name, project }: ChatOperation): string => `${name.replaceAll('_', ' ')}${project ? ` in ${project}` : ''}`;
@@ -44,16 +44,20 @@ export function ActivityLine({ operations }: { operations: ChatOperation[] }) {
     );
 }
 
+/** Where a thread's attachment is served, which is also the URL its markdown would embed it by. */
+const attachmentUrl = (threadId: string, attachment: ChatAttachment): string => `/api/chat/threads/${threadId}/attachments/${attachment.id}`;
+
 /** What the person wrote: a pill on the right, against the answers running the column's full width. */
-export function UserMessage({ text, images = 0 }: { text: string; images?: number }) {
-    const caption = imagesCaption(images);
+export function UserMessage({ text, threadId, attachments = [] }: { text: string; threadId: string | undefined; attachments?: ChatAttachment[] }) {
     return (
         <Group justify="flex-end">
             <Paper px="md" py={8} radius="lg" maw="85%" style={{ background: 'var(--mantine-color-default-hover)' }}>
-                {caption && (
-                    <Text size="xs" c="dimmed">
-                        {caption}
-                    </Text>
+                {threadId && attachments.length > 0 && (
+                    <Group gap="xs">
+                        {attachments.map(attachment => (
+                            <InlineImage key={attachment.id} url={attachmentUrl(threadId, attachment)} alt={attachment.filename} />
+                        ))}
+                    </Group>
                 )}
                 <Text size="sm" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
                     {text}
@@ -64,7 +68,22 @@ export function UserMessage({ text, images = 0 }: { text: string; images?: numbe
 }
 
 /** An answer: what it ran, then what it said, with no box around either. */
-export function AssistantMessage({ text, operations }: { text: string; operations: ChatOperation[] }) {
+export function AssistantMessage({
+    text,
+    operations,
+    threadId,
+    attachments = [],
+}: {
+    text: string;
+    operations: ChatOperation[];
+    threadId: string | undefined;
+    attachments?: ChatAttachment[];
+}) {
+    // An image the answer carries but never embedded is drawn below it, so a picture Wilson made and
+    // forgot to link is shown rather than silently lost; one it did embed is not drawn twice.
+    const unembedded = threadId
+        ? attachments.map(attachment => ({ attachment, url: attachmentUrl(threadId, attachment) })).filter(({ url }) => !text.includes(url))
+        : [];
     return (
         <Box style={{ overflowWrap: 'anywhere' }}>
             <ActivityLine operations={operations} />
@@ -73,24 +92,31 @@ export function AssistantMessage({ text, operations }: { text: string; operation
                     <Markdown body={text} />
                 </Box>
             )}
+            {unembedded.length > 0 && (
+                <Group gap="xs" mt="xs">
+                    {unembedded.map(({ attachment, url }) => (
+                        <InlineImage key={attachment.id} url={url} alt={attachment.filename} />
+                    ))}
+                </Group>
+            )}
         </Box>
     );
 }
 
-export function Message({ message }: { message: ChatMessage }) {
+export function Message({ message, threadId }: { message: ChatMessage; threadId: string | undefined }) {
     return message.role === 'user' ? (
-        <UserMessage text={message.content} images={message.attachments?.length} />
+        <UserMessage text={message.content} threadId={threadId} attachments={message.attachments} />
     ) : (
-        <AssistantMessage text={message.content} operations={message.operations} />
+        <AssistantMessage text={message.content} operations={message.operations} threadId={threadId} attachments={message.attachments} />
     );
 }
 
 /** The answer in progress: what it has run and written so far, and that it is still going until it writes. */
-export function AnswerInProgress({ text, operations }: { text: string; operations: ChatOperation[] }) {
+export function AnswerInProgress({ text, operations, threadId }: { text: string; operations: ChatOperation[]; threadId: string | undefined }) {
     return (
         // Read out once it is stored, not word by word.
         <Box aria-busy="true">
-            <AssistantMessage text={text} operations={operations} />
+            <AssistantMessage text={text} operations={operations} threadId={threadId} />
             {!text && (
                 <Group gap="xs" c="dimmed" mt={operations.length > 0 ? 'xs' : 0}>
                     <Loader type="dots" size="sm" />

@@ -162,7 +162,7 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
                     {entries.map(entry => {
                         switch (entry.kind) {
                             case 'message':
-                                return <Message key={`m${entry.message.seq}`} message={entry.message} />;
+                                return <Message key={`m${entry.message.seq}`} message={entry.message} threadId={threadId} />;
                             case 'action': {
                                 const app = proposedApp(entry.action);
                                 return app ? (
@@ -175,9 +175,9 @@ export function ChatView({ variant, project, actions }: ChatViewProps) {
                                 return <ChatQuestionCard key={`q${entry.question.id}`} question={entry.question} />;
                         }
                     })}
-                    {send.isPending && <UserMessage text={send.variables.text} />}
+                    {send.isPending && <UserMessage text={send.variables.text} threadId={threadId} />}
                     {/* The answer in progress: to a message just sent, or the follow-up to a confirmed change. */}
-                    {answering && <AnswerInProgress text={draft} operations={live.operations} />}
+                    {answering && <AnswerInProgress text={draft} operations={live.operations} threadId={threadId} />}
                     <div ref={targetRef} />
                 </Stack>
             </ScrollArea>
