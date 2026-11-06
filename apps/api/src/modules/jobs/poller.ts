@@ -5,6 +5,7 @@ import { JobBroker } from '@maroonedsoftware/jobbroker';
 import { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
+import { planGap } from '#modules/board/card.js';
 import { nextCard } from '#modules/board/next.card.js';
 import { runAsProject } from '#modules/board/project.context.js';
 import { ProjectRepository } from '#modules/board/project.repository.js';
@@ -13,6 +14,7 @@ import { findStage, type ProjectStages, stepOn } from '#modules/stages/stage.con
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { DRAIN_ENABLED } from '#modules/settings/drain.enabled.setting.js';
+import { AUTO_PLAN_ENABLED } from '#modules/settings/auto.plan.setting.js';
 import { POLLER_INTERVAL_MS } from '#modules/settings/poller.interval.setting.js';
 import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
 import { POLLER_INTERVAL_MS_DEFAULT } from './job.runner.config.js';
@@ -275,6 +277,10 @@ export class Poller {
 
             const stages = await this.stageConfigs.load();
 
+            // Read at most once per tick, and only once a planning card is reached.
+            let autoPlan: boolean | undefined;
+            let drafted = false;
+
             // Bounds the walk so a board with nothing dispatchable — every remaining candidate sitting
             // in a manual stage — cannot turn into a scan of the whole backlog every `POLLER_INTERVAL_MS`,
             // forever. Well above any candidate list this project expects; raise it if that stops holding.
@@ -302,6 +308,20 @@ export class Poller {
                     await this.cardJobs.record(cardId, jobId);
                     this.logger.info(`poller: enqueued ${cardId} · ${stageName} · ${step.name} (job ${jobId})`);
                     return;
+                }
+
+                // A card waiting in `planning` without a plan gets one draft from an agent, when the
+                // project has opted in. It stays in `planning` for a person to approve, so this does not
+                // use the tick's one stage enqueue: the card then falls through to the refusal below like
+                // any other manual stage, and the walk carries on. One draft per tick, and the
+                // `card.plan-draft` worker runs one at a time, so a board full of stubs is drafted in turn.
+                if (stageName === 'planning' && !drafted && planGap(candidate.body)) {
+                    autoPlan ??= await this.settings.get(AUTO_PLAN_ENABLED);
+                    if (autoPlan && !(await this.cardJobs.planDraftAttempted(cardId))) {
+                        const jobId = await this.broker.send('card.plan-draft', { cardId, project: this.boardConfig.project, trigger: 'unplanned' });
+                        this.logger.info(`poller: enqueued a plan draft for ${cardId} (job ${jobId})`);
+                        drafted = true;
+                    }
                 }
 
                 const reason = whyNotDispatchable(candidate, stages);

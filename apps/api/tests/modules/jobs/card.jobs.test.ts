@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sql } from 'kysely';
 import { DateTime } from 'luxon';
 import { CardJobs } from '#modules/jobs/card.jobs.js';
 import { PostgresBoardRepository } from '#modules/board/postgres.board.repository.js';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
+import { PlanTurnRepository } from '#modules/plan/plan.turn.repository.js';
 import { testDb, uniqueProject } from '#tests/support/test.db.js';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
 import type { EventLog } from '#modules/events/event.log.js';
@@ -348,5 +349,67 @@ describe('CardJobs.drainCounts', () => {
         } finally {
             for (const id of ids) await sql`delete from pgboss.job where id = ${id}`.execute(db);
         }
+    });
+});
+
+describe('CardJobs.planDraftAttempted', () => {
+    let config: StaticBoardConfig;
+    let cardJobs: CardJobs;
+    const inserted: string[] = [];
+
+    beforeEach(async () => {
+        config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
+        const board = new PostgresBoardRepository(config, db, { append: async () => {} } as unknown as EventLog);
+        await board.create(
+            { frontmatter: { id: '0001', title: 'a card', stage: 'planning', dependsOn: [], retries: {} }, sections: {}, body: 'x\n' },
+            'create',
+        );
+        cardJobs = new CardJobs(config, db, {} as unknown as JobBroker);
+    });
+
+    afterEach(async () => {
+        for (const id of inserted.splice(0)) await sql`delete from pgboss.job where id = ${id}`.execute(db);
+    });
+
+    const insertDraft = async (state: string, data: Record<string, unknown>): Promise<void> => {
+        const id = randomUUID();
+        inserted.push(id);
+        await sql`insert into pgboss.job (id, state, name, data) values (${id}, ${state}, 'card.plan-draft', ${JSON.stringify(data)}::jsonb)`.execute(
+            db,
+        );
+    };
+
+    it('is false for a card with no conversation and no draft job', async () => {
+        expect(await cardJobs.planDraftAttempted('0001')).toBe(false);
+    });
+
+    it('is true once the card has a planning conversation', async () => {
+        await new PlanTurnRepository(config, db).append('0001', 'user', '');
+
+        expect(await cardJobs.planDraftAttempted('0001')).toBe(true);
+    });
+
+    it.each(['created', 'retry', 'active'])('is true while a split draft for the card is %s', async state => {
+        await insertDraft(state, { cardId: '0001', project: config.project });
+
+        expect(await cardJobs.planDraftAttempted('0001')).toBe(true);
+    });
+
+    it('is false once a split draft for the card has settled', async () => {
+        await insertDraft('completed', { cardId: '0001', project: config.project });
+
+        expect(await cardJobs.planDraftAttempted('0001')).toBe(false);
+    });
+
+    it('is true once an unplanned draft for the card has run at all', async () => {
+        await insertDraft('failed', { cardId: '0001', project: config.project, trigger: 'unplanned' });
+
+        expect(await cardJobs.planDraftAttempted('0001')).toBe(true);
+    });
+
+    it("ignores another project's draft for the same card id", async () => {
+        await insertDraft('active', { cardId: '0001', project: 'some-other-project', trigger: 'unplanned' });
+
+        expect(await cardJobs.planDraftAttempted('0001')).toBe(false);
     });
 });
