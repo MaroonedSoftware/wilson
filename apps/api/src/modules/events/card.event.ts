@@ -217,9 +217,9 @@ export type CardEventType =
     | 'card.auto-split'
     /** `AutoSplitter` declined a supported refusal, which then routed as usual. Payload: `reason`. */
     | 'card.auto-split-skipped'
-    /** `PlanDraftJob` saved a plan for a piece of an automatic split. It still waits for approval. */
+    /** `PlanDraftJob` saved a plan for a split piece or an unplanned card. It still waits for approval. */
     | 'card.plan-drafted'
-    /** `PlanDraftJob` left a piece unplanned, or it could not be enqueued. Payload: `reason`. */
+    /** `PlanDraftJob` left a card unplanned, or it could not be enqueued. Payload: `reason`. */
     | 'card.plan-draft-skipped'
     // Card 0272. Appended once per `card.stage` job `BoundedCardStageJobRunner.start()`'s boot sweep
     // finds `active` in pg-boss with no daemon left that could be running it — the API is the only
