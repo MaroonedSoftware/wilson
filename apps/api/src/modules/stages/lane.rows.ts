@@ -23,6 +23,7 @@ export interface Lane {
 export interface ProjectLaneSettings {
     scopeViolation: string;
     alwaysAllowed: readonly string[];
+    webAllow: readonly string[];
     deny: readonly string[];
     sandbox: { enabled: boolean; allowedDomains: readonly string[] };
 }
@@ -130,7 +131,7 @@ export const FOLDED_LANES: Readonly<Record<string, string>> = { challenge: 'revi
 export const lanesFromRaw = (raw: unknown, source: string): LaneConfig => {
     const stages = foldScopeCheck(foldChallenge((raw as { stages: RawStage[] }).stages));
     const document = { ...(raw as object), stages };
-    const { scopeViolation, alwaysAllowed, deny, sandbox } = validateStages(document, source);
+    const { scopeViolation, alwaysAllowed, webAllow, deny, sandbox } = validateStages(document, source);
 
     return {
         lanes: stages.map((stage, position) => {
@@ -151,7 +152,7 @@ export const lanesFromRaw = (raw: unknown, source: string): LaneConfig => {
                 settings,
             } as Lane;
         }),
-        project: { scopeViolation, alwaysAllowed, deny, sandbox },
+        project: { scopeViolation, alwaysAllowed, webAllow, deny, sandbox },
     };
 };
 

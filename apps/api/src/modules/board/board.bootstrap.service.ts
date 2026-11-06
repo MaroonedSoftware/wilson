@@ -51,6 +51,8 @@ const DEFAULT_LANES: LaneConfig = {
         scopeViolation: 'widen',
         // Machine-owned paths no plan should have to mention.
         alwaysAllowed: ['pnpm-lock.yaml', '**/*.snap'],
+        // No web access until an operator names a host.
+        webAllow: [],
         deny: [],
         sandbox: { enabled: false, allowedDomains: [] },
     },

@@ -303,6 +303,7 @@ export class PostgresStageConfigStore extends StageConfigStore {
         const values = {
             scopeViolation: config.project.scopeViolation,
             alwaysAllowed: [...config.project.alwaysAllowed],
+            webAllow: [...config.project.webAllow],
             deny: [...config.project.deny],
             sandbox: JSON.stringify(config.project.sandbox),
             importedConfigId: configId,
@@ -372,6 +373,7 @@ const toLane = (row: Selectable<DB['wilson.lanes']>): Lane => ({
 const toProjectSettings = (row: Selectable<DB['wilson.projectLaneSettings']>): ProjectLaneSettings => ({
     scopeViolation: row.scopeViolation,
     alwaysAllowed: row.alwaysAllowed,
+    webAllow: row.webAllow,
     deny: row.deny,
     sandbox: row.sandbox as unknown as ProjectLaneSettings['sandbox'],
 });

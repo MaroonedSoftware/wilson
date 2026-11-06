@@ -618,6 +618,7 @@ export interface WilsonProjectLaneSettings {
   sandbox: Json;
   scopeViolation: string;
   updatedAt: Generated<DateTime>;
+  webAllow: Generated<string[]>;
 }
 
 export interface WilsonStageConfigs {
