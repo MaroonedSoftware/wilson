@@ -469,6 +469,9 @@ export const prepareStage = async (deps: StagePreparationDeps, input: StagePrepa
         worktreeRoot: worktree.path,
         allow: scoped,
         alwaysAllowed: stages.alwaysAllowed,
+        // Card 0020: the hosts a stage's web fetch may reach, carried to the adapter's guard on the
+        // same object as everything else it may touch. Empty means every fetch is refused.
+        webAllow: stages.webAllow,
         deny: stages.deny,
         collateral,
         // The plan and every card's preserved patch live outside the worktree so neither can be

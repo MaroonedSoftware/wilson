@@ -344,4 +344,46 @@ describe('ScopeGuard', () => {
             expect((decision as { reason: string }).reason).toContain('request_scope cannot widen it');
         });
     });
+
+    describe('checkWeb (card 0020)', () => {
+        const web = (webAllow?: string[]) => new ScopeGuard({ worktreeRoot: root, allow: [], alwaysAllowed: [], ...(webAllow ? { webAllow } : {}) });
+
+        it('allows a URL whose host is on the list, naming the host', () => {
+            expect(web(['github.com']).checkWeb('https://github.com/org/repo')).toEqual({
+                allowed: true,
+                url: 'https://github.com/org/repo',
+                host: 'github.com',
+            });
+        });
+
+        it('denies a host off the list with a reason naming it', () => {
+            expect(web(['github.com']).checkWeb('https://evil.com/x')).toEqual({
+                allowed: false,
+                url: 'https://evil.com/x',
+                host: 'evil.com',
+                reason: "evil.com is not in the project's web allowlist, so it may not be fetched",
+            });
+        });
+
+        it.each(['https://github.com.evil.com/', 'https://evilgithub.com/', 'https://github.com@evil.com/'])('denies the lookalike %s', url => {
+            expect(web(['github.com']).checkWeb(url)).toMatchObject({ allowed: false });
+        });
+
+        it('allows a subdomain only through a *. entry', () => {
+            expect(web(['github.com']).checkWeb('https://api.github.com/')).toMatchObject({ allowed: false });
+            expect(web(['*.github.com']).checkWeb('https://api.github.com/')).toMatchObject({ allowed: true, host: 'api.github.com' });
+        });
+
+        it('denies an unparseable or non-http URL without naming a host', () => {
+            const decision = web(['github.com']).checkWeb('not a url');
+            expect(decision).toMatchObject({ allowed: false, host: '' });
+            expect((decision as { reason: string }).reason).toContain('is not an http(s) URL');
+            expect(web(['github.com']).checkWeb('ftp://github.com/x')).toMatchObject({ allowed: false });
+        });
+
+        it('denies everything when no list is given', () => {
+            expect(web().webAllow).toEqual([]);
+            expect(web().checkWeb('https://github.com/')).toMatchObject({ allowed: false });
+        });
+    });
 });
