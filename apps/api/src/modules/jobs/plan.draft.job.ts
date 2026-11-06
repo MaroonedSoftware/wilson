@@ -8,6 +8,7 @@ import { runAsProject } from '#modules/board/project.context.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { Notifier } from '#modules/notify/notifier.js';
 import { PlanService } from '#modules/plan/plan.service.js';
+import { AUTO_PLAN_ENABLED } from '#modules/settings/auto.plan.setting.js';
 import { AUTO_SPLIT_ENABLED } from '#modules/settings/auto.split.setting.js';
 import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
@@ -16,7 +17,16 @@ export interface PlanDraftPayload {
     cardId: string;
     /** The project the card belongs to, carried for the reason `CardStagePayload.project` is. */
     project: string;
+    /**
+     * What asked for the draft, which decides the setting that gates it: `split` for a piece an
+     * automatic split created (`AUTO_SPLIT_ENABLED`), `unplanned` for a card the poller found waiting in
+     * `planning` without a plan (`AUTO_PLAN_ENABLED`). Absent means `split`, the only sender before
+     * `unplanned` existed, so a job queued by an older build keeps its meaning.
+     */
+    trigger?: PlanDraftTrigger;
 }
+
+export type PlanDraftTrigger = 'split' | 'unplanned';
 
 /**
  * No retries: a failed draft is not worth a second model run, and the piece is no worse off than one
@@ -31,8 +41,9 @@ export const PLAN_DRAFT_POLICY: JobQueuePolicy = {
 export const PLAN_DRAFT_WORKER: JobWorkerPolicy = { concurrency: 1 };
 
 /**
- * Drafts the plan of one piece an automatic split created (`PlanService.autoDraft`), so a person
- * meets a plan to approve rather than a stub. Approval stays theirs: the piece never leaves
+ * Drafts the plan of one card waiting in `planning` (`PlanService.autoDraft`): a piece an automatic
+ * split created, or a card the poller found without a plan. Either way a person meets a plan to
+ * approve rather than a stub. Approval stays theirs: the piece never leaves
  * `planning` here, which is also what keeps a chain of splits from running with nobody looking.
  *
  * Nothing here fails the job. A piece that gets no plan is a piece waiting in `planning`, as it would
@@ -52,12 +63,12 @@ export class PlanDraftJob extends Job<PlanDraftPayload> {
         super();
     }
 
-    async run({ cardId, project }: PlanDraftPayload): Promise<void> {
-        await runAsProject(project, () => this.draft(cardId));
+    async run({ cardId, project, trigger = 'split' }: PlanDraftPayload): Promise<void> {
+        await runAsProject(project, () => this.draft(cardId, trigger));
     }
 
-    private async draft(cardId: string): Promise<void> {
-        let skipped = await this.whyNot();
+    private async draft(cardId: string, trigger: PlanDraftTrigger): Promise<void> {
+        let skipped = await this.whyNot(trigger);
         if (!skipped) {
             try {
                 skipped = await this.plans.autoDraft(cardId);
@@ -83,8 +94,12 @@ export class PlanDraftJob extends Job<PlanDraftPayload> {
         await this.notifyDrafted(cardId);
     }
 
-    private async whyNot(): Promise<string | undefined> {
-        if (!(await this.settings.get(AUTO_SPLIT_ENABLED))) return 'auto-split was turned off';
+    private async whyNot(trigger: PlanDraftTrigger): Promise<string | undefined> {
+        if (trigger === 'unplanned') {
+            if (!(await this.settings.get(AUTO_PLAN_ENABLED))) return 'auto-plan was turned off';
+        } else if (!(await this.settings.get(AUTO_SPLIT_ENABLED))) {
+            return 'auto-split was turned off';
+        }
 
         const ceiling = await this.settings.get(DAILY_OUTPUT_TOKEN_CEILING);
         if (ceiling <= 0) return undefined;

@@ -214,6 +214,27 @@ public sealed class SettingsClient(SdkHttp http)
         return http.ReadJson<AutoSplitSetting>(response);
     }
 
+    /// <summary>Get auto plan setting</summary>
+    public async Task<AutoPlanSetting> GetAutoPlanSettingAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "settings", "auto-plan"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<AutoPlanSetting>(response);
+    }
+
+    /// <summary>Set auto plan setting</summary>
+    public async Task<AutoPlanSetting> SetAutoPlanSettingAsync(SetAutoPlanSettingRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Put,
+            http.Path("api", "settings", "auto-plan"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<AutoPlanSetting>(response);
+    }
+
     /// <summary>Get rule judge setting</summary>
     public async Task<RuleJudgeSetting> GetRuleJudgeSettingAsync(CancellationToken cancellationToken = default)
     {

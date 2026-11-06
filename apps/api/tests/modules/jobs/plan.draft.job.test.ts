@@ -2,9 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { StaticBoardConfig } from '#modules/board/board.config.js';
 import type { BoardRepository } from '#modules/board/board.repository.js';
 import type { EventLog } from '#modules/events/event.log.js';
-import { PlanDraftJob } from '#modules/jobs/plan.draft.job.js';
+import { PlanDraftJob, type PlanDraftTrigger } from '#modules/jobs/plan.draft.job.js';
 import { registerNotificationChannel } from '#modules/notify/notifier.js';
 import type { PlanService } from '#modules/plan/plan.service.js';
+import { AUTO_PLAN_ENABLED } from '#modules/settings/auto.plan.setting.js';
 import { AUTO_SPLIT_ENABLED } from '#modules/settings/auto.split.setting.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
 
@@ -14,10 +15,15 @@ describe('PlanDraftJob', () => {
     let plans: { autoDraft: ReturnType<typeof vi.fn> };
     let events: { append: ReturnType<typeof vi.fn>; outputTokensSince: ReturnType<typeof vi.fn> };
     let enabled: boolean;
+    let autoPlan: boolean;
     let ceiling: number;
 
-    const run = () => {
-        const settings = { get: vi.fn(async (setting: { key: string }) => (setting.key === AUTO_SPLIT_ENABLED.key ? enabled : ceiling)) };
+    const run = (trigger?: PlanDraftTrigger) => {
+        const settings = {
+            get: vi.fn(async (setting: { key: string }) =>
+                setting.key === AUTO_SPLIT_ENABLED.key ? enabled : setting.key === AUTO_PLAN_ENABLED.key ? autoPlan : ceiling,
+            ),
+        };
         return new PlanDraftJob(
             plans as unknown as PlanService,
             new StaticBoardConfig('test', '/tmp/code', '/tmp/wt', '/tmp/run'),
@@ -25,7 +31,7 @@ describe('PlanDraftJob', () => {
             events as unknown as EventLog,
             settings as unknown as SettingsStore,
             logger as never,
-        ).run({ cardId: '0002', project: 'test' });
+        ).run({ cardId: '0002', project: 'test', trigger });
     };
 
     const recorded = () => events.append.mock.calls.map(([event]) => ({ type: event.type, reason: event.payload.reason }));
@@ -34,6 +40,7 @@ describe('PlanDraftJob', () => {
         plans = { autoDraft: vi.fn(async () => undefined) };
         events = { append: vi.fn(async () => {}), outputTokensSince: vi.fn(async () => 0) };
         enabled = true;
+        autoPlan = false;
         ceiling = 0;
     });
 
@@ -79,6 +86,23 @@ describe('PlanDraftJob', () => {
 
         expect(plans.autoDraft).not.toHaveBeenCalled();
         expect(recorded()[0]?.reason).toBe('auto-split was turned off');
+    });
+
+    it('gates an unplanned card on auto-plan, not auto-split', async () => {
+        enabled = false;
+        autoPlan = true;
+
+        await run('unplanned');
+
+        expect(plans.autoDraft).toHaveBeenCalledWith('0002');
+        expect(recorded()).toEqual([{ type: 'card.plan-drafted', reason: undefined }]);
+    });
+
+    it('does not draft an unplanned card once auto-plan has been turned off', async () => {
+        await run('unplanned');
+
+        expect(plans.autoDraft).not.toHaveBeenCalled();
+        expect(recorded()[0]?.reason).toBe('auto-plan was turned off');
     });
 
     it('does not draft at the daily ceiling', async () => {

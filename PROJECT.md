@@ -764,7 +764,9 @@ of the board can refer to.
 because the queue must never dispatch it: the stage is a conversation, and there is
 nothing for pg-boss to carry. `wilson card plan` drives it, reading this stage's model
 and instructions from config, and it ends when a plan filling the six contract
-headings is written as a new card version.
+headings is written as a new card version. With Auto-plan on (`auto-plan-enabled`, per
+project, off by default), the poller has an agent draft that plan once for a card that
+arrives without one, so the person starts from a draft. Approval stays theirs either way.
 
 **Backlog** — plans approved, checked and waiting to be worked. Also `mode: manual`.
 Approving pins `planVersionId`, so the version every downstream stage reads is the one a

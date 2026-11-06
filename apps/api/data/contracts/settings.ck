@@ -10,6 +10,7 @@ options {
         EngineTokenSettingService: "#modules/settings/engine.token.setting.service.js"
         DryRunSettingService: "#modules/settings/dry.run.setting.service.js"
         AutoSplitSettingService: "#modules/settings/auto.split.setting.service.js"
+        AutoPlanSettingService: "#modules/settings/auto.plan.setting.service.js"
         OrchestratorSettingService: "#modules/settings/orchestrator.setting.service.js"
         GitHubAppSettingService: "#modules/settings/github.app.setting.service.js"
         ChatEngineSettingService: "#modules/chat/chat.engine.setting.service.js"
@@ -395,6 +396,41 @@ operation /api/settings/auto-split: {
         }
         response: {
             200: { application/json: AutoSplitSetting }
+        }
+    }
+}
+
+# Whether the poller has an agent draft the plan of a card waiting in `planning` without one. Each draft
+# is a model run, once per card, and the card still waits for a person to approve it. See
+# `auto.plan.setting.ts` for the default (off).
+contract AutoPlanSetting: {
+    enabled: boolean
+}
+
+contract SetAutoPlanSettingRequest: {
+    enabled: boolean
+}
+
+operation /api/settings/auto-plan: {
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: Get auto plan setting
+        service: AutoPlanSettingService.get
+        response: {
+            200: { application/json: AutoPlanSetting }
+        }
+    }
+    put: {
+        name: Set auto plan setting
+        mcp: exclude # turning it on starts model runs on every unplanned card, so a person decides
+        service: AutoPlanSettingService.set
+        request: {
+            application/json: SetAutoPlanSettingRequest
+        }
+        response: {
+            200: { application/json: AutoPlanSetting }
         }
     }
 }

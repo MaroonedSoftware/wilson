@@ -11,6 +11,7 @@ import type { EventLog } from '#modules/events/event.log.js';
 import type { CardJobs } from '#modules/jobs/card.jobs.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
 import { DRAIN_ENABLED } from '#modules/settings/drain.enabled.setting.js';
+import { AUTO_PLAN_ENABLED } from '#modules/settings/auto.plan.setting.js';
 import { POLLER_INTERVAL_MS } from '#modules/settings/poller.interval.setting.js';
 import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
@@ -73,6 +74,12 @@ const releaseTick = () => pending.shift()?.resolve();
 // are both exercised exactly as they run in production.
 const stagesYaml = `
 stages:
+  - name: planning
+    mode: manual
+    model: claude-opus
+    instructions: write the plan
+    onPass: backlog
+    onFail: planning
   - name: backlog
     mode: manual
     model: claude-opus
@@ -130,7 +137,12 @@ const card = (id: string, stage: string, overrides: Partial<CardFrontmatter> = {
 });
 
 /** A `CardJobs` fake that actually remembers claims, so `inFlight` reflects a prior `record` the way the real one does. */
-type FakeCardJobs = { inFlight: ReturnType<typeof vi.fn>; record: ReturnType<typeof vi.fn>; clear: ReturnType<typeof vi.fn> };
+type FakeCardJobs = {
+    inFlight: ReturnType<typeof vi.fn>;
+    record: ReturnType<typeof vi.fn>;
+    clear: ReturnType<typeof vi.fn>;
+    planDraftAttempted: ReturnType<typeof vi.fn>;
+};
 const statefulCardJobs = (initial: Record<string, string> = {}): FakeCardJobs => {
     const claims = new Map(Object.entries(initial));
     return {
@@ -141,6 +153,7 @@ const statefulCardJobs = (initial: Record<string, string> = {}): FakeCardJobs =>
         clear: vi.fn(async (cardId: string) => {
             claims.delete(cardId);
         }),
+        planDraftAttempted: vi.fn(async () => false),
     };
 };
 
@@ -560,6 +573,7 @@ describe('Poller tick — multiple registered projects (card 0149)', () => {
             record: vi.fn(async (cardId: string, jobId: string) => {
                 claims.set(key(config.project, cardId), jobId);
             }),
+            planDraftAttempted: vi.fn(async () => false),
             clear: vi.fn(async (cardId: string) => {
                 claims.delete(key(config.project, cardId));
             }),
@@ -822,6 +836,91 @@ describe('Poller tick — the backlog queue (card 0127)', () => {
  * ever called on it — every test above this block already proves AC1 (a ceiling of 0 never queries
  * usage) by surviving that double at all. These are the ceiling's own tests, with a real one set.
  */
+describe('Poller tick — drafting unplanned planning cards', () => {
+    const PLANNED = [
+        '## Goal',
+        'g',
+        '## Constraints',
+        'c',
+        '## Files in scope',
+        '- src/a.ts',
+        '## Tasks',
+        't',
+        '## Acceptance criteria',
+        'a',
+        '## Out of scope',
+        'o',
+    ]
+        .join('\n')
+        .concat('\n');
+
+    const autoPlanSettings = (enabled: boolean): SettingsStore =>
+        ({
+            get: vi.fn(async (definition: { key: string; defaultValue: unknown }) =>
+                definition.key === AUTO_PLAN_ENABLED.key ? enabled : definition.defaultValue,
+            ),
+            set: vi.fn(async () => undefined),
+        }) as unknown as SettingsStore;
+
+    const planDrafts = (broker: ReturnType<typeof fakeBroker>) =>
+        (broker.send.mock.calls as unknown as Array<[string, unknown]>).filter(([name]) => name === 'card.plan-draft');
+
+    it('enqueues one unplanned draft for a planning card without a plan, and still enqueues the stage work behind it', async () => {
+        const { poller, broker, cardJobs } = buildPoller([card('0001', 'planning'), card('0002', 'implementing')], {
+            settings: autoPlanSettings(true),
+        });
+
+        await runOneTick(poller);
+
+        expect(broker.send).toHaveBeenCalledWith('card.plan-draft', { cardId: '0001', project: 'poller-test-project', trigger: 'unplanned' });
+        expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing', project: 'poller-test-project' });
+        expect(cardJobs.record).toHaveBeenCalledTimes(1);
+        expect(cardJobs.record).toHaveBeenCalledWith('0002', 'job-1');
+    });
+
+    it('does nothing while auto-plan is off', async () => {
+        const { poller, broker, cardJobs } = buildPoller([card('0001', 'planning')], { settings: autoPlanSettings(false) });
+
+        await runOneTick(poller);
+
+        expect(broker.send).not.toHaveBeenCalled();
+        expect(cardJobs.planDraftAttempted).not.toHaveBeenCalled();
+    });
+
+    it('leaves a card that already has a complete plan alone', async () => {
+        const planned = { ...card('0001', 'planning'), body: PLANNED };
+        const { poller, broker } = buildPoller([planned], { settings: autoPlanSettings(true) });
+
+        await runOneTick(poller);
+
+        expect(broker.send).not.toHaveBeenCalled();
+    });
+
+    it('leaves a card whose draft was already attempted to a person', async () => {
+        const cardJobs = statefulCardJobs();
+        cardJobs.planDraftAttempted.mockResolvedValue(true);
+        const { poller, broker } = buildPoller([card('0001', 'planning')], { settings: autoPlanSettings(true), cardJobs });
+
+        await runOneTick(poller);
+
+        expect(cardJobs.planDraftAttempted).toHaveBeenCalledWith('0001');
+        expect(broker.send).not.toHaveBeenCalled();
+    });
+
+    it('enqueues at most one draft per tick, skipping past an attempted card to the next', async () => {
+        const cardJobs = statefulCardJobs();
+        cardJobs.planDraftAttempted.mockImplementation(async (cardId: string) => cardId === '0001');
+        const { poller, broker } = buildPoller([card('0001', 'planning'), card('0002', 'planning'), card('0003', 'planning')], {
+            settings: autoPlanSettings(true),
+            cardJobs,
+        });
+
+        await runOneTick(poller);
+
+        expect(planDrafts(broker)).toEqual([['card.plan-draft', { cardId: '0002', project: 'poller-test-project', trigger: 'unplanned' }]]);
+    });
+});
+
 describe('Poller tick — the daily output token ceiling (card 0264)', () => {
     const settingsWithCeiling = (ceiling: number): SettingsStore =>
         ({

@@ -215,6 +215,23 @@ public sealed record SetAutoSplitSettingRequest
 }
 
 /// <summary>
+/// Whether the poller has an agent draft the plan of a card waiting in `planning` without one. Each draft
+/// is a model run, once per card, and the card still waits for a person to approve it. See
+/// `auto.plan.setting.ts` for the default (off).
+/// </summary>
+public sealed record AutoPlanSetting
+{
+    [JsonPropertyName("enabled")]
+    public required bool Enabled { get; init; }
+}
+
+public sealed record SetAutoPlanSettingRequest
+{
+    [JsonPropertyName("enabled")]
+    public required bool Enabled { get; init; }
+}
+
+/// <summary>
 /// Which engine and model judge a project's checked rules. Separate from every lane's routing so a review
 /// lane on any engine still has judges, since a judge needs only a one-shot model call. Behind step-up
 /// for the reason `rules.ck`'s writes are: who judges a rule is as much the gate as what it says.

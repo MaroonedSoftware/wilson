@@ -164,6 +164,36 @@ export class CardJobs {
     }
 
     /**
+     * Whether a card waiting in `planning` has already had its automatic chance at a plan, so the
+     * poller leaves it to a person: a planning conversation exists (`wilson.plan_turns`, which
+     * `PlanService.autoDraft` writes before anything else and refuses to repeat), a `card.plan-draft`
+     * job for it is still queued or running whatever asked for it, or one the poller asked for has
+     * run at all. The last covers a draft that failed before its first turn, which would otherwise be
+     * retried every tick; pg-boss keeps that job row until its retention ends, after which the card
+     * gets one more try.
+     */
+    async planDraftAttempted(cardId: string): Promise<boolean> {
+        const turn = await this.db
+            .selectFrom('wilson.planTurns')
+            .select('seq')
+            .where('project', '=', this.config.project)
+            .where('cardId', '=', cardId)
+            .limit(1)
+            .executeTakeFirst();
+        if (turn) return true;
+
+        const { rows } = await sql<{ found: number }>`
+            select 1 as found from pgboss.job
+            where name = 'card.plan-draft'
+                and data->>'cardId' = ${cardId}
+                and data->>'project' = ${this.config.project}
+                and (state in ('created', 'retry', 'active') or data->>'trigger' = 'unplanned')
+            limit 1
+        `.execute(this.db);
+        return rows.length > 0;
+    }
+
+    /**
      * The `wilson.cardJobs` claim row for a given job id, regardless of which project recorded it —
      * card 0272's fallback for an orphaned `card.stage` job whose own payload carries no `project`
      * (`CardStagePayload`'s own doc comment: `BoardWriteService.start` sends none). Unlike every
