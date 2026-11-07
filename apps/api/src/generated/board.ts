@@ -64,6 +64,7 @@ export const CardBlocked = z.strictObject({
     tried: z.string().describe('What the stage already tried or checked before asking.'),
     question: z.string(),
     options: z.array(z.string()).optional().describe('Answers the stage thinks are likely. An operator may answer something else.'),
+    recommended: z.string().optional().describe('The answer the stage would pick, with its reason. Offered first so a person can accept it.'),
     stage: z.string().describe('The stage that asked, so the answer goes back to the run it was meant for.'),
     askedAt: _ZodDatetime,
     patchPath: z.string().optional().describe("Where the stopped run's uncommitted work is preserved. Absent when it left none."),

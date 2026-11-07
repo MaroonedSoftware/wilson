@@ -28,7 +28,8 @@ export const blockedTool = () =>
 export const blockedGuidance = (toolName: string): string[] => [
     `If you cannot go on without a person's decision, call ${toolName} with one question. Ask only what`,
     'the repo, the plan and the commands you can run cannot tell you. Where you can make a reasonable',
-    'choice yourself, make it and say so in your result. That call ends the stage at once: anything you',
+    'choice yourself, make it and say so in your result. When you do ask, say which answer you would',
+    'pick and why in `recommended`, so a person can accept it in one click. That call ends the stage at once: anything you',
     'have not committed is kept as a patch, and a fresh session gets the answer in the plan, under',
     '"## Operator answer".',
 ];

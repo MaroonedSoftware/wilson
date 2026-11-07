@@ -358,6 +358,16 @@ function QuestionPanel({ card, blocked }: { card: CardDetail; blocked: NonNullab
                 <Text size="sm" c="dimmed" style={{ whiteSpace: 'pre-wrap' }}>
                     Already tried: {blocked.tried}
                 </Text>
+                {blocked.recommended && (
+                    <Group gap="xs" wrap="nowrap" align="flex-start">
+                        <Button size="compact-xs" color="orange" variant="light" onClick={() => setAnswer(blocked.recommended ?? '')}>
+                            Use recommendation
+                        </Button>
+                        <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
+                            Recommended: {blocked.recommended}
+                        </Text>
+                    </Group>
+                )}
                 {blocked.options && blocked.options.length > 0 && (
                     <Group gap="xs">
                         {blocked.options.map(option => (

@@ -92,6 +92,11 @@ public sealed record CardBlocked
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? Options { get; init; }
 
+    /// <summary>The answer the stage would pick, with its reason. Offered first so a person can accept it.</summary>
+    [JsonPropertyName("recommended")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Recommended { get; init; }
+
     /// <summary>The stage that asked, so the answer goes back to the run it was meant for.</summary>
     [JsonPropertyName("stage")]
     public required string Stage { get; init; }

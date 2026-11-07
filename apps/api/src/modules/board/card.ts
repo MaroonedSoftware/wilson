@@ -33,6 +33,8 @@ export interface CardBlocked {
     question: string;
     /** Answers the stage thinks are likely. A person may answer something else. */
     options?: string[];
+    /** The answer the stage would pick, with its reason, offered first so a person can accept it. */
+    recommended?: string;
     /** The stage that asked. */
     stage: string;
     /** When it asked, as an ISO timestamp. */

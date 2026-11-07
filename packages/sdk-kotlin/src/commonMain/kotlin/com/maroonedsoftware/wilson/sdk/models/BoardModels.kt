@@ -64,6 +64,8 @@ data class CardBlocked(
     val question: String,
     /** Answers the stage thinks are likely. An operator may answer something else. */
     val options: List<String>? = null,
+    /** The answer the stage would pick, with its reason. Offered first so a person can accept it. */
+    val recommended: String? = null,
     /** The stage that asked, so the answer goes back to the run it was meant for. */
     val stage: String,
     val askedAt: Instant,

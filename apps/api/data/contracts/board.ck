@@ -59,6 +59,8 @@ contract CardBlocked: {
     question: string
     # Answers the stage thinks are likely. An operator may answer something else.
     options?: array(string)
+    # The answer the stage would pick, with its reason. Offered first so a person can accept it.
+    recommended?: string
     # The stage that asked, so the answer goes back to the run it was meant for.
     stage: string
     askedAt: datetime
