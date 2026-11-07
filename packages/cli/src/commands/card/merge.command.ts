@@ -13,6 +13,10 @@ import { describeMergeStatus } from '../../board-view.js';
  * carrying a `reason` (`MergeResult`'s own doc comment, `packages/sdk/src/types/board.ts`). Exit
  * code follows `card lint`'s precedent: 1 when the attempt did not land, 0 when it did, so this can
  * sit in a script without parsing text.
+ *
+ * A project that lands merges as pull requests answers a proven merge with the card's pull request
+ * open: the attempt did what it could, so that exits 0 and names the pull request, though the card
+ * only reaches `merged` once GitHub merges it.
  */
 const command: CommandModule = {
     description: "Merge a card's branch, or report why the attempt did not land",
@@ -26,6 +30,13 @@ const command: CommandModule = {
         if (mergeStatus) ctx.logger.info(`${cardId}: ${describeMergeStatus(mergeStatus)}`);
 
         const result = await api.board.mergeCard(cardId);
+
+        if (!result.merged && result.pullRequest?.state === 'open') {
+            ctx.logger.info(
+                `${cardId}: opened pull request #${result.pullRequest.number}, ${result.pullRequest.url}; the card moves to merged when it merges`,
+            );
+            return 0;
+        }
 
         if (!result.merged) {
             ctx.logger.info(`${cardId}: not merged — ${result.reason ?? 'no reason recorded'}`);

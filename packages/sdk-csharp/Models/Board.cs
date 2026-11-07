@@ -111,6 +111,24 @@ public sealed record CardBlocked
 }
 
 /// <summary>
+/// The GitHub pull request Merge opened for a card, when its project lands merges as pull requests
+/// (`merge-opens-pull-request`). The card waits in `ready` while it is `open` and reaches `merged` when
+/// GitHub merges it. `closed` is one closed without merging: the card is flagged, and Merge opens a
+/// new one.
+/// </summary>
+public sealed record CardPullRequest
+{
+    [JsonPropertyName("number")]
+    public required long Number { get; init; }
+
+    [JsonPropertyName("url")]
+    public required string Url { get; init; }
+
+    [JsonPropertyName("state")]
+    public required CardPullRequestState State { get; init; }
+}
+
+/// <summary>
 /// One card cut from a split origin, as `CardDetail.pieces` lists it: enough to show how far the split
 /// has got without a read per piece.
 /// </summary>
@@ -999,6 +1017,11 @@ public sealed record CardSummary
     [JsonPropertyName("mergeStatus")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public MergeStatus? MergeStatus { get; init; }
+
+    /// <summary>Absent until a merge opens one, and kept once the card is merged.</summary>
+    [JsonPropertyName("pullRequest")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardPullRequest? PullRequest { get; init; }
 }
 
 public sealed record CardPlanQuery
@@ -1488,6 +1511,11 @@ public sealed record CardDetail
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public MergeStatus? MergeStatus { get; init; }
 
+    /// <summary>Absent until a merge opens one, and kept once the card is merged.</summary>
+    [JsonPropertyName("pullRequest")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardPullRequest? PullRequest { get; init; }
+
     [JsonPropertyName("body")]
     public required string Body { get; init; }
 
@@ -1647,6 +1675,11 @@ public sealed record ReleaseResult
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public MergeStatus? MergeStatus { get; init; }
 
+    /// <summary>Absent until a merge opens one, and kept once the card is merged.</summary>
+    [JsonPropertyName("pullRequest")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardPullRequest? PullRequest { get; init; }
+
     [JsonPropertyName("body")]
     public required string Body { get; init; }
 
@@ -1672,6 +1705,9 @@ public sealed record ReleaseResult
 /// attempt can have, the same way `ReleaseResult.releasedAs` names which safe-to-cancel case a
 /// release was, so both come back as `merged: false` with `reason` in a 200, not a 400. The only
 /// thing this operation refuses outright is a card that is not in `ready` (see its 400 below).
+///
+/// A project that lands merges as pull requests answers a proven merge with `merged: false`, the
+/// card's `pullRequest` open, and `reason` naming it: the card has not merged until GitHub merges it.
 /// </summary>
 public sealed record MergeResult
 {
@@ -1774,6 +1810,11 @@ public sealed record MergeResult
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public MergeStatus? MergeStatus { get; init; }
 
+    /// <summary>Absent until a merge opens one, and kept once the card is merged.</summary>
+    [JsonPropertyName("pullRequest")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardPullRequest? PullRequest { get; init; }
+
     [JsonPropertyName("body")]
     public required string Body { get; init; }
 
@@ -1799,7 +1840,8 @@ public sealed record MergeResult
 
     /// <summary>
     /// Why the attempt did not land — a conflict naming the paths, or the suite's own failure —
-    /// present only when `merged` is false.
+    /// or, with `pullRequest` open, which pull request it opened instead. Present only when `merged`
+    /// is false.
     /// </summary>
     [JsonPropertyName("reason")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1960,6 +2002,67 @@ public sealed class CardBlockedCategoryConverter : JsonConverter<CardBlockedCate
         CardBlockedCategory.Environment => "environment",
         CardBlockedCategory.Other => "other",
         _ => throw new JsonException($"CardBlockedCategory.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+[JsonConverter(typeof(CardPullRequestStateConverter))]
+public enum CardPullRequestState
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("open")]
+    Open,
+
+    [JsonStringEnumMemberName("closed")]
+    Closed,
+
+    [JsonStringEnumMemberName("merged")]
+    Merged,
+}
+
+/// <summary>
+/// Reads and writes <see cref="CardPullRequestState"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="CardPullRequestState.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class CardPullRequestStateConverter : JsonConverter<CardPullRequestState>
+{
+    public override CardPullRequestState Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for CardPullRequestState, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, CardPullRequestState value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override CardPullRequestState ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, CardPullRequestState value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static CardPullRequestState FromWire(string? text) => text switch
+    {
+        "open" => CardPullRequestState.Open,
+        "closed" => CardPullRequestState.Closed,
+        "merged" => CardPullRequestState.Merged,
+        _ => CardPullRequestState.Unknown,
+    };
+
+    private static string ToWire(CardPullRequestState value) => value switch
+    {
+        CardPullRequestState.Open => "open",
+        CardPullRequestState.Closed => "closed",
+        CardPullRequestState.Merged => "merged",
+        _ => throw new JsonException($"CardPullRequestState.{value} has no wire spelling, so it cannot be sent."),
     };
 }
 

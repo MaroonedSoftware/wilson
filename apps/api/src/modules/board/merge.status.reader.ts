@@ -1,5 +1,7 @@
 import { Injectable } from 'injectkit';
+import { githubTrackingRef } from '#modules/github/github.remote.js';
 import { DRY_RUN_ENABLED } from '#modules/settings/dry.run.setting.js';
+import { MERGE_OPENS_PULL_REQUEST } from '#modules/settings/merge.pull.request.setting.js';
 import { RE_REVIEW_ON_MERGE } from '#modules/settings/re.review.on.merge.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { WorktreeManager } from '#modules/worktree/worktree.manager.js';
@@ -45,7 +47,7 @@ export class MergeStatusReader {
     async read(branch: string, reReviewRounds = 0): Promise<MergeStatus> {
         let target: string | undefined;
         try {
-            target = await this.worktrees.peekMergeTarget(await this.settings.get(DRY_RUN_ENABLED));
+            target = await this.target();
             const targetSha = await this.worktrees.shaOf(target);
             const branchSha = await this.worktrees.shaOf(branch).catch(() => {
                 throw new Error(`branch ${branch} is not in the code repo`);
@@ -55,6 +57,27 @@ export class MergeStatusReader {
         } catch (err) {
             return { state: 'unknown', target, conflicts: [], movedUnder: [], reason: err instanceof Error ? err.message : String(err) };
         }
+    }
+
+    /**
+     * The ref Merge would prove against: GitHub's `main` as last fetched when merges open pull
+     * requests and it has been fetched, otherwise what {@link WorktreeManager.peekMergeTarget} says.
+     * Never fetches: a board read must not reach GitHub.
+     */
+    private async target(): Promise<string> {
+        const dryRun = await this.settings.get(DRY_RUN_ENABLED);
+        if (!dryRun && (await this.settings.get(MERGE_OPENS_PULL_REQUEST))) {
+            const tracking = githubTrackingRef('main');
+            if (
+                await this.worktrees.shaOf(tracking).then(
+                    () => true,
+                    () => false,
+                )
+            ) {
+                return tracking;
+            }
+        }
+        return this.worktrees.peekMergeTarget(dryRun);
     }
 
     private async stateFrom(facts: MergeFacts, reReviewRounds: number): Promise<MergeStatus['state']> {

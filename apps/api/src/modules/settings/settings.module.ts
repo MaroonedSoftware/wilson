@@ -15,6 +15,7 @@ import { ClaudeConfigDirSettingService } from './claude.config.dir.setting.servi
 import { EngineTokenSettingService } from './engine.token.setting.service.js';
 import { AutoPlanSettingService } from './auto.plan.setting.service.js';
 import { AutoSplitSettingService } from './auto.split.setting.service.js';
+import { MergePullRequestSettingService } from './merge.pull.request.setting.service.js';
 import { OrchestratorSettingService } from './orchestrator.setting.service.js';
 import { DryRunSettingService } from './dry.run.setting.service.js';
 import { GitHubAppSettingService } from './github.app.setting.service.js';
@@ -59,6 +60,7 @@ export const SettingsModule: ServerKitModule = {
         registry.register(EngineTokenSettingService).useClass(EngineTokenSettingService).asTransient();
         registry.register(DryRunSettingService).useClass(DryRunSettingService).asTransient();
         registry.register(AutoSplitSettingService).useClass(AutoSplitSettingService).asTransient();
+        registry.register(MergePullRequestSettingService).useClass(MergePullRequestSettingService).asTransient();
         registry.register(AutoPlanSettingService).useClass(AutoPlanSettingService).asTransient();
         registry.register(OrchestratorSettingService).useClass(OrchestratorSettingService).asTransient();
         registry.register(GitHubAppSettingService).useClass(GitHubAppSettingService).asTransient();

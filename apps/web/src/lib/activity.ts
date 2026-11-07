@@ -38,6 +38,8 @@ const SUMMARIES: Record<string, ActivitySummary> = {
     'rule.verdicts': { label: 'Checked the rules', color: 'blue' },
     'rule.proposed': { label: 'Looked for a rule to propose', color: 'blue' },
     'card.auto-split': { label: 'Split automatically', color: 'blue' },
+    'card.pull-request-opened': { label: 'Opened a pull request', color: 'blue' },
+    'card.pull-request-closed': { label: 'Pull request closed without merging', color: 'orange' },
     'card.plan-drafted': { label: 'Drafted a plan', color: 'green' },
     'job.orphaned': { label: 'Recovered an orphaned job', color: 'orange' },
     'stage.interrupted': { label: 'Paused {stage} for a restart', color: 'orange' },

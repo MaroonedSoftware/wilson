@@ -11,6 +11,7 @@ options {
         DryRunSettingService: "#modules/settings/dry.run.setting.service.js"
         AutoSplitSettingService: "#modules/settings/auto.split.setting.service.js"
         AutoPlanSettingService: "#modules/settings/auto.plan.setting.service.js"
+        MergePullRequestSettingService: "#modules/settings/merge.pull.request.setting.service.js"
         OrchestratorSettingService: "#modules/settings/orchestrator.setting.service.js"
         GitHubAppSettingService: "#modules/settings/github.app.setting.service.js"
         ChatEngineSettingService: "#modules/chat/chat.engine.setting.service.js"
@@ -396,6 +397,40 @@ operation /api/settings/auto-split: {
         }
         response: {
             200: { application/json: AutoSplitSetting }
+        }
+    }
+}
+
+# Whether Merge lands a card on GitHub as a pull request instead of moving `main` in the project clone.
+# Needs dry run off and the GitHub App installed on the project's repository with Contents and Pull
+# requests write permissions. See `merge.pull.request.setting.ts` for the default (off).
+contract MergePullRequestSetting: {
+    enabled: boolean
+}
+
+contract SetMergePullRequestSettingRequest: {
+    enabled: boolean
+}
+
+operation /api/settings/merge-pull-request: {
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: Get merge pull request setting
+        service: MergePullRequestSettingService.get
+        response: {
+            200: { application/json: MergePullRequestSetting }
+        }
+    }
+    put: {
+        name: Set merge pull request setting
+        service: MergePullRequestSettingService.set
+        request: {
+            application/json: SetMergePullRequestSettingRequest
+        }
+        response: {
+            200: { application/json: MergePullRequestSetting }
         }
     }
 }

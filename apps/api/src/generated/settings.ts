@@ -220,6 +220,25 @@ export const SetAutoSplitSettingRequest = z.strictObject({
 export type SetAutoSplitSettingRequest = z.infer<typeof SetAutoSplitSettingRequest>;
 
 /**
+ * Whether Merge lands a card on GitHub as a pull request instead of moving `main` in the project clone.
+ * Needs dry run off and the GitHub App installed on the project's repository with Contents and Pull
+ * requests write permissions. See `merge.pull.request.setting.ts` for the default (off).
+ * generated from [MergePullRequestSetting](../../data/contracts/settings.ck)
+ */
+export const MergePullRequestSetting = z.strictObject({
+    enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+});
+export type MergePullRequestSetting = z.infer<typeof MergePullRequestSetting>;
+
+/**
+ * generated from [SetMergePullRequestSettingRequest](../../data/contracts/settings.ck)
+ */
+export const SetMergePullRequestSettingRequest = z.strictObject({
+    enabled: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+});
+export type SetMergePullRequestSettingRequest = z.infer<typeof SetMergePullRequestSettingRequest>;
+
+/**
  * Whether the poller has an agent draft the plan of a card waiting in `planning` without one. Each draft
  * is a model run, once per card, and the card still waits for a person to approve it. See
  * `auto.plan.setting.ts` for the default (off).

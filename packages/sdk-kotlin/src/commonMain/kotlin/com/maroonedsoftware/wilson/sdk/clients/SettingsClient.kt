@@ -11,6 +11,7 @@ import com.maroonedsoftware.wilson.sdk.models.DryRunSetting
 import com.maroonedsoftware.wilson.sdk.models.EngineTokenSetting
 import com.maroonedsoftware.wilson.sdk.models.GitHubAppSetting
 import com.maroonedsoftware.wilson.sdk.models.LocalStageSlots
+import com.maroonedsoftware.wilson.sdk.models.MergePullRequestSetting
 import com.maroonedsoftware.wilson.sdk.models.NotifyWebhookSetting
 import com.maroonedsoftware.wilson.sdk.models.OrchestratorSetting
 import com.maroonedsoftware.wilson.sdk.models.PollerInterval
@@ -25,6 +26,7 @@ import com.maroonedsoftware.wilson.sdk.models.SetDryRunSettingRequest
 import com.maroonedsoftware.wilson.sdk.models.SetEngineTokenSettingRequest
 import com.maroonedsoftware.wilson.sdk.models.SetGitHubAppSettingRequest
 import com.maroonedsoftware.wilson.sdk.models.SetLocalStageSlotsRequest
+import com.maroonedsoftware.wilson.sdk.models.SetMergePullRequestSettingRequest
 import com.maroonedsoftware.wilson.sdk.models.SetNotifyWebhookSettingRequest
 import com.maroonedsoftware.wilson.sdk.models.SetOrchestratorSettingRequest
 import com.maroonedsoftware.wilson.sdk.models.SetPollerIntervalRequest
@@ -197,6 +199,23 @@ class SettingsClient(private val http: SdkHttp) {
     suspend fun setAutoSplitSetting(body: SetAutoSplitSettingRequest): AutoSplitSetting {
         val response = http.execute(HttpMethod.Put) {
             path("api", "settings", "auto-split")
+            jsonBody(body, "application/json")
+        }
+        return http.decodeJson(response)
+    }
+
+    /** Get merge pull request setting */
+    suspend fun getMergePullRequestSetting(): MergePullRequestSetting {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "settings", "merge-pull-request")
+        }
+        return http.decodeJson(response)
+    }
+
+    /** Set merge pull request setting */
+    suspend fun setMergePullRequestSetting(body: SetMergePullRequestSettingRequest): MergePullRequestSetting {
+        val response = http.execute(HttpMethod.Put) {
+            path("api", "settings", "merge-pull-request")
             jsonBody(body, "application/json")
         }
         return http.decodeJson(response)

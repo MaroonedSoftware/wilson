@@ -269,6 +269,7 @@ export class PostgresBoardRepository extends BoardRepository {
                 needsHuman: fm.needsHuman ?? false,
                 needsHumanReason: fm.needsHumanReason ?? null,
                 blocked: fm.blocked ? JSON.stringify(fm.blocked) : null,
+                pullRequest: fm.pullRequest ? JSON.stringify(fm.pullRequest) : null,
                 pinnedVersionId: fm.planVersionId ? BigInt(fm.planVersionId) : null,
             })
             .where('project', '=', this.config.project)
@@ -298,6 +299,7 @@ export class PostgresBoardRepository extends BoardRepository {
                 sourceClosed: fm.sourceClosed ?? null,
                 needsHuman: fm.needsHuman ?? false,
                 needsHumanReason: fm.needsHumanReason ?? null,
+                pullRequest: fm.pullRequest ? JSON.stringify(fm.pullRequest) : null,
                 splitFrom: fm.splitFrom ?? null,
             })
             .execute();
@@ -396,6 +398,7 @@ const toCard = (
         needsHuman: boolean;
         needsHumanReason: string | null;
         blocked: unknown;
+        pullRequest: unknown;
         pinnedVersionId: bigint | null;
         position: number | null;
         splitFrom: string | null;
@@ -424,6 +427,7 @@ const toCard = (
         needsHuman: row.needsHuman,
         needsHumanReason: row.needsHumanReason ?? undefined,
         blocked: (row.blocked as CardFrontmatter['blocked'] | null) ?? undefined,
+        pullRequest: (row.pullRequest as CardFrontmatter['pullRequest'] | null) ?? undefined,
         position: row.position ?? undefined,
         splitFrom: row.splitFrom ?? undefined,
     };

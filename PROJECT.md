@@ -1671,8 +1671,9 @@ Wilson has no Redis, so there is nothing else to leave out.
 
 A deployment's image and its project clone move separately: deploying replaces the image and leaves
 `/projects/<name>` where it was, and cards are cut from that clone. While dry run is on, a Wilson
-merge lands on `dry-run-integration` and never on `main`, so nothing moves the clone but an operator.
-GitHub's `main` is the only place `main` changes, and a clone's `main` only ever fast-forwards.
+merge lands on `dry-run-integration` and never on `main`. GitHub's `main` is the only place `main`
+changes, and a clone's `main` only ever fast-forwards: by hand as below, or by Wilson when a pull
+request it opened merges.
 
 To bring a clone up to date, drain first, then run git inside the container as its own user. Root on
 the host would leave root-owned files in the clone:
@@ -1687,8 +1688,39 @@ Resetting `dry-run-integration` drops any rehearsal that has not reached GitHub,
 A refused fast-forward means `main` holds something GitHub does not: find out what before going on.
 Never run `git worktree prune` from the host, where worktrees under `/data` look prunable but are not.
 
-A card in `ready` reaches GitHub as a pull request, from a machine that can push, since the stack
-holds no forge write credential:
+#### Merge as a pull request
+
+With dry run off and **Merge opens a pull request** on (Settings, or the project setting
+`merge-opens-pull-request`), Merge lands a card on GitHub instead of moving the clone's `main`:
+
+1. It fetches GitHub's `main` into the clone's `refs/remotes/origin/main` and runs the re-review
+   check, the merge computation and the suite against that, exactly as it would against `main`.
+2. It pushes the card's branch to GitHub (never forcing: a branch someone moved there is refused)
+   and opens a pull request into `main`, titled with the card's id and title, its Goal as the body.
+   An already-open pull request for the branch is reused.
+3. The card stays in `ready` with the pull request recorded (`pullRequest` on the card, a link in
+   place of the Merge button) and a `card.pull-request-opened` event. CI runs on the pull request.
+4. Merge it on GitHub. Every two minutes `PullRequestWatcher` asks after open pull requests; once
+   one has merged it fetches GitHub's `main`, fast-forwards the clone's `main` to it, and moves the
+   card to `merged`, which reclaims its worktree and lets dependents dispatch. Only then: a
+   dependent's worktree is cut from the clone's `main`, which must hold the work first.
+
+The poller's automatic merge at `ready` works the same way: it opens the pull request and then
+leaves the card alone while it is open. A pull request closed without merging flags the card, and
+Merge opens a new one. A clone whose `main`
+cannot fast-forward (it holds commits GitHub does not) flags the card with the pull request recorded
+as merged: bring the clone up to date, then `wilson card move <id> merged`. A failed fetch, a refused
+push or a project with no GitHub repository flags the card and opens nothing. Dry run still wins:
+while it is on, Merge only rehearses.
+
+It needs the deployment's GitHub App installed on the project's repository with **Contents: read and
+write** and **Pull requests: read and write**. After changing the app's permissions, accept them on
+each installation (GitHub asks the organization's owner). Tokens are the app's hour-long
+installation tokens, handed to git through a credential helper's environment, never argv or the
+remote URL.
+
+Without that setting, a card in `ready` reaches GitHub as a pull request from a machine that can
+push:
 
 1. Copy the branch off the clone with `git bundle create - <branch> ^<base>` and fetch the bundle.
 2. Rebase it onto `main`, resolving any conflict, and run the suite. A migration whose version is
@@ -1717,9 +1749,9 @@ only when retrying cannot help.
   deployment there needs a test database of its own, named by `TEST_DATABASE_*`. The `worker` image
   starts one itself.
 - **A published port range** maps the per-worktree dev server ports out from wherever the stage runs.
-- **Git credentials belong to the runner, not to agents.** Wilson merges into its own clones and
-  never pushes to a forge, so the stack holds no forge write credential, and should not until it
-  does. Commits reach an SSH host over the daemon's own SSH key and a worker as bundles over its
+- **Git credentials belong to the runner, not to agents.** Wilson merges into its own clones, and
+  pushes to GitHub only when a project lands merges as pull requests, with the GitHub App's
+  hour-long installation tokens and nothing longer-lived. Commits reach an SSH host over the daemon's own SSH key and a worker as bundles over its
   connection; neither is anything a stage's commands can read.
 - **Provider API keys** are injected per deployment and never enter a worktree.
 

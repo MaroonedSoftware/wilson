@@ -223,6 +223,13 @@ export type CardEventType =
     | 'card.auto-split'
     /** `AutoSplitter` declined a supported refusal, which then routed as usual. Payload: `reason`. */
     | 'card.auto-split-skipped'
+    /**
+     * Merge proved the card and opened a GitHub pull request for it instead of moving `main`. The card
+     * stays in `ready` until the pull request merges. Payload: `number`, `url`, `branch`, `sha`.
+     */
+    | 'card.pull-request-opened'
+    /** The card's pull request was closed on GitHub without merging. Payload: `number`, `url`. */
+    | 'card.pull-request-closed'
     /** `PlanDraftJob` saved a plan for a split piece or an unplanned card. It still waits for approval. */
     | 'card.plan-drafted'
     /** `PlanDraftJob` left a card unplanned, or it could not be enqueued. Payload: `reason`. */

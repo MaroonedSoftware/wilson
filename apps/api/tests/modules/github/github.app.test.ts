@@ -138,4 +138,78 @@ describe('GitHubApp', () => {
         expect(await app.isConfigured()).toBe(true);
         expect(await app.tokenFor('acme/app')).toBe('token-2');
     });
+
+    describe('pull requests', () => {
+        /** The installation endpoints, plus whatever `pulls` answers for the pull request calls. */
+        const withPulls = (pulls: (url: string, init?: RequestInit) => Response) => {
+            const calls: { url: string; method: string; body?: unknown; bearer: string }[] = [];
+            const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+                const href = String(url);
+                calls.push({
+                    url: href,
+                    method: init?.method ?? 'GET',
+                    body: init?.body ? JSON.parse(String(init.body)) : undefined,
+                    bearer: bearer(init),
+                });
+                if (href.endsWith('/repos/acme/app/installation')) return json(200, { id: 7 });
+                if (href.endsWith('/access_tokens'))
+                    return json(201, { token: 'install-token', expires_at: DateTime.now().plus({ hours: 1 }).toISO() });
+                return pulls(href, init);
+            }) as unknown as typeof fetch;
+            return { fetchImpl, calls };
+        };
+        const draft = { head: 'card/0042', base: 'main', title: '0042: Do a thing', body: 'Goal' };
+
+        it('opens one as the installation and says where it is', async () => {
+            const { fetchImpl, calls } = withPulls(() => json(201, { number: 12, html_url: 'https://github.com/acme/app/pull/12', state: 'open' }));
+
+            const pr = await new GitHubApp(identity(), fetchImpl).openPullRequest('acme/app', draft);
+
+            expect(pr).toEqual({ number: 12, url: 'https://github.com/acme/app/pull/12', state: 'open' });
+            const open = calls.find(call => call.url.endsWith('/repos/acme/app/pulls'))!;
+            expect(open).toMatchObject({ method: 'POST', body: draft, bearer: 'install-token' });
+        });
+
+        it('returns the open one for that branch when GitHub says it already exists', async () => {
+            const { fetchImpl, calls } = withPulls((url, init) =>
+                init?.method === 'POST'
+                    ? json(422, { message: 'Validation Failed' })
+                    : json(200, [{ number: 9, html_url: 'https://github.com/acme/app/pull/9', state: 'open' }]),
+            );
+
+            const pr = await new GitHubApp(identity(), fetchImpl).openPullRequest('acme/app', draft);
+
+            expect(pr.number).toBe(9);
+            expect(calls.at(-1)!.url).toContain('head=acme%3Acard%2F0042');
+            expect(calls.at(-1)!.url).toContain('state=open');
+        });
+
+        it('names the missing permission when GitHub forbids it', async () => {
+            const { fetchImpl } = withPulls(() => json(403, { message: 'Resource not accessible by integration' }));
+
+            await expect(new GitHubApp(identity(), fetchImpl).openPullRequest('acme/app', draft)).rejects.toMatchObject({
+                statusCode: 503,
+                details: { reason: expect.stringContaining('Pull requests write permission') },
+            });
+        });
+
+        it('reads a merged one as merged, with the commit it made', async () => {
+            const { fetchImpl } = withPulls(() =>
+                json(200, { number: 12, html_url: 'u', state: 'closed', merged: true, merge_commit_sha: 'abc123' }),
+            );
+
+            expect(await new GitHubApp(identity(), fetchImpl).pullRequest('acme/app', 12)).toEqual({
+                number: 12,
+                url: 'u',
+                state: 'merged',
+                mergeCommitSha: 'abc123',
+            });
+        });
+
+        it('reads one closed without merging as closed', async () => {
+            const { fetchImpl } = withPulls(() => json(200, { number: 12, html_url: 'u', state: 'closed', merged: false, merge_commit_sha: 'abc' }));
+
+            expect(await new GitHubApp(identity(), fetchImpl).pullRequest('acme/app', 12)).toEqual({ number: 12, url: 'u', state: 'closed' });
+        });
+    });
 });

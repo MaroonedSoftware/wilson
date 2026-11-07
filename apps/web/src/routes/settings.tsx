@@ -29,6 +29,7 @@ import { SecurityControls } from '#src/components/SecurityControls.js';
 
 const POLLER_QUERY_KEY = ['settings', 'poller'];
 const AUTO_SPLIT_QUERY_KEY = ['settings', 'auto-split'];
+const MERGE_PULL_REQUEST_QUERY_KEY = ['settings', 'merge-pull-request'];
 const ORCHESTRATOR_QUERY_KEY = ['settings', 'orchestrator'];
 const POLLER_INTERVAL_QUERY_KEY = ['settings', 'poller-interval'];
 const CARD_STAGE_CONCURRENCY_QUERY_KEY = ['settings', 'card-stage-concurrency'];
@@ -115,6 +116,43 @@ function AutoSplitToggle() {
             <Switch
                 label="Auto-split"
                 description="When the scope check refuses a card, split it into the proposed pieces and draft a plan for each. The plans wait in planning for your approval."
+                checked={setting.data.enabled}
+                disabled={mutation.isPending}
+                onChange={event => mutation.mutate(event.currentTarget.checked)}
+            />
+            {mutation.isError && (
+                <Text size="sm" c="red">
+                    {apiErrorMessage(mutation.error)}
+                </Text>
+            )}
+        </Stack>
+    );
+}
+
+/** The same shape as `AutoSplitToggle`, for whether Merge lands a card on GitHub as a pull request. */
+function MergePullRequestToggle() {
+    const wilson = useWilsonSdk();
+    const queryClient = useQueryClient();
+    const setting = useQuery({ queryKey: MERGE_PULL_REQUEST_QUERY_KEY, queryFn: () => wilson.settings.getMergePullRequestSetting() });
+    const mutation = useMutation({
+        mutationFn: (enabled: boolean) => wilson.settings.setMergePullRequestSetting({ enabled }),
+        onSuccess: result => queryClient.setQueryData(MERGE_PULL_REQUEST_QUERY_KEY, result),
+    });
+
+    if (setting.error) {
+        return (
+            <Alert color="red" title="Cannot load the merge setting">
+                {apiErrorMessage(setting.error)}
+            </Alert>
+        );
+    }
+    if (!setting.data) return <Loader size="sm" />;
+
+    return (
+        <Stack gap="xs">
+            <Switch
+                label="Merge opens a pull request"
+                description="Merge pushes the card's branch to GitHub and opens a pull request against main, and the card moves to merged when the pull request merges. Needs dry run off and the GitHub App allowed to write contents and pull requests."
                 checked={setting.data.enabled}
                 disabled={mutation.isPending}
                 onChange={event => mutation.mutate(event.currentTarget.checked)}
@@ -953,6 +991,13 @@ function SettingsRoute() {
                 <Stack gap="sm">
                     <Title order={4}>Auto-split</Title>
                     <AutoSplitToggle />
+                </Stack>
+            </Paper>
+
+            <Paper withBorder p="md" radius="sm">
+                <Stack gap="sm">
+                    <Title order={4}>Pull requests</Title>
+                    <MergePullRequestToggle />
                 </Stack>
             </Paper>
 

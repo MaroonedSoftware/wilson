@@ -72,6 +72,20 @@ export const CardBlocked = z.strictObject({
 export type CardBlocked = z.infer<typeof CardBlocked>;
 
 /**
+ * The GitHub pull request Merge opened for a card, when its project lands merges as pull requests
+ * (`merge-opens-pull-request`). The card waits in `ready` while it is `open` and reaches `merged` when
+ * GitHub merges it. `closed` is one closed without merging: the card is flagged, and Merge opens a
+ * new one.
+ * generated from [CardPullRequest](../../data/contracts/board.ck)
+ */
+export const CardPullRequest = z.strictObject({
+    number: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    url: z.string(),
+    state: z.enum(['open', 'closed', 'merged']),
+});
+export type CardPullRequest = z.infer<typeof CardPullRequest>;
+
+/**
  * One card cut from a split origin, as `CardDetail.pieces` lists it: enough to show how far the split
  * has got without a read per piece.
  * generated from [SplitPieceSummary](../../data/contracts/board.ck)
@@ -679,6 +693,7 @@ export const CardSummary = z.strictObject({
     mergeStatus: MergeStatus.optional().describe(
         'Populated only for a card in `ready`, and only by the reads `BoardService` itself serves (`list`,\n`getById`), the same way `resolvedBranch` is. A write response leaves it absent rather than guess.',
     ),
+    pullRequest: CardPullRequest.optional().describe('Absent until a merge opens one, and kept once the card is merged.'),
 });
 export type CardSummary = z.infer<typeof CardSummary>;
 
@@ -970,6 +985,9 @@ export type ReleaseResult = z.infer<typeof ReleaseResult>;
  * attempt can have, the same way `ReleaseResult.releasedAs` names which safe-to-cancel case a
  * release was, so both come back as `merged: false` with `reason` in a 200, not a 400. The only
  * thing this operation refuses outright is a card that is not in `ready` (see its 400 below).
+ *
+ * A project that lands merges as pull requests answers a proven merge with `merged: false`, the
+ * card's `pullRequest` open, and `reason` naming it: the card has not merged until GitHub merges it.
  * generated from [MergeResult](../../data/contracts/board.ck)
  */
 export const MergeResult = CardDetail.extend({
@@ -978,7 +996,9 @@ export const MergeResult = CardDetail.extend({
     reason: z
         .string()
         .optional()
-        .describe("Why the attempt did not land — a conflict naming the paths, or the suite's own failure —\npresent only when `merged` is false."),
+        .describe(
+            "Why the attempt did not land — a conflict naming the paths, or the suite's own failure —\nor, with `pullRequest` open, which pull request it opened instead. Present only when `merged`\nis false.",
+        ),
 });
 export type MergeResult = z.infer<typeof MergeResult>;
 

@@ -9,6 +9,7 @@ import type {
     EngineTokenSetting,
     GitHubAppSetting,
     LocalStageSlots,
+    MergePullRequestSetting,
     NotifyWebhookSetting,
     OrchestratorSetting,
     PollerInterval,
@@ -23,6 +24,7 @@ import type {
     SetEngineTokenSettingRequest,
     SetGitHubAppSettingRequest,
     SetLocalStageSlotsRequest,
+    SetMergePullRequestSettingRequest,
     SetNotifyWebhookSettingRequest,
     SetOrchestratorSettingRequest,
     SetPollerIntervalRequest,
@@ -179,6 +181,22 @@ export class SettingsClient {
             body: JSON.stringify(body, bigIntReplacer),
         });
         return await parseJson<AutoSplitSetting>(result);
+    }
+
+    /** @name Get merge pull request setting */
+    async getMergePullRequestSetting(): Promise<MergePullRequestSetting> {
+        const result = await this.fetch(`/api/settings/merge-pull-request`, { method: 'GET' });
+        return await parseJson<MergePullRequestSetting>(result);
+    }
+
+    /** @name Set merge pull request setting */
+    async setMergePullRequestSetting(body: SetMergePullRequestSettingRequest): Promise<MergePullRequestSetting> {
+        const result = await this.fetch(`/api/settings/merge-pull-request`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return await parseJson<MergePullRequestSetting>(result);
     }
 
     /** @name Get auto plan setting */

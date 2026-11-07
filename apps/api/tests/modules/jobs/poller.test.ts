@@ -1088,6 +1088,16 @@ describe('Poller tick — the runner approves and merges (card 0036)', () => {
             expect(broker.send).toHaveBeenCalledWith('card.merge', { cardId: '0002', project: 'poller-test-project' });
         });
 
+        it('skips a ready card waiting on its open pull request, and merges the next', async () => {
+            const waiting = card('0001', 'ready', { pullRequest: { number: 12, url: 'https://github.com/acme/app/pull/12', state: 'open' } });
+            const { poller, broker } = buildPoller([waiting, card('0002', 'ready')]);
+
+            await runOneTick(poller);
+
+            expect(broker.send).toHaveBeenCalledTimes(1);
+            expect(broker.send).toHaveBeenCalledWith('card.merge', { cardId: '0002', project: 'poller-test-project' });
+        });
+
         it('skips a ready card a card.stage job still carries', async () => {
             const cardJobs = statefulCardJobs({ '0001': 'already-running-job' });
             const { poller, broker } = buildPoller([card('0001', 'ready')], { cardJobs });
