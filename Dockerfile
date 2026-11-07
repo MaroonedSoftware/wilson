@@ -91,6 +91,50 @@ RUN if [ -n "$WORKER_PACKAGES" ]; then \
         && apt-get install -y --no-install-recommends $WORKER_PACKAGES \
         && rm -rf /var/lib/apt/lists/*; \
     fi
+# The Android toolchain, for a project with an Android app (`--build-arg WORKER_ANDROID=true`): Temurin
+# 21, as CI uses, and an SDK with the platform apps/android compiles against (compileSdk and
+# compileSdkMinor in apps/android/app/build.gradle.kts) and the build-tools its AGP version defaults to
+# (agp in apps/android/gradle/libs.versions.toml). Off by default, as it adds
+# roughly a gigabyte. The SDK stays root's, so AGP cannot fetch a missing package at run time: when
+# apps/android moves to a new platform or AGP, these move with it. sdkmanager goes once it has run, as nothing
+# at run time uses it; the accepted licenses stay. Google ships sdkmanager's helper and aapt2 for x86-64
+# Linux only, so an arm64 image gets x86-64 glibc for them, and runs them through the host's emulation
+# (Rosetta, in Docker Desktop on a Mac).
+ARG WORKER_ANDROID=false
+ARG ANDROID_CMDLINE_TOOLS=16111833
+ARG ANDROID_CMDLINE_TOOLS_SHA1=e025545c62a8e64c7559119566a569fb1dec5f60
+ARG ANDROID_PLATFORM=android-37.2
+ARG ANDROID_BUILD_TOOLS=36.0.0
+ENV JAVA_HOME=/opt/java ANDROID_HOME=/opt/android-sdk
+ENV PATH=$JAVA_HOME/bin:$PATH
+# No Gradle daemon left behind after a stage: each one holds apps/android's 4 GB heap for hours.
+ENV GRADLE_OPTS=-Dorg.gradle.daemon=false
+RUN if [ "$WORKER_ANDROID" = true ]; then \
+        apt-get update \
+        && apt-get install -y --no-install-recommends curl gnupg unzip \
+        && curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public \
+            | gpg --dearmor -o /usr/share/keyrings/adoptium.gpg \
+        && echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb bookworm main" \
+            > /etc/apt/sources.list.d/adoptium.list \
+        && apt-get update \
+        && apt-get install -y --no-install-recommends temurin-21-jdk \
+        && ln -s "/usr/lib/jvm/temurin-21-jdk-$(dpkg --print-architecture)" "$JAVA_HOME" \
+        && if [ "$(dpkg --print-architecture)" = arm64 ]; then \
+            dpkg --add-architecture amd64 \
+            && apt-get update \
+            && apt-get install -y --no-install-recommends libc6:amd64 libstdc++6:amd64 zlib1g:amd64; \
+        fi \
+        && curl -fsSL -o /tmp/cmdline-tools.zip \
+            "https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_CMDLINE_TOOLS}_latest.zip" \
+        && echo "$ANDROID_CMDLINE_TOOLS_SHA1  /tmp/cmdline-tools.zip" | sha1sum -c - \
+        && unzip -q /tmp/cmdline-tools.zip -d /tmp \
+        && yes | /tmp/cmdline-tools/bin/sdkmanager --sdk_root="$ANDROID_HOME" --licenses >/dev/null \
+        && /tmp/cmdline-tools/bin/sdkmanager --sdk_root="$ANDROID_HOME" \
+            "platforms;${ANDROID_PLATFORM}" "build-tools;${ANDROID_BUILD_TOOLS}" >/dev/null \
+        && rm -rf /tmp/cmdline-tools /tmp/cmdline-tools.zip /root/.android /root/.java \
+        && apt-get purge -y --auto-remove gnupg unzip \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
 # A stage commits here, and the worker's user has no identity of its own. A system setting so that it
 # holds whatever environment a command runs with.
 RUN git config --system user.name Wilson && git config --system user.email wilson@localhost
