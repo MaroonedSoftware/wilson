@@ -1,5 +1,11 @@
 # @wilson/desktop
 
+## 0.23.0
+
+### Minor Changes
+
+- 1775773: Chat now shows the questions Wilson asks: pick an option, or several where it allows, or type your own under "Other", then Submit. A question set aside by a message, or past its ten minutes, says so.
+
 ## 0.22.0
 
 ### Minor Changes
