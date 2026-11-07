@@ -6,6 +6,11 @@ import type { EventLog } from '#modules/events/event.log.js';
 import { CARD_MERGE_POLICY, CARD_MERGE_WORKER, CardMergeJob } from '#modules/jobs/card.merge.job.js';
 import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
+import { JobsModule } from '#modules/jobs/jobs.module.js';
+import { MAX_STAGE_WALL_CLOCK_MS } from '#modules/stages/stage.config.js';
+import { PgBossJobRegistryMap } from '@maroonedsoftware/jobbroker/pgboss';
+import type { AppConfig } from '@maroonedsoftware/appconfig';
+import type { Identifier, Registry } from 'injectkit';
 
 const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), trace: vi.fn() };
 
@@ -105,5 +110,32 @@ describe('CardMergeJob', () => {
     it('is never retried and runs one merge at a time', () => {
         expect(CARD_MERGE_POLICY.retryLimit).toBe(0);
         expect(CARD_MERGE_WORKER.concurrency).toBe(1);
+    });
+
+    it('expires no sooner than a full suite run could take', () => {
+        expect(CARD_MERGE_POLICY.expiresIn!.toMillis()).toBeGreaterThanOrEqual(MAX_STAGE_WALL_CLOCK_MS);
+    });
+});
+
+/** Card 0036: the poller's `card.merge` sends land on a registered queue with the job's own policies. */
+describe('JobsModule.setup — card.merge', () => {
+    it('registers card.merge with CardMergeJob, its policy and its one-at-a-time worker', async () => {
+        const instances = new Map<unknown, unknown>();
+        const lifetimes = { asSingleton: () => {}, asTransient: () => {}, asScoped: () => {} };
+        const registry = {
+            register: (id: Identifier<unknown>) => ({
+                useFactory: () => lifetimes,
+                useClass: () => lifetimes,
+                useInstance: (value: unknown) => {
+                    instances.set(id, value);
+                    return lifetimes;
+                },
+            }),
+        } as unknown as Registry;
+
+        await JobsModule.setup!(registry, { get: () => 'unused' } as unknown as AppConfig);
+
+        const jobRegistry = instances.get(PgBossJobRegistryMap) as PgBossJobRegistryMap;
+        expect(jobRegistry.get('card.merge')).toEqual({ job: CardMergeJob, policy: CARD_MERGE_POLICY, worker: CARD_MERGE_WORKER });
     });
 });
