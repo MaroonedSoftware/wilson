@@ -31,6 +31,17 @@ import type { AgentRunInput, AgentRunOutput } from './stage.agent.js';
 import { StageAgent } from './stage.agent.js';
 import { BLOCKED_TOOL, BLOCKED_TOOL_DESCRIPTION, blockedGuidance } from './tools/blocked.tool.js';
 import { deleteFile } from './tools/delete.tool.js';
+import {
+    canReadGithub,
+    checkGithubUrl,
+    GITHUB_GUIDANCE,
+    GITHUB_TOOL,
+    GITHUB_TOOL_DESCRIPTION,
+    GithubToolInputSchema,
+    readGithub,
+    webAccessOf,
+    type WebAccess,
+} from './tools/github.tool.js';
 import { requestScope } from './tools/scope.tool.js';
 import { toolHost, type ToolContext } from './tools/index.js';
 
@@ -163,6 +174,8 @@ const qualifiedRequestScopeTool = (): string => `mcp__${REPORT_SERVER}__${REQUES
 // from independently (card 0097 — that drift, a bare `delete` typed into board config instead of
 // this, is exactly the bug this file now guards against).
 export const qualifiedDeleteTool = (): string => `mcp__${REPORT_SERVER}__${DELETE_TOOL}`;
+/** The GitHub read tool as the engine names it (card 0013). */
+export const qualifiedGithubTool = (): string => `mcp__${REPORT_SERVER}__${GITHUB_TOOL}`;
 
 /** The engine's own tools, named as it names them. */
 const READ_TOOLS = ['Read', 'Glob', 'Grep'];
@@ -394,6 +407,12 @@ export class CliStageAgent extends StageAgent {
         const checksTestCounts = stage.testReportPath !== undefined;
         // Not for a step: an answer resumes the lane's own run, so the step would be lost.
         const canAsk = !stage.step;
+        // Card 0013: the GitHub read tool is on the server only for a stage whose `webAccess` allows
+        // it, so a stage at `none` keeps exactly the surface it had. The guard refuses it at `none`
+        // as well, should a call ever reach it. Its handler runs here, in this process, wherever the
+        // engine itself was placed.
+        const webAccess = webAccessOf(stage);
+        const readsGithub = canReadGithub(webAccess);
         let blocked: BlockedReport | undefined;
         const reportServer = createSdkMcpServer({
             name: REPORT_SERVER,
@@ -492,6 +511,14 @@ export class CliStageAgent extends StageAgent {
                                   return { content: [{ type: 'text' as const, text: message }] };
                               },
                           ),
+                      ]
+                    : []),
+                ...(readsGithub
+                    ? [
+                          tool(GITHUB_TOOL, GITHUB_TOOL_DESCRIPTION, GithubToolInputSchema.shape, async ({ url }: { url: string }) => {
+                              const text = await readGithub(context, url);
+                              return { content: [{ type: 'text' as const, text }] };
+                          }),
                       ]
                     : []),
             ],
@@ -624,6 +651,7 @@ export class CliStageAgent extends StageAgent {
             toolUseID => {
                 if (toolUseID) consultedToolUseIds.add(toolUseID);
             },
+            webAccess,
         );
 
         const stream = query({
@@ -678,6 +706,7 @@ export class CliStageAgent extends StageAgent {
                       // above actually registers them under.
                       stage.instructions,
                       '',
+                      ...(readsGithub ? [...GITHUB_GUIDANCE, ''] : []),
                       ...(canWrite
                           ? [
                                 `If the plan's "Files in scope" does not cover a file the work genuinely needs, call`,
@@ -1459,6 +1488,7 @@ export const createToolGuard = (
     onDeny?: () => void,
     onActivity?: () => void,
     onConsulted?: (toolUseID: string | undefined) => void,
+    webAccess: WebAccess = 'none',
 ): CanUseTool => {
     // How many times each denial shape has fired in this run. Scoped to this call, which the
     // dispatcher makes fresh per stage run, so it never sees a shape from a different stage or a
@@ -1622,6 +1652,19 @@ export const createToolGuard = (
                 type: 'tool.executed',
                 payload: { tool: toolName, url, host: decision.host, decision: 'allowed' },
             });
+            return { behavior: 'allow' };
+        }
+
+        // Card 0013: the GitHub read tool, by the name the engine gives it or, from the codex
+        // adapter's dynamic tool, the bare one. Only at `github` or `web`; at `none`, or with no
+        // value, it is refused like any tool this stage does not have. An allowed call is recorded by
+        // `readGithub` once it has an answer, with the URL and status, so it is not recorded here;
+        // a URL refused here never reaches it, so the refusal is recorded here instead, with the URL.
+        if (toolName === qualifiedGithubTool() || toolName === GITHUB_TOOL) {
+            const url = typeof input.url === 'string' ? input.url : '';
+            if (!canReadGithub(webAccess)) return deny(`${toolName} is not available to this stage`, { url });
+            const check = checkGithubUrl(url);
+            if (!check.allowed) return deny(check.reason, { url, ...(check.host !== undefined && { host: check.host }) });
             return { behavior: 'allow' };
         }
 

@@ -171,6 +171,19 @@ export const StageConfigSchema = z
          */
         networkAccess: z.boolean().optional(),
         /**
+         * How far this stage's agent may reach on the web (card 0013), on every adapter. `none`, and a
+         * missing value, is no further than today. `github` adds one read-only tool that GETs from
+         * `github.com`, `api.github.com` and `raw.githubusercontent.com` and nothing else, with no
+         * credentials, so only public repositories. `web` is accepted and for now grants what `github`
+         * does; `WebFetch` and `WebSearch` at that level are a later card's.
+         *
+         * Stored in the lane's `settings` (`lane.rows.ts`), so it needs no column and survives a lane
+         * revision. A step (`LaneStepSchema`) has no field for it and runs at its lane's value. Human
+         * config only, like the rest of this schema: no agent tool writes it. Optional rather than
+         * defaulted so a hand-built `StageConfig` stays valid; `webAccessOf` reads absent as `none`.
+         */
+        webAccess: z.enum(['none', 'github', 'web']).optional(),
+        /**
          * Globs this stage may write on top of the card's own "Files in scope".
          *
          * A card's scope is written for the stage that implements it. The testing stage's whole job is
