@@ -148,6 +148,10 @@ const findingsFrom = (result: unknown): ReviewFinding[] | undefined => {
     return Array.isArray(findings) ? (findings as ReviewFinding[]) : undefined;
 };
 
+/** Whether `stage` is a lane's `pass` step, the run after the lane's own one passed outright. */
+const isPassStep = (stage: StageConfig): boolean =>
+    Boolean(stage.step) && stage.steps?.some(step => step.name === stage.step && step.on === 'pass') === true;
+
 /** The criteria statuses a review carries, when its result carries any. Other stages report none. */
 const criteriaFrom = (result: unknown): ReviewCriterion[] | undefined => {
     const criteria = (result as { criteria?: unknown } | undefined)?.criteria;
@@ -744,7 +748,12 @@ export class StageDispatcher {
         // mid-run, which the halt below deals with.
         const revised = !stage.step && outcome.passed && !shouldAdvance(outcome.passed, outcome.result);
         const reviseStep = revised && !head.frontmatter.sourceClosed ? stage.steps?.find(step => step.on === 'revise') : undefined;
-        let decision: KickbackDecision = reviseStep
+        // A lane's own run that passes outright goes through its `pass` step first, if it has one: the
+        // card stays in the lane until that step has spoken, as it does for a `revise` step.
+        const approved = !stage.step && shouldAdvance(outcome.passed, outcome.result);
+        const passStep = approved && !head.frontmatter.sourceClosed ? stage.steps?.find(step => step.on === 'pass') : undefined;
+        const heldStep = reviseStep ?? passStep;
+        let decision: KickbackDecision = heldStep
             ? { target: stageName, retries: head.frontmatter.retries }
             : shouldAdvance(outcome.passed, outcome.result)
               ? { target: stage.onPass, retries: head.frontmatter.retries }
@@ -792,7 +801,9 @@ export class StageDispatcher {
         // still carry findings, and writing those into the body would hand the next retry a rejected
         // review's claims as if they were trustworthy. Only a passed outcome's findings are folded in.
         // Nor a `revise` still waiting on its step: the step's report is the one that counts.
-        const findings = outcome.passed && !reviseStep ? findingsFrom(outcome.result) : undefined;
+        // A `pass` step with nothing to say leaves the lane's findings where they are rather than clearing them.
+        const reported = outcome.passed && !reviseStep ? findingsFrom(outcome.result) : undefined;
+        const findings = isPassStep(stage) && reported?.length === 0 ? undefined : reported;
         // Same "only a passed outcome's data is trustworthy" reasoning as `findings` above: criteria
         // from a result the verifier rejected are not evidence either.
         const criteria = outcome.passed && !reviseStep ? criteriaFrom(outcome.result) : undefined;
@@ -807,7 +818,7 @@ export class StageDispatcher {
         const nextStep =
             needsHuman || refused || enteredWithChecks
                 ? undefined
-                : (reviseStep?.name ?? (stage.step && decision.target === stageName ? stage.step : undefined));
+                : (heldStep?.name ?? (stage.step && decision.target === stageName ? stage.step : undefined));
         const checks = enteredWithChecks ? AcceptanceResultSchema.safeParse(outcome.result) : undefined;
 
         // Only a judgment about the work earns a bullet. `unjudged` (a step/wall-clock/token cutoff,

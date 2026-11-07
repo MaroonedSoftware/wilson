@@ -525,6 +525,16 @@ widens and `checkFinishedTree` enforces against a write made by a command). An i
 check is wrong says so in its caveats; changing one is a person's edit. A failing enter step spends the
 lane's retries and runs again. Off unless a lane has the step.
 
+A lane can hold a `pass` step too, run when the lane's own run passes outright, before the card moves on
+(as a `revise` step holds a `revise`). On `review`, a step with verifier `walk` starts the app from the
+card's branch on its own port and walks the user's path through it, step by step, reporting what it did,
+what the plan says should happen and what it saw. `WalkVerifier` judges the report, not the app: no files
+changed; a `pass` has every step ok and no blocker; a `revise` has a failed step and a blocker naming a
+file that exists, and sends the card back like a review's; a `not-tested` (no screen, no way to start the
+app there) is never a pass, says what nobody ran and why, and leaves a finding for the person at `ready`.
+A walk with nothing to report leaves the review's findings on the plan. The step needs commands to start
+the app and drive a browser in its `allowedCommands`, so it is off unless a lane has it.
+
 A card's first review sets the scope of every review after it. From the second on (the plan already
 carries a blocker under `## Review findings`), a blocker may send the card back only with a `basis`:
 `unfixed` (an earlier blocker still not fixed, citing a file an earlier blocker named), `regression`
