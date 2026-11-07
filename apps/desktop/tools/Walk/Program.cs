@@ -406,6 +406,38 @@ internal sealed class Walker(string into, Window window, ShellViewModel shell)
         Dispatcher.UIThread.RunJobs();
     }
 
+    /// <summary>A real press on the button a view drew for `model` that reads `content`.</summary>
+    public void ClickButton(object model, string content)
+    {
+        Dispatcher.UIThread.RunJobs();
+        var button = window.GetVisualDescendants().OfType<Button>().First(found => found.DataContext == model && found.Content as string == content && found.IsEffectivelyVisible);
+        button.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+        Click(button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window) ?? throw new InvalidOperationException("not on screen"));
+    }
+
+    /// <summary>A real press on the visible toggle a view drew for `model`: a radio button or a checkbox.</summary>
+    public void ClickToggle(object model)
+    {
+        Dispatcher.UIThread.RunJobs();
+        var toggle = window.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>().First(found => found.DataContext == model && found.IsEffectivelyVisible);
+        toggle.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+        Click(toggle.TranslatePoint(new Point(10, toggle.Bounds.Height / 2), window) ?? throw new InvalidOperationException("not on screen"));
+    }
+
+    /// <summary>A real press into the text box a view drew for `model`, then the text typed as a person would.</summary>
+    public void TypeInto(object model, string text)
+    {
+        Dispatcher.UIThread.RunJobs();
+        var box = window.GetVisualDescendants().OfType<TextBox>().First(found => found.DataContext == model && found.IsEffectivelyVisible);
+        box.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+        Click(box.TranslatePoint(new Point(box.Bounds.Width / 2, box.Bounds.Height / 2), window) ?? throw new InvalidOperationException("not on screen"));
+        Type(text);
+        Dispatcher.UIThread.RunJobs();
+    }
+
     private static string Written(SelectableTextBlock block) => string.Concat(block.Inlines!.Select(inline => inline is Run run ? run.Text : "\n"));
 
     /// <summary>A real press on `text` where it first shows in a block of Markdown, as a person would follow a link.</summary>

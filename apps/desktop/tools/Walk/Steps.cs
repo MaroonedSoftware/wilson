@@ -142,6 +142,12 @@ internal static class Steps
             return;
         }
 
+        if (only == "asks")
+        {
+            await ChatQuestionsAsync(walk, home);
+            return;
+        }
+
         if (only == "actions")
         {
             await ChatActionsAsync(walk, home);
@@ -1777,6 +1783,61 @@ internal static class Steps
         walk.Click(walk.CenterOf("RawArguments"));
         walk.Shot("14d-actions-raw");
         walk.Click(walk.CenterOf("RawArguments"));
+
+        await home.ArchiveCommand.ExecuteAsync(home.Threads.First(row => row.Id == thread.Id));
+    }
+
+    /// <summary>
+    /// Questions the chat asked, written to the throwaway database as `ask_user` stores them and read back through the
+    /// API, then answered by real presses and typing. Answering starts a real follow-up turn with the machine's login,
+    /// which this does not wait for: an account at its usage limit fails it without the card's doing.
+    /// </summary>
+    private static async Task ChatQuestionsAsync(Walker walk, ThreadsViewModel home)
+    {
+        const string Fix = """[{"header":"Fix for 0024","text":"scope-check passed twice but a built-in rule rejected it. What should I do?","options":[{"label":"Reword the plan","description":"Edit Tasks 3 and 6 so no group reaches 8, then re-run scope-check"},{"label":"Approve as it is","description":"Override the miscount, since the verdict was pass"},{"label":"Re-run unchanged","description":"Probably won't help: the counts vary between runs"}],"multiSelect":false}]""";
+        const string Lanes = """[{"header":"Lanes","text":"Which lanes should get the new budget?","options":[{"label":"planning","description":""},{"label":"implementing","description":"The one that spends most"},{"label":"review","description":""}],"multiSelect":true}]""";
+        var thread = await walk.Shell.Connection!.Sdk.Chat.StartAChatThreadAsync();
+        var ask = (string questions, string status, string answers, string at) => Walker.Sql(
+            $"insert into wilson.chat_questions (thread_id, questions, answers, status, expires_at, created_at) values ({thread.Id}, $json${questions}$json$::jsonb, {answers}, '{status}', now() + interval '10 minutes', {at})");
+        ask(Fix, "dismissed", "null", "now() - interval '3 minutes'");
+        ask(Fix, "pending", "null", "now() - interval '2 minutes'");
+        ask(Lanes, "pending", "null", "now() - interval '1 minute'");
+
+        await home.AnsweredAsync();
+        await walk.UntilAsync("the asking chat listed", () => home.Threads.Any(row => row.Id == thread.Id));
+        home.Open(home.Threads.First(row => row.Id == thread.Id));
+        var chat = home.Chat!;
+        await walk.UntilAsync("the questions read back", () => chat.Entries.OfType<QuestionCard>().Count() == 3);
+        var cards = chat.Entries.OfType<QuestionCard>().ToList();
+        await walk.UntilAsync("one dismissed, two waiting", () => cards[0].Outcome == "dismissed" && cards[1].Awaiting && cards[2].Awaiting);
+        await walk.UntilAsync("the hint names the question", () => chat.Hint.StartsWith("Answer the question", StringComparison.Ordinal) && chat.Suggestions.Count == 0);
+        walk.ScrollTo("Fix for 0024");
+        walk.Shot("14e-questions-waiting");
+
+        var fix = cards[1];
+        var options = fix.Prompts[0].Options;
+        walk.ClickToggle(options[0]);
+        walk.ClickToggle(options[1]);
+        await walk.UntilAsync("a single choice keeps one", () => !options[0].IsChosen && options[1].IsChosen && fix.CanSubmit);
+        walk.TypeInto(fix.Prompts[0], "Approve, and note the miscount on the card");
+        await walk.UntilAsync("typing Other clears the choice", () => options.All(option => !option.IsChosen) && fix.CanSubmit);
+        walk.ClickToggle(options[1]);
+        await walk.UntilAsync("choosing again clears Other", () => options[1].IsChosen && fix.Prompts[0].Other.Length == 0);
+
+        var lanes = cards[2];
+        walk.ClickToggle(lanes.Prompts[0].Options[2]);
+        walk.ClickToggle(lanes.Prompts[0].Options[0]);
+        walk.TypeInto(lanes.Prompts[0], "and merge");
+        await walk.UntilAsync("a multiple choice keeps both and Other", () =>
+            lanes.Prompts[0].Options[0].IsChosen && lanes.Prompts[0].Options[2].IsChosen && lanes.Prompts[0].Other == "and merge" && lanes.CanSubmit);
+        walk.ScrollTo("Fix for 0024");
+        walk.Shot("14f-questions-picked");
+
+        walk.ClickButton(lanes, "Submit");
+        await walk.UntilAsync("the answer stored and shown", () => lanes.Outcome == "answered" && lanes.Prompts[0].Answered == "planning, review, and merge");
+        walk.ScrollTo("Lanes");
+        walk.Shot("14g-questions-answered");
+        Console.WriteLine($"     the other card still holds its choice: {fix.Prompts[0].Options[1].IsChosen}, waiting: {fix.Awaiting}");
 
         await home.ArchiveCommand.ExecuteAsync(home.Threads.First(row => row.Id == thread.Id));
     }
