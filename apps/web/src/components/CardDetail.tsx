@@ -201,6 +201,12 @@ function useMergeCard(id: string) {
             invalidateCard(queryClient, id);
             if (result.merged) {
                 notifications.show({ color: 'green', title: 'Merged', message: `Landed on main as ${result.commit?.slice(0, 8) ?? result.commit}` });
+            } else if (result.pullRequest?.state === 'open') {
+                notifications.show({
+                    color: 'green',
+                    title: `Opened pull request #${result.pullRequest.number}`,
+                    message: 'The card moves to merged when it merges on GitHub.',
+                });
             } else {
                 notifications.show({ color: 'red', title: 'Could not merge the card', message: result.reason ?? 'unknown reason' });
             }
@@ -288,10 +294,31 @@ function PlanCheckControl({ card }: { card: CardDetail }) {
  * button. Only rendered for a card in `ready` — the one stage this operation ever acts on
  * (`BoardWriteService.merge` refuses every other one) — so there is nothing to disable, only
  * something to hide.
+ *
+ * A card whose merge opened a pull request shows a link to it instead, open or merged: the merge
+ * happens on GitHub, and pressing Merge again would only be refused. A closed one shows Merge again,
+ * which opens a fresh pull request.
  */
 function MergeControl({ card }: { card: CardDetail }) {
     const mergeCard = useMergeCard(card.id);
 
+    const pullRequest = card.pullRequest;
+    if (pullRequest && pullRequest.state !== 'closed') {
+        return (
+            <Button
+                size="xs"
+                variant="light"
+                color={pullRequest.state === 'merged' ? 'violet' : 'green'}
+                component="a"
+                href={pullRequest.url}
+                target="_blank"
+                rel="noreferrer"
+                title={pullRequest.state === 'open' ? 'Merge it on GitHub; the card follows' : 'Merged on GitHub'}
+            >
+                PR #{pullRequest.number} {pullRequest.state}
+            </Button>
+        );
+    }
     if (card.stage !== 'ready') return null;
 
     return (

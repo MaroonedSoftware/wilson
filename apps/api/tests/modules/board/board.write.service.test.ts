@@ -24,6 +24,10 @@ import { unsatisfiedDependencies } from '#modules/board/next.card.js';
 import { DRY_RUN_INTEGRATION_BRANCH } from '#modules/worktree/worktree.manager.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
 import { RE_REVIEW_ON_MERGE } from '#modules/settings/re.review.on.merge.setting.js';
+import { DRY_RUN_ENABLED } from '#modules/settings/dry.run.setting.js';
+import { MERGE_OPENS_PULL_REQUEST } from '#modules/settings/merge.pull.request.setting.js';
+import type { PullRequestLander } from '#modules/board/pull.request.lander.js';
+import { httpError } from '@maroonedsoftware/errors';
 import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
 import type { Card } from '#modules/board/card.js';
 import type { Kysely } from 'kysely';
@@ -2176,6 +2180,204 @@ describe('BoardWriteService', () => {
             );
             return { board, events, history, broker, cardJobs, service };
         };
+
+        describe('as a pull request', () => {
+            const GITHUB_MAIN = 'refs/remotes/origin/main';
+
+            const lander = (overrides: Record<string, unknown> = {}) => ({
+                repository: vi.fn(async (): Promise<string | undefined> => 'acme/app'),
+                fetchBase: vi.fn(async () => ({ ref: GITHUB_MAIN, sha: 'github-main-sha' })),
+                open: vi.fn(async () => ({ number: 12, url: 'https://github.com/acme/app/pull/12', state: 'open' as const })),
+                ...overrides,
+            });
+
+            const prBoard = (
+                worktrees: ReturnType<typeof mergeWorktrees>,
+                stages: StaticStageConfigStore,
+                pullRequests: ReturnType<typeof lander> | undefined,
+                dryRun = false,
+            ) => {
+                const events = { append: vi.fn(async () => {}), tail: vi.fn(async () => []) };
+                const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
+                const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
+                const broker = { send: vi.fn(async () => 'job-1'), cancel: vi.fn(async () => {}), getJob: vi.fn(async () => null) };
+                const values: Record<string, boolean> = {
+                    [DRY_RUN_ENABLED.key]: dryRun,
+                    [MERGE_OPENS_PULL_REQUEST.key]: true,
+                    [RE_REVIEW_ON_MERGE.key]: false,
+                };
+                const settings = { get: vi.fn(async (setting: { key: string }) => values[setting.key] ?? false) } as unknown as SettingsStore;
+                const service = new BoardWriteService(
+                    board,
+                    config,
+                    worktrees as unknown as WorktreeManager,
+                    events as unknown as EventLog,
+                    fakeLogger(),
+                    new CardJobs(config, db, broker as unknown as JobBroker),
+                    broker as unknown as JobBroker,
+                    new RunningCards(),
+                    settings,
+                    stages,
+                    undefined,
+                    pullRequests as unknown as PullRequestLander | undefined,
+                );
+                return { board, events, service };
+            };
+
+            it('proves against GitHub main, opens a pull request, and leaves the card in ready with it recorded', async () => {
+                const passing = await scriptExiting(0);
+                const worktrees = mergeWorktrees();
+                const pullRequests = lander();
+                const { board, events, service } = prBoard(worktrees, mergeStageConfigs(`node ${passing}`), pullRequests);
+                await board.create(card('0300', { stage: 'ready', needsHuman: true, needsHumanReason: 'an earlier refusal' }), 'seed');
+
+                const result = await service.merge('0300');
+
+                expect(result.merged).toBe(false);
+                expect(result.reason).toContain('#12');
+                expect(result.pullRequest).toEqual({ number: 12, url: 'https://github.com/acme/app/pull/12', state: 'open' });
+                expect(worktrees.computeMerge).toHaveBeenCalledWith('card/0090-thing', GITHUB_MAIN);
+                expect(pullRequests.open).toHaveBeenCalledWith('acme/app', expect.anything(), 'card/0090-thing', 'branch-sha');
+                expect(worktrees.landMerge).not.toHaveBeenCalled();
+                expect(worktrees.ensureIntegrationBranch).not.toHaveBeenCalled();
+                expect(events.append).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        type: 'card.pull-request-opened',
+                        payload: expect.objectContaining({ number: 12, sha: 'branch-sha' }),
+                    }),
+                    expect.anything(),
+                );
+
+                const stored = await board.read('0300');
+                expect(stored.frontmatter.stage).toBe('ready');
+                expect(stored.frontmatter.pullRequest?.state).toBe('open');
+                expect(stored.frontmatter.needsHuman).toBeFalsy();
+            });
+
+            it('still only rehearses while dry run is on, reaching for GitHub not at all', async () => {
+                const passing = await scriptExiting(0);
+                const worktrees = mergeWorktrees();
+                const pullRequests = lander();
+                const { board, service } = prBoard(worktrees, mergeStageConfigs(`node ${passing}`), pullRequests, true);
+                await board.create(card('0301', { stage: 'ready' }), 'seed');
+
+                const result = await service.merge('0301');
+
+                expect(result.merged).toBe(true);
+                expect(worktrees.landMerge).toHaveBeenCalledWith('main-sha-before', 'merge-commit-sha', DRY_RUN_INTEGRATION_BRANCH);
+                expect(pullRequests.repository).not.toHaveBeenCalled();
+                expect(pullRequests.open).not.toHaveBeenCalled();
+            });
+
+            it('refuses a card whose pull request is already open, without fetching anything', async () => {
+                const worktrees = mergeWorktrees();
+                const pullRequests = lander();
+                const { board, service } = prBoard(worktrees, stageConfigs, pullRequests);
+                await board.create(card('0302', { stage: 'ready' }), 'seed');
+                await board.write('0302', 'opened', c => ({
+                    ...c,
+                    frontmatter: { ...c.frontmatter, pullRequest: { number: 7, url: 'https://github.com/acme/app/pull/7', state: 'open' } },
+                }));
+
+                await expect(service.merge('0302')).rejects.toMatchObject({ statusCode: 400, details: { reason: expect.stringContaining('#7') } });
+                expect(pullRequests.fetchBase).not.toHaveBeenCalled();
+            });
+
+            it('opens a fresh one for a card whose last pull request was closed unmerged', async () => {
+                const passing = await scriptExiting(0);
+                const worktrees = mergeWorktrees();
+                const pullRequests = lander();
+                const { board, service } = prBoard(worktrees, mergeStageConfigs(`node ${passing}`), pullRequests);
+                await board.create(card('0303', { stage: 'ready' }), 'seed');
+                await board.write('0303', 'closed', c => ({
+                    ...c,
+                    frontmatter: { ...c.frontmatter, pullRequest: { number: 7, url: 'u', state: 'closed' } },
+                }));
+
+                const result = await service.merge('0303');
+
+                expect(result.pullRequest?.number).toBe(12);
+            });
+
+            it('flags the card rather than landing locally when the project has no GitHub repository', async () => {
+                const worktrees = mergeWorktrees();
+                const pullRequests = lander({ repository: vi.fn(async () => undefined) });
+                const { board, service } = prBoard(worktrees, stageConfigs, pullRequests);
+                await board.create(card('0304', { stage: 'ready' }), 'seed');
+
+                const result = await service.merge('0304');
+
+                expect(result.merged).toBe(false);
+                expect(result.reason).toContain('no GitHub repository');
+                expect(worktrees.computeMerge).not.toHaveBeenCalled();
+                expect(worktrees.landMerge).not.toHaveBeenCalled();
+                expect((await board.read('0304')).frontmatter.needsHuman).toBe(true);
+            });
+
+            it('flags the card when the deployment has no GitHub App to open one with', async () => {
+                const worktrees = mergeWorktrees();
+                const { board, service } = prBoard(worktrees, stageConfigs, undefined);
+                await board.create(card('0305', { stage: 'ready' }), 'seed');
+
+                const result = await service.merge('0305');
+
+                expect(result.merged).toBe(false);
+                expect(result.reason).toContain('no GitHub App');
+                expect(worktrees.landMerge).not.toHaveBeenCalled();
+            });
+
+            it('opens nothing for a merge whose suite fails', async () => {
+                const failing = await scriptExiting(1);
+                const worktrees = mergeWorktrees();
+                const pullRequests = lander();
+                const { board, service } = prBoard(worktrees, mergeStageConfigs(`node ${failing}`), pullRequests);
+                await board.create(card('0306', { stage: 'ready' }), 'seed');
+
+                const result = await service.merge('0306');
+
+                expect(result.reason).toContain('fails the suite');
+                expect(pullRequests.open).not.toHaveBeenCalled();
+                expect((await board.read('0306')).frontmatter.pullRequest).toBeUndefined();
+            });
+
+            it('flags the card with GitHub’s reason when the push is refused, recording no pull request', async () => {
+                const passing = await scriptExiting(0);
+                const worktrees = mergeWorktrees();
+                const pullRequests = lander({
+                    open: vi.fn(async () => {
+                        throw httpError(409).withDetails({
+                            reason: 'card/0090-thing on acme/app has commits this card’s branch does not; push refused',
+                        });
+                    }),
+                });
+                const { board, service } = prBoard(worktrees, mergeStageConfigs(`node ${passing}`), pullRequests);
+                await board.create(card('0307', { stage: 'ready' }), 'seed');
+
+                const result = await service.merge('0307');
+
+                expect(result.merged).toBe(false);
+                expect(result.reason).toContain('push refused');
+                const stored = await board.read('0307');
+                expect(stored.frontmatter.needsHuman).toBe(true);
+                expect(stored.frontmatter.pullRequest).toBeUndefined();
+            });
+
+            it('flags the card when GitHub main cannot be fetched', async () => {
+                const worktrees = mergeWorktrees();
+                const pullRequests = lander({
+                    fetchBase: vi.fn(async () => {
+                        throw httpError(503).withDetails({ reason: 'could not fetch main from acme/app: Authentication failed' });
+                    }),
+                });
+                const { board, service } = prBoard(worktrees, stageConfigs, pullRequests);
+                await board.create(card('0308', { stage: 'ready' }), 'seed');
+
+                const result = await service.merge('0308');
+
+                expect(result.reason).toContain('Authentication failed');
+                expect(worktrees.computeMerge).not.toHaveBeenCalled();
+            });
+        });
 
         it('refuses a card that is not in ready, touching none of the git plumbing', async () => {
             const worktrees = mergeWorktrees();

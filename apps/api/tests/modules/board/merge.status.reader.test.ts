@@ -9,6 +9,7 @@ import { StaticBoardConfig } from '#modules/board/board.config.js';
 import { MergeStatusReader } from '#modules/board/merge.status.reader.js';
 import { RE_REVIEW_CAP } from '#modules/board/re.review.js';
 import { DRY_RUN_ENABLED } from '#modules/settings/dry.run.setting.js';
+import { MERGE_OPENS_PULL_REQUEST } from '#modules/settings/merge.pull.request.setting.js';
 import { RE_REVIEW_ON_MERGE } from '#modules/settings/re.review.on.merge.setting.js';
 import type { SettingDefinition } from '#modules/settings/setting.definition.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
@@ -20,7 +21,7 @@ const exec = promisify(execFile);
 describe('MergeStatusReader', () => {
     let repo: string;
     let worktrees: WorktreeManager;
-    let settings: { dryRun: boolean; reReview: boolean };
+    let settings: { dryRun: boolean; reReview: boolean; pullRequests: boolean };
     let reader: MergeStatusReader;
 
     const git = async (...args: string[]): Promise<string> => (await exec('git', args, { cwd: repo })).stdout.trim();
@@ -57,13 +58,14 @@ describe('MergeStatusReader', () => {
         await writeFile(join(repo, 'b.txt'), 'unrelated\n', 'utf8');
         await commit('a.txt', 'line one\n');
 
-        settings = { dryRun: false, reReview: false };
+        settings = { dryRun: false, reReview: false, pullRequests: false };
         const config = new StaticBoardConfig('proj', repo, join(repo, '..', 'wt'), join(repo, '..', 'run'));
         worktrees = new WorktreeManager(config, { info: () => undefined } as unknown as Logger);
         const store = {
             get: async (setting: SettingDefinition<boolean>) => {
                 if (setting === DRY_RUN_ENABLED) return settings.dryRun;
                 if (setting === RE_REVIEW_ON_MERGE) return settings.reReview;
+                if (setting === MERGE_OPENS_PULL_REQUEST) return settings.pullRequests;
                 throw new Error(`unexpected setting ${setting.key}`);
             },
         } as unknown as SettingsStore;
@@ -172,6 +174,35 @@ describe('MergeStatusReader', () => {
             await git('checkout', '-q', 'main');
 
             expect(await reader.read('card')).toMatchObject({ state: 'clean', target: 'main' });
+        });
+    });
+
+    describe('when merges open pull requests', () => {
+        it('reads against GitHub main as last fetched', async () => {
+            await fork({ card: ['a.txt', 'card\n'] });
+            await commit('a.txt', 'on github\n');
+            await git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+            await git('reset', '-q', '--hard', 'HEAD~1');
+            settings.pullRequests = true;
+
+            expect(await reader.read('card')).toMatchObject({ state: 'conflict', target: 'refs/remotes/origin/main' });
+        });
+
+        it('falls back to main before GitHub main has ever been fetched', async () => {
+            await fork({ card: ['c.txt', 'card\n'] });
+            settings.pullRequests = true;
+
+            expect(await reader.read('card')).toMatchObject({ state: 'clean', target: 'main' });
+        });
+
+        it('keeps to the integration branch while dry run is on', async () => {
+            await fork({ card: ['c.txt', 'card\n'] });
+            await git('update-ref', 'refs/remotes/origin/main', 'main');
+            await git('branch', DRY_RUN_INTEGRATION_BRANCH);
+            settings.pullRequests = true;
+            settings.dryRun = true;
+
+            expect(await reader.read('card')).toMatchObject({ target: DRY_RUN_INTEGRATION_BRANCH });
         });
     });
 

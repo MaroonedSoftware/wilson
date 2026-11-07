@@ -16,6 +16,7 @@ import { BoardBootstrapService } from './board.bootstrap.service.js';
 import { BoardService } from './board.service.js';
 import { MergeStatusReader } from './merge.status.reader.js';
 import { BoardWriteService } from './board.write.service.js';
+import { PullRequestLander } from './pull.request.lander.js';
 import { PlanService } from '#modules/plan/plan.service.js';
 import { PlanLintService } from './plan.lint.service.js';
 import { ProjectsService } from './projects.service.js';
@@ -103,6 +104,8 @@ export const BoardModule: ServerKitModule = {
         // A singleton because it holds the cache `BoardService`, transient, cannot.
         registry.register(MergeStatusReader).useClass(MergeStatusReader).asSingleton();
         registry.register(BoardWriteService).useClass(BoardWriteService).asTransient();
+        // What Merge uses to land a card on GitHub when `MERGE_OPENS_PULL_REQUEST` is on.
+        registry.register(PullRequestLander).useClass(PullRequestLander).asTransient();
         // Registered here rather than its own module: `modules.ts` is the module list, and adding a
         // one-line entry there for a single service is out of scope for card 0077 (see its plan).
         // `WorktreeModule` registers `WorktreeManager` this service depends on — order doesn't matter

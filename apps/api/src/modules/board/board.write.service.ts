@@ -10,6 +10,7 @@ import { WorktreeManager, worktreeHost, type Worktree } from '#modules/worktree/
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { DRY_RUN_ENABLED } from '#modules/settings/dry.run.setting.js';
 import { RE_REVIEW_ON_MERGE } from '#modules/settings/re.review.on.merge.setting.js';
+import { MERGE_OPENS_PULL_REQUEST } from '#modules/settings/merge.pull.request.setting.js';
 import { RE_REVIEW_CAP, RE_REVIEW_RETRY_KEY } from './re.review.js';
 import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
 import { findStage, StageConfigError, stepOn, validTargets, type StageConfig } from '#modules/stages/stage.config.js';
@@ -48,7 +49,8 @@ import { withAnswer } from './append.answer.js';
 import { withFindings } from './append.findings.js';
 import { git, gitOn } from './git.js';
 import { rankBetween, renormalizedPositions } from './card.position.js';
-import { blockedRetryKey, filesInScope, PLAN_SECTIONS, planGap, sectionKey, withSection, type Card } from './card.js';
+import { blockedRetryKey, filesInScope, PLAN_SECTIONS, planGap, sectionKey, withSection, type Card, type CardPullRequest } from './card.js';
+import { PullRequestLander } from './pull.request.lander.js';
 import { nextCardId, seedSplitBody, splitProblem } from './split.js';
 import type { ReviewFinding } from '#modules/stages/stage.result.js';
 import { DONE, endedAs, isTerminal } from '#modules/stages/terminal.js';
@@ -102,6 +104,8 @@ export class BoardWriteService {
         // Optional as `StageDispatcher`'s own is: a test that constructs this class directly gets
         // the merge check on this machine, which is where it ran before hosts existed.
         private readonly placer?: HostPlacer,
+        // Optional for the same reason: a test that never lands a pull request need not build one.
+        private readonly pullRequests?: PullRequestLander,
     ) {}
 
     /**
@@ -904,6 +908,10 @@ export class BoardWriteService {
      * than proceeding to `computeMerge` — the dispatcher rebases on re-entry, so the reviewer reads
      * the card's diff over whatever merged since. A human rebasing the branch by hand after review
      * moves the merge-base and skips this check; that gap is accepted, not fixed here.
+     *
+     * With dry run off and {@link MERGE_OPENS_PULL_REQUEST} on, none of the landing above happens:
+     * {@link mergeAsPullRequest} proves the card against GitHub's `main` and opens a pull request,
+     * and the card waits in `ready` until GitHub merges it.
      */
     async merge(id: string): Promise<MergeResult> {
         const card = await this.readOrThrow(id);
@@ -912,6 +920,10 @@ export class BoardWriteService {
         }
 
         const dryRun = await this.settings.get(DRY_RUN_ENABLED);
+        if (!dryRun && (await this.settings.get(MERGE_OPENS_PULL_REQUEST))) {
+            return this.mergeAsPullRequest(id, card);
+        }
+
         const targetRef = dryRun ? await this.worktrees.ensureIntegrationBranch() : 'main';
         // Read before anything below runs, so a dry run can prove afterward that nothing it did
         // moved `main` — the whole value of a rehearsal is that it cannot touch the thing it
@@ -920,35 +932,12 @@ export class BoardWriteService {
         const mainShaBefore = dryRun ? await this.worktrees.headSha() : undefined;
 
         const branch = this.worktrees.resolveBranch(card);
-
-        const reReviewOnMerge = await this.settings.get(RE_REVIEW_ON_MERGE);
-        if (reReviewOnMerge) {
-            const overlap = await this.worktrees.overlapSinceFork(branch, targetRef);
-            if (overlap.movedUnder.length > 0) {
-                return this.reReviewOnOverlap(id, card, overlap.movedUnder);
-            }
-        }
-
-        const computed = await this.worktrees.computeMerge(branch, targetRef);
-        if (!computed.ok) {
-            const reason = `${branch} conflicts with ${targetRef}: ${computed.conflicts.length > 0 ? computed.conflicts.join(', ') : computed.raw.slice(0, 2000)}`;
-            await this.flagMergeFailure(id, card.frontmatter.stage, reason);
-            return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason };
-        }
-
         const message = dryRun
             ? `Merge card ${id}: ${card.frontmatter.title} (dry run — rehearsed onto ${targetRef}, main withheld)`
             : `Merge card ${id}: ${card.frontmatter.title}`;
-        const mergeCommit = await this.worktrees.commitMerge(computed.targetSha, computed.branchSha, computed.treeSha, message);
-
-        const proof = await this.proveMerge(id, mergeCommit);
-        if (!proof.ok) {
-            const reason = proof.unproven
-                ? `could not prove the merge of ${branch} into ${targetRef}: ${proof.reason}`
-                : `merge of ${branch} into ${targetRef} fails the suite: ${proof.reason}`;
-            await this.flagMergeFailure(id, card.frontmatter.stage, reason);
-            return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason };
-        }
+        const proven = await this.proveAgainst(id, card, branch, targetRef, message);
+        if (!proven.ok) return proven.result;
+        const { computed, mergeCommit } = proven;
 
         const landed = await this.worktrees.landMerge(computed.targetSha, mergeCommit, targetRef);
         if (!landed.ok) {
@@ -979,6 +968,114 @@ export class BoardWriteService {
 
         const reason = dryRun ? `dry run: rehearsed onto ${targetRef} at ${mergeCommit.slice(0, 8)} — the write to main was withheld` : undefined;
         return { ...toCardDetail(await this.boardRepository.read(id)), merged: true, commit: mergeCommit, reason };
+    }
+
+    /**
+     * The re-review check, the merge computation and the suite's proof, shared by every way a merge
+     * lands. `ok: false` carries the result to hand back, with the card already flagged or sent back
+     * to review as the outcome calls for.
+     */
+    private async proveAgainst(
+        id: string,
+        card: Card,
+        branch: string,
+        targetRef: string,
+        message: string,
+    ): Promise<{ ok: true; computed: { targetSha: string; branchSha: string }; mergeCommit: string } | { ok: false; result: MergeResult }> {
+        const reReviewOnMerge = await this.settings.get(RE_REVIEW_ON_MERGE);
+        if (reReviewOnMerge) {
+            const overlap = await this.worktrees.overlapSinceFork(branch, targetRef);
+            if (overlap.movedUnder.length > 0) {
+                return { ok: false, result: await this.reReviewOnOverlap(id, card, overlap.movedUnder) };
+            }
+        }
+
+        const computed = await this.worktrees.computeMerge(branch, targetRef);
+        if (!computed.ok) {
+            const reason = `${branch} conflicts with ${targetRef}: ${computed.conflicts.length > 0 ? computed.conflicts.join(', ') : computed.raw.slice(0, 2000)}`;
+            return { ok: false, result: await this.refuseMerge(id, card, reason) };
+        }
+
+        const mergeCommit = await this.worktrees.commitMerge(computed.targetSha, computed.branchSha, computed.treeSha, message);
+
+        const proof = await this.proveMerge(id, mergeCommit);
+        if (!proof.ok) {
+            const reason = proof.unproven
+                ? `could not prove the merge of ${branch} into ${targetRef}: ${proof.reason}`
+                : `merge of ${branch} into ${targetRef} fails the suite: ${proof.reason}`;
+            return { ok: false, result: await this.refuseMerge(id, card, reason) };
+        }
+
+        return { ok: true, computed, mergeCommit };
+    }
+
+    /** Flag the card with `reason` and answer `merged: false` with it: an attempt that did not land. */
+    private async refuseMerge(id: string, card: Card, reason: string): Promise<MergeResult> {
+        await this.flagMergeFailure(id, card.frontmatter.stage, reason);
+        return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason };
+    }
+
+    /**
+     * Merge for a project with `MERGE_OPENS_PULL_REQUEST` on and dry run off: prove the card against
+     * GitHub's `main`, push its branch, and open a pull request, leaving the card in `ready` with
+     * `pullRequest` recorded. `PullRequestWatchJob` moves it to `merged` once GitHub merges the pull
+     * request, so dependents only dispatch once the work is on a `main` they can be cut from.
+     *
+     * The clone's `main` is not moved here, and the proof commit is not pushed: GitHub makes its own
+     * merge, and CI runs on the pull request. A card that already has one open is refused outright
+     * (400), as a card outside `ready` is: pressing Merge again cannot do anything GitHub's own merge
+     * button would not.
+     */
+    private async mergeAsPullRequest(id: string, card: Card): Promise<MergeResult> {
+        const open = card.frontmatter.pullRequest?.state === 'open' ? card.frontmatter.pullRequest : undefined;
+        if (open) {
+            throw httpError(400).withDetails({
+                reason: `cannot merge ${id}: pull request #${open.number} is already open (${open.url}); merge it on GitHub`,
+            });
+        }
+        if (!this.pullRequests) {
+            return this.refuseMerge(id, card, 'merges open pull requests, but this deployment has no GitHub App to open them with');
+        }
+        const repository = await this.pullRequests.repository();
+        if (!repository) {
+            return this.refuseMerge(id, card, `merges open pull requests, but project ${this.boardConfig.project} has no GitHub repository`);
+        }
+
+        let base: { ref: string; sha: string };
+        try {
+            base = await this.pullRequests.fetchBase(repository);
+        } catch (err) {
+            return this.refuseMerge(id, card, reasonOf(err));
+        }
+
+        const branch = this.worktrees.resolveBranch(card);
+        const proven = await this.proveAgainst(id, card, branch, base.ref, `Merge card ${id}: ${card.frontmatter.title} (proof for a pull request)`);
+        if (!proven.ok) return proven.result;
+
+        let pullRequest: CardPullRequest;
+        try {
+            pullRequest = await this.pullRequests.open(repository, card, branch, proven.computed.branchSha);
+        } catch (err) {
+            return this.refuseMerge(id, card, reasonOf(err));
+        }
+
+        const reason = `opened pull request #${pullRequest.number} (${pullRequest.url}); the card moves to merged when it merges`;
+        await this.boardRepository.writeWithEvent(
+            id,
+            `Open pull request #${pullRequest.number} for ${id}`,
+            current => {
+                const { needsHuman: _needsHuman, needsHumanReason: _needsHumanReason, ...rest } = current.frontmatter;
+                return { ...current, frontmatter: { ...rest, pullRequest } };
+            },
+            {
+                project: this.boardConfig.project,
+                cardId: id,
+                stage: card.frontmatter.stage,
+                type: 'card.pull-request-opened',
+                payload: { number: pullRequest.number, url: pullRequest.url, branch, sha: proven.computed.branchSha, base: base.sha },
+            },
+        );
+        return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason };
     }
 
     /**
@@ -1390,6 +1487,12 @@ export class BoardWriteService {
  * tells implementing this `## Review findings` section came from a person reading the diff, not
  * from `review`'s own agent, since the bullets underneath read identically either way.
  */
+/** What a thrown error says to a person: an HTTP error's `reason`, otherwise its message. */
+const reasonOf = (err: unknown): string => {
+    const reason = (err as { details?: { reason?: unknown } }).details?.reason;
+    return typeof reason === 'string' ? reason : err instanceof Error ? err.message : String(err);
+};
+
 const HUMAN_FINDINGS_NOTE = '_A human left these comments on the diff._';
 
 /**

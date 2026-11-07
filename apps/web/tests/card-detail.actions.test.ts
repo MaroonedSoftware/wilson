@@ -404,6 +404,51 @@ describe('the merge control', () => {
         expect(screen.getByText('ready', { selector: '.mantine-Badge-label' })).toBeTruthy();
     });
 
+    it('says a pull request was opened, rather than calling it a failure, when the merge opened one', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('ready'));
+        vi.spyOn(BoardClient.prototype, 'mergeCard').mockResolvedValue({
+            ...card('ready'),
+            merged: false,
+            pullRequest: { number: 12, url: 'https://github.com/acme/app/pull/12', state: 'open' },
+            reason: 'opened pull request #12',
+        });
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        const button = await screen.findByRole('button', { name: 'Merge' });
+        await act(async () => {
+            fireEvent.click(button);
+        });
+
+        expect(await screen.findByText('Opened pull request #12')).toBeTruthy();
+        expect(screen.queryByText('Could not merge the card')).toBeNull();
+    });
+
+    it('links to the open pull request in place of Merge', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(
+            card('ready', { pullRequest: { number: 12, url: 'https://github.com/acme/app/pull/12', state: 'open' } }),
+        );
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        const link = await screen.findByRole('link', { name: 'PR #12 open' });
+        expect(link.getAttribute('href')).toBe('https://github.com/acme/app/pull/12');
+        expect(screen.queryByRole('button', { name: 'Merge' })).toBeNull();
+    });
+
+    it('offers Merge again once the pull request was closed without merging', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(
+            card('ready', { pullRequest: { number: 12, url: 'https://github.com/acme/app/pull/12', state: 'closed' } }),
+        );
+
+        renderApp(CARD_PATH);
+        await screen.findByText('Do the thing');
+
+        expect(await screen.findByRole('button', { name: 'Merge' })).toBeTruthy();
+    });
+
     it('shows the reason as a notification when the request itself is refused', async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(card('ready'));
         vi.spyOn(BoardClient.prototype, 'mergeCard').mockRejectedValue(
