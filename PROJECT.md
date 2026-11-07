@@ -512,6 +512,16 @@ context trying to refute each blocker before anything is kicked back. The card h
 `revise` yet, so the step's plan, and only its plan, carries the review's result under `## Review
 findings`.
 
+A card's first review sets the scope of every review after it. From the second on (the plan already
+carries a blocker under `## Review findings`), a blocker may send the card back only with a `basis`:
+`unfixed` (an earlier blocker still not fixed, citing a file an earlier blocker named), `regression`
+(the repair broke something), `criterion` (an acceptance criterion still unmet) or `safety`. Any other
+blocker is kept as a concern prefixed `[not blocking after the first review]`, and a `revise` left with
+no blocker and no unmet criterion becomes a `pass` (`withFrozenScope`, before `ReviewVerifier` reads the
+report). A rule's own blocker always blocks. The plan of a later review says so, so the reviewer gives
+each blocker its reason. Without this a card could be sent back for something new every round until its
+kickbacks ran out.
+
 A card in `ready` also reports a `mergeStatus` on every board read: what Merge would do right now,
 `clean`, `conflict`, `rereview` (it would go back to review, because the target moved under files the
 card changed), `capped` (the same, on a card out of re-reviews, so Merge would flag a human) or

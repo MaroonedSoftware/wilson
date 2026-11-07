@@ -60,6 +60,12 @@ export const FindingSeverity = z.enum(['blocker', 'concern']);
  */
 export const ReviewFindingKind = z.enum(['defect', 'omission']);
 
+/**
+ * Why a blocker may still block from a card's second review on (`withFrozenScope`). The first review
+ * sets the scope; after it, only these four reasons can send the card back again.
+ */
+export const ReviewFindingBasis = z.enum(['unfixed', 'regression', 'criterion', 'safety']);
+
 export const ReviewFindingSchema = z
     .object({
         severity: z.enum(['blocker', 'concern']),
@@ -68,6 +74,12 @@ export const ReviewFindingSchema = z
         line: z.number().int().min(1).optional().describe('A line number in that file. Required for a defect, omitted for an omission.'),
         problem: z.string().describe('What is wrong, in one sentence.'),
         suggestion: z.string().describe('What would fix it, in one sentence.'),
+        basis: ReviewFindingBasis.optional().describe(
+            'Only on a blocker, and only when the plan already carries "## Review findings" from an earlier review. Why it may still block: ' +
+                'unfixed (an earlier blocker is still not fixed; cite the same file it did), regression (the repair broke something that worked), ' +
+                'criterion (an acceptance criterion is still unmet), safety (a security hole, data loss or a leaked secret). ' +
+                'A later blocker without one of these is kept as a concern and does not send the card back.',
+        ),
     })
     .refine(finding => finding.kind !== 'defect' || finding.line !== undefined, {
         message: 'a defect must cite a line; use kind "omission" for work that was not done',

@@ -13,6 +13,7 @@ import type { RuleVerdict } from '#modules/rules/rule.judge.js';
 import { snapshotDrift, worktreeHost, type Worktree, type WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { withinCardBudget, withinInterruptedBudget } from './card.budget.js';
 import type { ProjectStages, StageConfig } from './stage.config.js';
+import { withFrozenScope } from './frozen.scope.js';
 import { failureClassOf, ReviewResultSchema, type StageResultSchemaMap, type StageOutcome } from './stage.result.js';
 import type { StageVerifierMap } from './stage.verifier.js';
 
@@ -197,7 +198,11 @@ export const executeStage = async (deps: StageExecutionDeps, input: StageExecuti
             `stage "${stage.name}" names verifier "${stage.verifier ?? stage.name}", which is not registered (have: ${[...deps.verifiers.keys()].join(', ')})`,
         );
     }
-    const reported = ruleVerdicts ? await withRuleFailures(run.result, ruleVerdicts, worktree) : run.result;
+    const withRules = ruleVerdicts ? await withRuleFailures(run.result, ruleVerdicts, worktree) : run.result;
+    // A lane's own review, from the card's second on, is held to the scope its first set. Not a step:
+    // a challenge only tests the blockers the review already let through.
+    const reviews = !stage.step && (stage.verifier ?? stage.name) === 'review';
+    const reported = reviews ? withFrozenScope(withRules, card).result : withRules;
     const verification = await verifier.verify({ worktree, scope, stage, cardId: card.frontmatter.id, card, result: reported });
     const verifiedTree = await deps.worktrees.uncommittedSnapshot(worktree);
     const failures = [...verification.failures];
