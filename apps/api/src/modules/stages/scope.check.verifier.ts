@@ -104,21 +104,36 @@ export const DEPTH_THRESHOLD = 6;
  * sites (the opposite of 0151/0153/0155/0156: each of 0079's three things is done once, not fanned
  * out), so a threshold of 8 is not expected to catch it. If a future scope-check reports otherwise,
  * that is new evidence this comment does not have.
+ *
+ * Only sites a group reports as `"edited"` count (`ScopeGroupSchema`'s `siteWork`). Like depth, a raw
+ * site count cannot see the thing that matters, which is whether each site costs its own judgment.
+ * On 2026-11-07 it failed three passes that no split could fix: card 0024's "run codegen and commit
+ * its output verbatim" (the generated router, types and three SDKs), cards 0032 and 0039's fourteen
+ * `CornerRadius` literals swapped for tokens in one file, and card 0035's read-only survey of 22
+ * views. Each refusal split its card, and the matching piece of each split was refused again for the
+ * same count, the loop card 0004 forced `DEPTH_THRESHOLD` out of. So a group the model says is
+ * mechanical, generated or read-only is believed, and its sites neither contradict a pass nor
+ * support a refusal. Cards 0153, 0155 and 0156 are unaffected: each was a refusal of hand-edited
+ * sites, and a group that omits `siteWork` is judged as `"edited"`.
  */
 export const FANOUT_THRESHOLD = 8;
 
 const largestGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g) => (g.tasks.length > max.tasks.length ? g : max));
-const mostFannedOutGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g) => (g.sites > max.sites ? g : max));
+/** Sites that cost their own judgment: a group the model reports as mechanical, generated or read-only counts none. */
+const editedSites = (group: ScopeGroup): number => ((group.siteWork ?? 'edited') === 'edited' ? group.sites : 0);
+const mostFannedOutGroup = (groups: ScopeGroup[]): ScopeGroup => groups.reduce((max, g) => (editedSites(g) > editedSites(max) ? g : max));
 
 /**
  * What identifies a Tasks-section item when a division cites it: its number when it has one, otherwise
- * its text. `ScopeGroupSchema` invites a model to "quote or number" an item, so the same task can come
+ * its text. A number counts when it leads the item and is punctuated as one (`4.`, `4)`, `4:`, `4 —`),
+ * or follows the word "Task" (`Task 4 — ...`); card 0024's division cited "Task 4 — ..., steps 1 and 4
+ * only" against a group's "Task 4 — ...", and the text alone could never have matched. `ScopeGroupSchema` invites a model to "quote or number" an item, so the same task can come
  * back as `1. apps/api/data/migrations/x.sql (new)` in `groups` and `1. migration` in `division`. Card
  * 0004 lost a supported refusal to exactly that, with all twenty of its citations judged invented.
  */
 const taskKey = (task: string): string => {
     const trimmed = task.trim();
-    return /^(\d+)(?:[.):]|$)/.exec(trimmed)?.[1] ?? trimmed;
+    return /^task\s+(\d+)\b/i.exec(trimmed)?.[1] ?? /^(\d+)(?:[.):]|\s+[—–-]|$)/.exec(trimmed)?.[1] ?? trimmed;
 };
 
 /**
@@ -210,7 +225,7 @@ export class ScopeCheckVerifier implements StageVerifier {
         const mostFannedOut = mostFannedOutGroup(groups);
         const tooBroad = widest.tasks.length >= BREADTH_THRESHOLD;
         const tooDeep = groups.length >= DEPTH_THRESHOLD;
-        const tooFannedOut = mostFannedOut.sites >= FANOUT_THRESHOLD;
+        const tooFannedOut = editedSites(mostFannedOut) >= FANOUT_THRESHOLD;
         const tooLarge = tooBroad || tooDeep || tooFannedOut;
 
         // Depth has no branch here: it backs a refusal (`tooLarge`) but never contradicts a pass. See
@@ -223,7 +238,7 @@ export class ScopeCheckVerifier implements StageVerifier {
             }
             if (tooFannedOut) {
                 failures.push(
-                    `"${mostFannedOut.title}" lands in ${mostFannedOut.sites} places (>= ${FANOUT_THRESHOLD}), which is what this stage exists to catch, but the verdict is "pass"`,
+                    `"${mostFannedOut.title}" lands in ${mostFannedOut.sites} places (>= ${FANOUT_THRESHOLD}), which is what this stage exists to catch, but the verdict is "pass"; if every site is a rote edit, generated output or only read, say so in that group's siteWork`,
                 );
             }
         }
