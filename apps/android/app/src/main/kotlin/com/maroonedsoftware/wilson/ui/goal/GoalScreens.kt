@@ -3,6 +3,7 @@ package com.maroonedsoftware.wilson.ui.goal
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -60,25 +61,31 @@ fun GoalsScreen(model: GoalsModel, onBack: () -> Unit, onGoal: (String) -> Unit)
         val goals = state.goals
         Column(Modifier.padding(padding).fillMaxSize()) {
             state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) }
-            when {
-                goals == null -> Loading()
-                goals.isEmpty() -> Centered { Text("No goals yet. Ask the chat to start one for work that will take several cards.") }
-                else -> {
-                    val (open, finished) = partitionGoals(goals)
-                    PullToRefreshBox(isRefreshing = state.refreshing, onRefresh = model::refresh, modifier = Modifier.fillMaxSize()) {
-                        LazyColumn(Modifier.fillMaxSize()) {
-                            items(open, key = { it.id }) { goal ->
+            if (goals == null) {
+                Loading()
+            } else {
+                val (open, finished) = partitionGoals(goals)
+                // The empty state sits inside the pull too, so a goal started meanwhile can be pulled in.
+                PullToRefreshBox(isRefreshing = state.refreshing, onRefresh = model::refresh, modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(Modifier.fillMaxSize()) {
+                        if (goals.isEmpty()) {
+                            item(key = "empty") {
+                                Box(Modifier.fillParentMaxSize()) {
+                                    Centered { Text("No goals yet. Ask the chat to start one for work that will take several cards.") }
+                                }
+                            }
+                        }
+                        items(open, key = { it.id }) { goal ->
+                            GoalRow(goal) { onGoal(goal.id) }
+                            HorizontalDivider()
+                        }
+                        if (finished.isNotEmpty()) {
+                            item(key = "finished") {
+                                Text("Finished", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp))
+                            }
+                            items(finished, key = { it.id }) { goal ->
                                 GoalRow(goal) { onGoal(goal.id) }
                                 HorizontalDivider()
-                            }
-                            if (finished.isNotEmpty()) {
-                                item(key = "finished") {
-                                    Text("Finished", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp))
-                                }
-                                items(finished, key = { it.id }) { goal ->
-                                    GoalRow(goal) { onGoal(goal.id) }
-                                    HorizontalDivider()
-                                }
                             }
                         }
                     }
