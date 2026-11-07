@@ -4,8 +4,8 @@ using MaroonedSoftware.Wilson.Sdk.Models;
 
 namespace MaroonedSoftware.Wilson.Desktop.Core.Chat;
 
-/// <summary>One step of a conversation: a message, or a change one of them proposed.</summary>
-public sealed record ChatStep(ChatMessage? Message, ChatPendingAction? Action);
+/// <summary>One step of a conversation: a message, a change one of them proposed, or a question one of them asked.</summary>
+public sealed record ChatStep(ChatMessage? Message, ChatPendingAction? Action, ChatPendingQuestion? Question = null);
 
 /// <summary>What the chat ran, gathered under the label its repeats share.</summary>
 public sealed record ChatActivity(string Label, bool Failed, string Arguments);
@@ -61,8 +61,45 @@ public static class ChatRules
         return action.Status == ChatPendingActionStatus.Pending && action.ExpiresAt > now;
     }
 
-    /// <summary>Messages and proposed changes in the order they happened, so a change sits beside the answer that proposed it.</summary>
-    public static IReadOnlyList<ChatStep> Timeline(IEnumerable<ChatMessage> messages, IEnumerable<ChatPendingAction> actions)
+    /// <summary>Whether a question still waits on the person: past its expiry the server would refuse an answer.</summary>
+    public static bool IsUnanswered(ChatPendingQuestion question, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+
+        return question.Status == ChatPendingQuestionStatus.Pending && question.ExpiresAt > now;
+    }
+
+    /// <summary>How a question went, for its card. Null while it still waits; past its expiry it reads as expired though it is stored as pending.</summary>
+    public static string? QuestionOutcome(ChatPendingQuestion question, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+
+        return question.Status switch
+        {
+            ChatPendingQuestionStatus.Pending => IsUnanswered(question, now) ? null : "expired",
+            ChatPendingQuestionStatus.Answered => "answered",
+            ChatPendingQuestionStatus.Dismissed => "dismissed",
+            _ => "unknown",
+        };
+    }
+
+    /// <summary>A given answer as it reads in the conversation: the chosen labels, then any "Other" text, joined. Null when there is none.</summary>
+    public static string? AnswerText(ChatQuestion question, ChatQuestionAnswer? given)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+
+        if (given is null)
+        {
+            return null;
+        }
+
+        var labels = given.Chosen.Where(index => index >= 0 && index < question.Options.Count).Select(index => question.Options[(int)index].Label);
+        var parts = labels.Concat(string.IsNullOrEmpty(given.Other) ? [] : [given.Other]).ToList();
+        return parts.Count > 0 ? string.Join(", ", parts) : null;
+    }
+
+    /// <summary>Messages, proposed changes and asked questions in the order they happened, so each sits beside the answer that raised it.</summary>
+    public static IReadOnlyList<ChatStep> Timeline(IEnumerable<ChatMessage> messages, IEnumerable<ChatPendingAction> actions, IEnumerable<ChatPendingQuestion>? questions = null)
     {
         ArgumentNullException.ThrowIfNull(messages);
         ArgumentNullException.ThrowIfNull(actions);
@@ -71,12 +108,13 @@ public static class ChatRules
         [
             .. messages.Select(message => (At: message.CreatedAt, Step: new ChatStep(message, null)))
                 .Concat(actions.Select(action => (At: action.CreatedAt, Step: new ChatStep(null, action))))
+                .Concat((questions ?? []).Select(question => (At: question.CreatedAt, Step: new ChatStep(null, null, question))))
                 .OrderBy(entry => entry.At)
                 .Select(entry => entry.Step),
         ];
     }
 
-    /// <summary>What to ask next follows from the latest answer, until the chat is working again or a change waits on the person.</summary>
+    /// <summary>What to ask next follows from the latest answer, until the chat is working again or a change or question waits on the person.</summary>
     public static IReadOnlyList<string> FollowUps(ChatThreadDetail detail, bool answering, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(detail);
@@ -84,6 +122,7 @@ public static class ChatRules
         return !answering
             && detail.Messages.LastOrDefault() is { Role: ChatMessageRole.Assistant } last
             && !detail.Actions.Any(action => IsAwaiting(action, now))
+            && !detail.Questions.Any(question => IsUnanswered(question, now))
                 ? last.Suggestions ?? []
                 : [];
     }

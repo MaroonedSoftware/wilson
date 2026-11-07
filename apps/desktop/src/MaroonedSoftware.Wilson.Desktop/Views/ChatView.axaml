@@ -89,6 +89,62 @@
                 </StackPanel>
             </Border>
         </DataTemplate>
+        <DataTemplate DataType="vm:QuestionCard">
+            <Border BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="6" Padding="14,12">
+                <StackPanel Spacing="12">
+                    <DockPanel>
+                        <Viewbox DockPanel.Dock="Left" Classes="icon" Margin="0,2,8,0" VerticalAlignment="Top" IsVisible="{Binding Awaiting}"><Path Classes="stroke" Data="{StaticResource IconAlert}" Stroke="{DynamicResource Caution}" /></Viewbox>
+                        <Border DockPanel.Dock="Right" Classes="badge" Margin="8,0,0,0" VerticalAlignment="Top" IsVisible="{Binding !Awaiting}">
+                            <TextBlock Classes="quiet" Text="{Binding Outcome}" FontSize="11" />
+                        </Border>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Wilson asks" FontSize="14" FontWeight="Medium" />
+                            <TextBlock Classes="quiet" Text="{Binding Expires}" IsVisible="{Binding Awaiting}" />
+                        </StackPanel>
+                    </DockPanel>
+                    <ItemsControl ItemsSource="{Binding Prompts}">
+                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="14" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:QuestionPrompt">
+                                <StackPanel Spacing="6">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="{Binding Header}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                        <SelectableTextBlock Classes="quiet" Text="{Binding Text}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <SelectableTextBlock Text="{Binding Answered}" TextWrapping="Wrap" IsVisible="{Binding HasAnswer}" />
+                                    <StackPanel Spacing="6" IsVisible="{Binding $parent[ItemsControl].((vm:QuestionCard)DataContext).Awaiting}">
+                                        <ItemsControl ItemsSource="{Binding Options}">
+                                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="4" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:QuestionOption">
+                                                    <Panel>
+                                                        <RadioButton GroupName="{Binding Group}" IsChecked="{Binding IsChosen}" IsVisible="{Binding !$parent[ItemsControl].((vm:QuestionPrompt)DataContext).MultiSelect}" IsEnabled="{Binding $parent[ItemsControl;1].((vm:QuestionCard)DataContext).Editable}">
+                                                            <StackPanel Spacing="1">
+                                                                <TextBlock Text="{Binding Label}" TextWrapping="Wrap" />
+                                                                <TextBlock Classes="quiet" FontSize="12" Text="{Binding Description}" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                                                            </StackPanel>
+                                                        </RadioButton>
+                                                        <CheckBox IsChecked="{Binding IsChosen}" IsVisible="{Binding $parent[ItemsControl].((vm:QuestionPrompt)DataContext).MultiSelect}" IsEnabled="{Binding $parent[ItemsControl;1].((vm:QuestionCard)DataContext).Editable}">
+                                                            <StackPanel Spacing="1">
+                                                                <TextBlock Text="{Binding Label}" TextWrapping="Wrap" />
+                                                                <TextBlock Classes="quiet" FontSize="12" Text="{Binding Description}" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                                                            </StackPanel>
+                                                        </CheckBox>
+                                                    </Panel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBox Text="{Binding Other}" PlaceholderText="Other: something else…" AcceptsReturn="False" TextWrapping="Wrap" MaxLength="500" IsEnabled="{Binding $parent[ItemsControl].((vm:QuestionCard)DataContext).Editable}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button Classes="primary" HorizontalAlignment="Right" Content="Submit" IsVisible="{Binding Awaiting}" IsEnabled="{Binding CanSubmit}" Command="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).AnswerCommand}" CommandParameter="{Binding}" />
+                    <SelectableTextBlock Classes="error" FontSize="12" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
     </UserControl.DataTemplates>
 
     <Grid>

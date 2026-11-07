@@ -40,6 +40,7 @@ public sealed partial class ChatViewModel(ShellViewModel shell, ThreadsViewModel
 
     private readonly List<ChatOperation> _operations = [];
     private readonly Dictionary<string, ChatImageRow> _images = [];
+    private readonly Dictionary<string, QuestionCard> _questions = [];
     private ChatThreadDetail? _read;
     private TaskCompletionSource _live = new();
     private string _rawDraft = string.Empty;
@@ -118,7 +119,12 @@ public sealed partial class ChatViewModel(ShellViewModel shell, ThreadsViewModel
         ? (Id is null ? ChatRules.Starters[0] : Suggestions.FirstOrDefault())
         : null;
 
-    public string Hint => Offered ?? (Awaiting ? "Confirm or decline above, or ask for something else…" : Ask);
+    public string Hint => Offered ?? (Asking ? "Answer the question above, or write here to set it aside…" : Awaiting ? "Confirm or decline above, or ask for something else…" : Ask);
+
+    /// <summary>A question waits on the person. A message sent instead dismisses it.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Hint))]
+    private bool _asking;
 
     [RelayCommand]
     public Task SendAsync() => SayAsync(Composer?.Trim() ?? string.Empty);
@@ -165,6 +171,35 @@ public sealed partial class ChatViewModel(ShellViewModel shell, ThreadsViewModel
     [RelayCommand]
     public Task DeclineAsync(ActionRow action) => DecideAsync(action, DecideChatActionRequestDecision.Decline);
 
+    /// <summary>Sends what is picked on a question card. The chat's next turn arrives on the stream, as after a confirmed change.</summary>
+    [RelayCommand]
+    public async Task AnswerAsync(QuestionCard card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+
+        if (!card.CanSubmit || Id is not { } thread)
+        {
+            return;
+        }
+
+        card.Submitting = true;
+        card.Error = null;
+        try
+        {
+            await shell.Connection!.Sdk.Chat.AnswerChatQuestionsAsync(thread, card.Id, new AnswerChatQuestionsRequest { Answers = card.Answers() });
+        }
+        catch (HttpRequestException failure)
+        {
+            card.Error = ApiError.Reason(failure);
+        }
+        finally
+        {
+            card.Submitting = false;
+        }
+
+        await LoadAsync(CancellationToken.None);
+    }
+
     /// <summary>Takes the suggestion into an empty box, answering whether there was one.</summary>
     public bool TakeOffered()
     {
@@ -201,7 +236,7 @@ public sealed partial class ChatViewModel(ShellViewModel shell, ThreadsViewModel
                 _live.TrySetResult();
                 await LoadAsync(cancellationToken);
                 break;
-            case StreamSignal.Received { Event.Event: "proposed" }:
+            case StreamSignal.Received { Event.Event: "proposed" or "asked" }:
                 await LoadAsync(cancellationToken);
                 break;
             case StreamSignal.Down:
@@ -270,14 +305,15 @@ public sealed partial class ChatViewModel(ShellViewModel shell, ThreadsViewModel
     {
         var now = DateTimeOffset.UtcNow;
         Entries.Clear();
-        foreach (var step in ChatRules.Timeline(detail.Messages, detail.Actions))
+        foreach (var step in ChatRules.Timeline(detail.Messages, detail.Actions, detail.Questions))
         {
             Entries.Add(step switch
             {
                 { Action: { } action } => Row(action, now),
+                { Question: { } question } => Card(question, now),
                 { Message: { Role: ChatMessageRole.User } message } => new UserEntry(message.Content, Images(detail.Thread.Id, message)),
                 { Message: { } message } => new AnswerEntry(message.Content, ChatRules.Activity(message.Operations)),
-                _ => throw new InvalidOperationException("a step is a message or an action"),
+                _ => throw new InvalidOperationException("a step is a message, an action or a question"),
             });
         }
 
@@ -288,8 +324,22 @@ public sealed partial class ChatViewModel(ShellViewModel shell, ThreadsViewModel
         }
 
         Awaiting = detail.Actions.Any(action => ChatRules.IsAwaiting(action, now));
+        Asking = detail.Questions.Any(question => ChatRules.IsUnanswered(question, now));
         _read = detail;
         Offer();
+    }
+
+    /// <summary>A question's card, the same one across redraws so what has been picked is not lost to a re-read.</summary>
+    private QuestionCard Card(ChatPendingQuestion question, DateTimeOffset now)
+    {
+        if (!_questions.TryGetValue(question.Id, out var card))
+        {
+            card = new QuestionCard(question);
+            _questions[question.Id] = card;
+        }
+
+        card.Update(question, now);
+        return card;
     }
 
     /// <summary>The images a message carries. Kept across redraws, since the thread is redrawn far more often than an image changes.</summary>

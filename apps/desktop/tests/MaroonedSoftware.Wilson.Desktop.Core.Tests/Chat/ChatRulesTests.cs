@@ -38,6 +38,25 @@ public class ChatRulesTests
         Questions = [],
     };
 
+    private static ChatQuestion Prompt(bool multiSelect = false) => new()
+    {
+        Header = "Fix",
+        Text = "Which fix?",
+        Options = [new() { Label = "Reword", Description = "d" }, new() { Label = "Approve", Description = "d" }, new() { Label = "Re-run", Description = "d" }],
+        MultiSelect = multiSelect,
+    };
+
+    private static ChatPendingQuestion Asked(int second, ChatPendingQuestionStatus status = ChatPendingQuestionStatus.Pending, int expiresIn = 600, List<ChatQuestionAnswer>? answers = null) => new()
+    {
+        Id = "q",
+        ThreadId = "t",
+        Questions = [Prompt()],
+        Answers = answers,
+        Status = status,
+        ExpiresAt = Now.AddSeconds(expiresIn),
+        CreatedAt = Now.AddSeconds(second),
+    };
+
     private static ChatOperation Ran(string name, string? project, bool ok) => new()
     {
         Name = name,
@@ -52,6 +71,47 @@ public class ChatRulesTests
         var steps = ChatRules.Timeline([Message(ChatMessageRole.User, 0), Message(ChatMessageRole.Assistant, 2)], [Proposed(1)]);
 
         Assert.Equal([false, true, false], steps.Select(step => step.Action is not null));
+    }
+
+    [Fact]
+    public void AQuestionSitsBesideTheAnswerThatAskedIt()
+    {
+        var steps = ChatRules.Timeline([Message(ChatMessageRole.User, 0), Message(ChatMessageRole.Assistant, 2)], [], [Asked(1)]);
+
+        Assert.Equal([false, true, false], steps.Select(step => step.Question is not null));
+    }
+
+    [Fact]
+    public void NoFollowUpsWhileAQuestionWaits()
+    {
+        var answer = Message(ChatMessageRole.Assistant, 1, "next");
+        var waiting = Detail([answer]) with { Questions = [Asked(0)] };
+        var lapsed = Detail([answer]) with { Questions = [Asked(0, expiresIn: -1)] };
+
+        Assert.Empty(ChatRules.FollowUps(waiting, false, Now));
+        Assert.Equal(["next"], ChatRules.FollowUps(lapsed, false, Now));
+    }
+
+    [Theory]
+    [InlineData(ChatPendingQuestionStatus.Pending, 60, null)]
+    [InlineData(ChatPendingQuestionStatus.Pending, -60, "expired")]
+    [InlineData(ChatPendingQuestionStatus.Answered, 60, "answered")]
+    [InlineData(ChatPendingQuestionStatus.Dismissed, 60, "dismissed")]
+    public void AQuestionSaysHowItWent(ChatPendingQuestionStatus status, int expiresIn, string? expected)
+    {
+        var question = Asked(0, status, expiresIn);
+
+        Assert.Equal(expected, ChatRules.QuestionOutcome(question, Now));
+        Assert.Equal(expected is null, ChatRules.IsUnanswered(question, Now));
+    }
+
+    [Fact]
+    public void AnAnswerReadsAsItsLabelsThenItsOwnWords()
+    {
+        Assert.Equal("Reword, Re-run, my way", ChatRules.AnswerText(Prompt(true), new() { Chosen = [0, 2], Other = "my way" }));
+        Assert.Equal("Approve", ChatRules.AnswerText(Prompt(), new() { Chosen = [1, 7] }));
+        Assert.Null(ChatRules.AnswerText(Prompt(), new() { Chosen = [] }));
+        Assert.Null(ChatRules.AnswerText(Prompt(), null));
     }
 
     [Fact]
