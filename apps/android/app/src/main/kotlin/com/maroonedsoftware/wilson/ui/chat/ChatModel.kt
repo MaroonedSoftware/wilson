@@ -123,6 +123,18 @@ internal data class QuestionDraft(val chosen: List<Set<Int>>, val other: List<St
     }
 }
 
+/** The draft on [question]'s card: what the person has picked so far, or nothing picked. */
+internal fun Map<String, QuestionDraft>.draftFor(question: ChatPendingQuestion): QuestionDraft = this[question.id] ?: QuestionDraft.empty(question.questions)
+
+/**
+ * The drafts still worth holding: only those whose question is in [questions] and still waits on the person.
+ * One answered, dismissed or expired loses its draft; one still pending keeps it, however often the thread is read.
+ */
+internal fun Map<String, QuestionDraft>.keptFor(questions: List<ChatPendingQuestion>, now: Instant): Map<String, QuestionDraft> {
+    val waiting = questions.filter { isUnanswered(it, now) }.mapTo(HashSet<String>()) { it.id }
+    return filterKeys { it in waiting }
+}
+
 private fun <T> List<T>.replaced(index: Int, value: T): List<T> = mapIndexed { i, entry -> if (i == index) value else entry }
 
 /** One thing in a conversation, in the order [timeline] puts them. */
@@ -225,6 +237,15 @@ class ChatModel(private val app: WilsonApp, private val id: String) : ViewModel(
 
     fun image(attachmentId: String): StateFlow<ImageLoad<ImageBitmap>> = images.load(id, attachmentId)
 
+    /**
+     * Each question card's half-made answer, by question id. Held here rather than in the card so that rotating
+     * the phone, which rebuilds the screen but not this model, does not lose it.
+     */
+    internal val questionDrafts = MutableStateFlow<Map<String, QuestionDraft>>(emptyMap())
+
+    internal fun edit(questionId: String, draft: QuestionDraft) =
+        questionDrafts.update { (it + (questionId to draft)).keptFor(state.value.questions, now()) }
+
     init {
         viewModelScope.launch { load() }
     }
@@ -233,6 +254,7 @@ class ChatModel(private val app: WilsonApp, private val id: String) : ViewModel(
         try {
             val detail = app.session.call { it.chat.getAChatThread(id) }
             state.update { it.copy(thread = detail.thread, messages = detail.messages, actions = detail.actions, questions = detail.questions) }
+            questionDrafts.update { it.keptFor(detail.questions, now()) }
         } catch (error: Exception) {
             state.update { it.copy(error = reasonFor(error)) }
         }
