@@ -29,6 +29,7 @@ import { SettingsStore } from '#modules/settings/settings.store.js';
 import { WorktreeManager, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { cardOverBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
+import { AcceptanceResultSchema, enterStep, isEnterStep, withAcceptanceChecks } from './acceptance.checks.js';
 import { atDepth, scalesWithDiff, withDepth } from './lane.depth.js';
 import { findStage, isPlanCheck, type ProjectStages, type StageConfig } from './stage.config.js';
 import { StageConfigStore } from './stage.config.store.js';
@@ -258,9 +259,13 @@ export class StageDispatcher {
             );
         }
 
-        const lane = findStage(stages, stageName, stepName);
         const pinnedSha = head.frontmatter.planVersionId;
         const card = pinnedSha ? await this.board.readAt(cardId, pinnedSha) : head;
+        // A lane with an `enter` step runs it first on a card that has no acceptance checks yet, in
+        // place of its own run: the checks are written before any code, and its own run follows.
+        const ownLane = findStage(stages, stageName, stepName);
+        const entering = interrupted ? undefined : enterStep(ownLane, card);
+        const lane = entering ? findStage(stages, stageName, entering) : ownLane;
         if (!pinnedSha) {
             this.logger.warn(`card ${cardId} has no approved plan version; running against current state`);
         }
@@ -744,6 +749,9 @@ export class StageDispatcher {
             : shouldAdvance(outcome.passed, outcome.result)
               ? { target: stage.onPass, retries: head.frontmatter.retries }
               : kickback(stage, head.frontmatter.retries, Boolean(outcome.unjudged), Boolean(outcome.resultDropped));
+        // An enter step that passed hands the card to its own lane's run, not on to the next lane.
+        const enteredWithChecks = isEnterStep(stage) && outcome.passed;
+        if (enteredWithChecks) decision = { target: stageName, retries: head.frontmatter.retries };
         decision = { ...decision, target: endingOf(decision.target) };
 
         // A plan check that says no leaves the card in planning, wherever the lane's own failures go:
@@ -797,7 +805,10 @@ export class StageDispatcher {
         // A step sent round again (a report it could not stand behind, an engine cut off) is that step
         // again, not the lane's own run.
         const nextStep =
-            needsHuman || refused ? undefined : (reviseStep?.name ?? (stage.step && decision.target === stageName ? stage.step : undefined));
+            needsHuman || refused || enteredWithChecks
+                ? undefined
+                : (reviseStep?.name ?? (stage.step && decision.target === stageName ? stage.step : undefined));
+        const checks = enteredWithChecks ? AcceptanceResultSchema.safeParse(outcome.result) : undefined;
 
         // Only a judgment about the work earns a bullet. `unjudged` (a step/wall-clock/token cutoff,
         // an engine that stopped responding, a missing or unparseable result) and `resultDropped` (the
@@ -859,7 +870,8 @@ export class StageDispatcher {
                         : attempt
                           ? withAttempt(current.body, attempt)
                           : current.body;
-                    const nextBody = findings ? withFindings(body, findings, criteria) : body;
+                    const reviewed = findings ? withFindings(body, findings, criteria) : body;
+                    const nextBody = checks?.success ? withAcceptanceChecks(reviewed, checks.data) : reviewed;
                     advancesPin = nextBody !== current.body && Boolean(head.frontmatter.planVersionId && current.frontmatter.planVersionId);
                     const { planCheck: _planCheck, planCheckReason: _planCheckReason, ...unchecked } = current.frontmatter;
                     const check = planCheck

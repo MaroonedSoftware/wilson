@@ -43,7 +43,8 @@ const contextGuardBeatsCompaction = (autoCompactWindow: number, maxContextWindow
 /**
  * A run inside a lane that is not the lane's own: its own prompt, verifier and budgets, on the lane's
  * provider, model and routes, with the card staying in the lane throughout. `on` says when it runs:
- * `revise` when the lane's run reports `verdict: revise`, `approve` when a person approves a plan.
+ * `revise` when the lane's run reports `verdict: revise`, `approve` when a person approves a plan,
+ * `enter` before the lane's own first run on a card that has no `## Acceptance checks` yet.
  *
  * Anything it does not name is the lane's. There are no defaults here, on purpose: a default would
  * silently replace the value the lane chose. The lane's `depths` do not reach a step: it runs on the
@@ -51,7 +52,7 @@ const contextGuardBeatsCompaction = (autoCompactWindow: number, maxContextWindow
  */
 export const LaneStepSchema = z.object({
     name: z.string(),
-    on: z.enum(['approve', 'revise']),
+    on: z.enum(['approve', 'revise', 'enter']),
     instructions: z.string(),
     /** Defaults to the step's name. */
     verifier: z.string().optional(),

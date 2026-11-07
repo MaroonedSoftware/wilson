@@ -512,6 +512,19 @@ context trying to refute each blocker before anything is kicked back. The card h
 `revise` yet, so the step's plan, and only its plan, carries the review's result under `## Review
 findings`.
 
+A lane can also hold an `enter` step, run in place of the lane's own run on a card whose plan has no
+`## Acceptance checks` yet. Put on `implementing` (`wilson stages set implementing steps`, verifier
+`acceptance`, an `extraScope` for test files, routed apart from implementing's model if possible), it
+writes tests from the plan's acceptance criteria before any code exists. Its verifier (`AcceptanceVerifier`)
+needs every criterion covered by a labelled check or a reason no test can settle it, only test files
+written, and every check failing on the code as it is (its test among the report's failures, or its file
+failing to load), using the lane's `testCommand` and `testReportPath`. On a pass the runner writes the
+`## Acceptance checks` section, the card stays in its lane, and the lane's own run follows. From then on
+every run may read those files and none may write them (`ScopeGuard`'s `locked`, which no `request_scope`
+widens and `checkFinishedTree` enforces against a write made by a command). An implementer who thinks a
+check is wrong says so in its caveats; changing one is a person's edit. A failing enter step spends the
+lane's retries and runs again. Off unless a lane has the step.
+
 A card's first review sets the scope of every review after it. From the second on (the plan already
 carries a blocker under `## Review findings`), a blocker may send the card back only with a `basis`:
 `unfixed` (an earlier blocker still not fixed, citing a file an earlier blocker named), `regression`

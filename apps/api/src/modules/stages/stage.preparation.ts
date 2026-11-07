@@ -18,6 +18,7 @@ import type { RuleJudge, RuleVerdict } from '#modules/rules/rule.judge.js';
 import type { RuleStore } from '#modules/rules/rule.store.js';
 import { worktreeHost, type Worktree, type WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { incomingReview } from './challenge.verifier.js';
+import { acceptanceCheckPaths, isEnterStep } from './acceptance.checks.js';
 import { isLaterReview } from './frozen.scope.js';
 import { computeReviewEvidence, REVIEW_PREPARATION_DEADLINE_MS, reviewEvidenceApplies } from './review.evidence.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
@@ -500,6 +501,8 @@ export const prepareStage = async (deps: StagePreparationDeps, input: StagePrepa
         // same object as everything else it may touch. Empty means every fetch is refused.
         webAllow: stages.webAllow,
         deny: stages.deny,
+        // Written before the code by the lane's enter step: every other run may read them and none may change them.
+        locked: isEnterStep(stage) ? [] : acceptanceCheckPaths(card.body),
         collateral,
         // The plan and every card's preserved patch live outside the worktree so neither can be
         // committed to the card's branch. Without this both are also unreadable, and the agent
