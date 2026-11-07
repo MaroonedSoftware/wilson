@@ -163,6 +163,26 @@ const looksLikeTestPath = (command: string): boolean => /\btests?\/|\.test\.|\.s
  * would need a shell to mean what it says is refused rather than quietly running.
  */
 
+/**
+ * Is this token the gradle wrapper or gradle itself, however it is pathed (`./gradlew`,
+ * `apps/android/gradlew`, `gradle`)?
+ */
+const isGradle = (token: string | undefined): boolean => token !== undefined && /(^|\/)gradlew?$/.test(token);
+
+/**
+ * Card 0037. A gradle entry matches only verbatim, never as a prefix.
+ *
+ * A pnpm prefix takes trailing arguments freely, and that is fine there: `pnpm exec vitest run
+ * <path>` only narrows what runs. Gradle's trailing arguments do not narrow. `--init-script`, `-I`,
+ * `-D`/`-P` properties, `--project-dir` and extra task names each run other build logic, and gradle
+ * resolves and downloads from the network as it goes. That is a free shell with more steps. So the
+ * one gradle invocation a stage may run is the exact string fixed in its stage config — for the
+ * testing stage, `TestingVerifier`'s `KOTLIN_TEST_COMMAND` — and the same reasoning as the top of
+ * this file applies to it: the tests it compiles are project code and can do anything Kotlin can.
+ */
+const matches = (prefix: string[], argv: string[]): boolean =>
+    (isGradle(prefix[0]) ? prefix.length === argv.length : prefix.length <= argv.length) && prefix.every((token, i) => argv[i] === token);
+
 /** Characters that only mean something to a shell. Their presence means the agent expected one. */
 const SHELL_METACHARACTERS = /[;&|><`$(){}[\]!#~*?\n\r\\]/;
 
@@ -200,9 +220,21 @@ export class CommandAllowlist {
         }
 
         for (const prefix of this.prefixes) {
-            if (prefix.length <= argv.length && prefix.every((token, i) => argv[i] === token)) {
+            if (matches(prefix, argv)) {
                 return { allowed: true, argv };
             }
+        }
+
+        // Name the exact spelling rather than the generic list, which reads as "close enough": a
+        // gradle command with one argument more or less is refused, and the agent should not guess.
+        const gradleEntries = this.prefixes.filter(prefix => isGradle(prefix[0]));
+        if (isGradle(argv[0]) && gradleEntries.length > 0) {
+            return {
+                allowed: false,
+                reason:
+                    `${argv.join(' ')} is refused: gradle runs here only exactly as configured, with no other arguments, ` +
+                    `from the repo root: ${gradleEntries.map(p => p.join(' ')).join(', ')}.`,
+            };
         }
 
         const suggestion = suggestionFor(argv);
