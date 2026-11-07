@@ -47,6 +47,7 @@ private val GATES: ProjectGateStats = SdkJson.decodeFromString(
      "challenge":{"upheld":1,"overturned":0},
      "questions":{"asked":1,"answered":1},
      "rules":[],
+     "difficulties":[],
      "loopStops":0,
      "touchpoints":[{"cause":"question","count":1}],
      "firstPass":{"reached":4,"firstPass":3},
