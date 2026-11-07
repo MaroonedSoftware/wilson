@@ -104,7 +104,8 @@ class RanToolsCheck {
  * off (no Bash, no file access), and `settingSources: []` with `strictMcpConfig: true` keeps the host
  * machine's own settings and MCP servers out, as `CliStageAgent` does. They are listed in
  * `allowedTools`, pre-approving them: there is no one at a terminal to approve a call, and none of
- * them can change anything (a change is only ever proposed, a question only ever asked, `chatTools`).
+ * them can change anything (a change is only ever proposed, a question only ever asked, and a drawn
+ * image only adds a picture to the thread being answered, `chatTools`).
  */
 @Injectable()
 export class CliChatEngine extends ChatEngine {

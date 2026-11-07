@@ -34,7 +34,7 @@ import { ChatMessageRepository, type ChatMessage } from './chat.message.reposito
 import { ChatPendingActionRepository, type PendingAction } from './chat.pending.action.repository.js';
 import { chatSystemPrompt } from './chat.prompt.js';
 import { ChatThreadRepository, type ChatEngineName, type ChatThread } from './chat.thread.repository.js';
-import { chatTools, type ChatTurnContext } from './chat.tools.js';
+import { canDrawImages, chatTools, type ChatTurnContext } from './chat.tools.js';
 import { ChatUsageRepository } from './chat.usage.repository.js';
 import { toWireAction, toWireMessage, toWireQuestion, toWireThread } from './chat.wire.js';
 
@@ -54,7 +54,8 @@ export const MAX_IMAGES_PER_MESSAGE = 5;
 export const REPLAYED_IMAGE_MESSAGES = 3;
 
 const toImage = (attachment: StoredChatAttachmentWithBytes): ChatImage => ({
-    // `ChatAttachmentService.upload` only ever stores what `sniffImageType` returned.
+    // Only user messages are replayed (`withImages`), and they only ever carry uploads, which
+    // `ChatAttachmentService.upload` stores only as what `sniffImageType` returned — never SVG.
     contentType: attachment.contentType as AttachmentImageType,
     bytes: attachment.bytes,
 });
@@ -76,11 +77,12 @@ export const titleFrom = (text: string): string => {
     return line.length <= TITLE_LENGTH ? line : `${line.slice(0, TITLE_LENGTH - 1).trimEnd()}…`;
 };
 
-/** What a turn left behind: its answer, unless it had nothing to say, and what it proposed and asked. */
+/** What a turn left behind: its answer, unless it had nothing to say, what it proposed and asked, and the images its answer claimed. */
 export interface NoteOutcome {
     reply?: ChatMessage;
     proposed: PendingAction[];
     asked: PendingQuestion[];
+    created: StoredChatAttachment[];
 }
 
 /** What a follow-up answers when the change it was told about leaves nothing to say or do. */
@@ -222,10 +224,12 @@ export class ChatService {
                 if (history.length === 0 && thread.title === NEW_THREAD_TITLE) await this.threads.rename(id, titleFrom(said) || IMAGE_THREAD_TITLE);
                 const message = await this.messages.append(id, { role: 'user', content: said, attachmentIds });
 
-                const { reply, proposed, asked } = await this.answer(thread, history, said, session, project, { images: uploads.map(toImage) });
+                const { reply, proposed, asked, created } = await this.answer(thread, history, said, session, project, {
+                    images: uploads.map(toImage),
+                });
                 return {
                     message: toWireMessage(message, uploads),
-                    reply: toWireMessage(reply!),
+                    reply: toWireMessage(reply!, created),
                     proposed: proposed.map(toWireAction),
                     asked: asked.map(toWireQuestion),
                 };
@@ -405,6 +409,7 @@ export class ChatService {
             operations: [],
             proposed: [],
             asked: [],
+            created: [],
             emit: event => publishChat(thread.id, toStreamEvent(event)),
         };
 
@@ -421,6 +426,7 @@ export class ChatService {
                     threadId: thread.id,
                     goal,
                     outsideServices: [...new Set(external.map(tool => tool.name.split('.')[0]!))],
+                    canDraw: canDrawImages(session),
                 }),
                 tools: chatTools(this.catalog, context),
                 provider,
@@ -452,12 +458,16 @@ export class ChatService {
         const { text: written, suggestions } = splitSuggestions(output.text.trim());
         if (followUp && written === NOTHING_MORE && context.proposed.length === 0) {
             publishChat(thread.id, { event: 'done', data: { seq: history.at(-1)?.seq ?? 0 } });
-            return { proposed: [], asked: [] };
+            // Any images this turn drew are left unclaimed on purpose: no answer shows them, so
+            // `sweepUnclaimed` removes them once they are old enough.
+            return { proposed: [], asked: [], created: [] };
         }
         const reply = await this.messages.append(thread.id, {
             role: 'assistant',
             content: written.replace(NOTHING_MORE, '').trim() || '(no answer)',
             operations: context.operations,
+            // Claimed in the same transaction as the answer, so an image and the reply that shows it are stored together or not at all.
+            attachmentIds: context.created.map(attachment => attachment.id),
             // What to ask next follows once the person has decided, not while a change waits on them —
             // or while a question they asked still waits on the person.
             suggestions: context.proposed.length === 0 && context.asked.length === 0 ? suggestions : [],
@@ -470,16 +480,20 @@ export class ChatService {
                     : output.engineMessages,
         });
         publishChat(thread.id, { event: 'done', data: { seq: reply.seq } });
-        return { reply, proposed: context.proposed, asked: context.asked };
+        return { reply, proposed: context.proposed, asked: context.asked, created: context.created };
     }
 
     /**
      * The thread's messages as an engine takes them: each says how many images it carried, and on the
      * engine that replays, the most recent {@link REPLAYED_IMAGE_MESSAGES} that have any bring their
      * bytes. The 'cli' engine resumes a session that already holds them.
+     *
+     * Only user messages count, for both: `ApiChatEngine.replay` reads `images` and `imageCount` only
+     * for them, so an image Wilson drew on an answer would be read out of Postgres every turn for
+     * nothing, and would push a person's image out of the {@link REPLAYED_IMAGE_MESSAGES} window.
      */
     private async withImages(thread: ChatThread, history: ChatMessage[]): Promise<ChatTurnHistory[]> {
-        const seen = new Set(history.map(message => message.seq));
+        const seen = new Set(history.filter(message => message.role === 'user').map(message => message.seq));
         const carried = (await this.attachments.listClaimed(thread.id)).filter(attachment => seen.has(attachment.messageSeq!));
         if (carried.length === 0) return history;
 

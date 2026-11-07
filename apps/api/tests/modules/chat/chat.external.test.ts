@@ -47,6 +47,7 @@ const turn = async (session: AuthenticationSession = person()) => {
         operations: [],
         proposed: [],
         asked: [],
+        created: [],
     };
     const tools = chatTools(catalog, context);
     return { context, tool: (name: string): ChatTool => tools.find(candidate => candidate.name === name)! };
