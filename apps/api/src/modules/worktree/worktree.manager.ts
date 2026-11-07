@@ -825,6 +825,17 @@ export class WorktreeManager {
         return exists ? DRY_RUN_INTEGRATION_BRANCH : 'main';
     }
 
+    /**
+     * Whether `ancestor` is `descendant` itself or reachable from it in `codeRoot`: whether moving a
+     * ref from one to the other would be a fast-forward. False, too, when either names nothing.
+     */
+    async isAncestor(ancestor: string, descendant: string): Promise<boolean> {
+        return git(this.config.codeRoot, ['merge-base', '--is-ancestor', ancestor, descendant]).then(
+            () => true,
+            () => false,
+        );
+    }
+
     /** The commit `ref` names in `codeRoot`. Throws when it names nothing. */
     async shaOf(ref: string): Promise<string> {
         return (await git(this.config.codeRoot, ['rev-parse', ref])).stdout.trim();

@@ -171,8 +171,11 @@ export class BoardWriteService {
      * this lets into `backlog` is always both approved and workable, whatever the source. Re-moving
      * a card already in `backlog` (the flag-clearing no-op-that-writes case below) does not re-pin —
      * it is not *entering* `backlog`, it is already there.
+     *
+     * `by` is who the transition event names: a person through the API, unless the runner itself
+     * moves the card (`PullRequestWatcher`, when GitHub merges a card's pull request), with `reason`.
      */
-    async move(id: string, request: MoveCardRequest): Promise<CardDetail> {
+    async move(id: string, request: MoveCardRequest, by: MoveAuthor = { by: 'human' }): Promise<CardDetail> {
         // Refuse a state the stage graph does not name, with the same reason `wilson card move`
         // gives — carried in `details` since `httpError`'s `message` is pinned to the status code's
         // default text (see the contract's `400:` comment on this operation).
@@ -213,7 +216,8 @@ export class BoardWriteService {
         const payload: Record<string, unknown> = {
             from: before.frontmatter.stage,
             to: landing,
-            by: 'human',
+            by: by.by,
+            ...(by.reason ? { reason: by.reason } : {}),
             ...(planCheck ? { step: planCheck.name } : {}),
         };
 
@@ -1487,6 +1491,12 @@ export class BoardWriteService {
  * tells implementing this `## Review findings` section came from a person reading the diff, not
  * from `review`'s own agent, since the bullets underneath read identically either way.
  */
+/** Who a move's transition event names, and why, when it was not a person's own. */
+export interface MoveAuthor {
+    by: 'human' | 'runner';
+    reason?: string;
+}
+
 /** What a thrown error says to a person: an HTTP error's `reason`, otherwise its message. */
 const reasonOf = (err: unknown): string => {
     const reason = (err as { details?: { reason?: unknown } }).details?.reason;

@@ -299,6 +299,7 @@ export class PostgresBoardRepository extends BoardRepository {
                 sourceClosed: fm.sourceClosed ?? null,
                 needsHuman: fm.needsHuman ?? false,
                 needsHumanReason: fm.needsHumanReason ?? null,
+                pullRequest: fm.pullRequest ? JSON.stringify(fm.pullRequest) : null,
                 splitFrom: fm.splitFrom ?? null,
             })
             .execute();
