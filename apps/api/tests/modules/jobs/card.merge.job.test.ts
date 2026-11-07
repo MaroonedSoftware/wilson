@@ -17,7 +17,7 @@ const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), t
 describe('CardMergeJob', () => {
     let writes: { merge: ReturnType<typeof vi.fn> };
     let events: { append: ReturnType<typeof vi.fn>; outputTokensSince: ReturnType<typeof vi.fn> };
-    let frontmatter: { stage: string; needsHuman?: boolean };
+    let frontmatter: { stage: string; needsHuman?: boolean; pullRequest?: { number: number; url: string; state: string } };
     let ceiling: number;
 
     const run = () => {
@@ -89,6 +89,28 @@ describe('CardMergeJob', () => {
         expect(recorded()).toEqual([
             { type: 'card.merge-skipped', stage: 'ready', reason: 'merge of card/0002 into main fails the suite: 1 failing' },
         ]);
+    });
+
+    it('counts a merge that opened a pull request as done, recording no skip', async () => {
+        writes.merge.mockResolvedValue({
+            merged: false,
+            reason: 'opened pull request #12',
+            pullRequest: { number: 12, url: 'https://github.com/acme/app/pull/12', state: 'open' },
+        });
+
+        await run();
+
+        expect(events.append).not.toHaveBeenCalled();
+        expect(logger.info).toHaveBeenCalledWith('0002: opened pull request #12');
+    });
+
+    it('skips with a reason when the card is already waiting on a pull request', async () => {
+        frontmatter = { stage: 'ready', pullRequest: { number: 12, url: 'u', state: 'open' } };
+
+        await run();
+
+        expect(writes.merge).not.toHaveBeenCalled();
+        expect(recorded()[0]?.reason).toBe('0002 is waiting on pull request #12');
     });
 
     it('records a thrown refusal by its reason and does not fail the job', async () => {

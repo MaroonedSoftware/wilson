@@ -1705,7 +1705,9 @@ With dry run off and **Merge opens a pull request** on (Settings, or the project
    card to `merged`, which reclaims its worktree and lets dependents dispatch. Only then: a
    dependent's worktree is cut from the clone's `main`, which must hold the work first.
 
-A pull request closed without merging flags the card, and Merge opens a new one. A clone whose `main`
+The poller's automatic merge at `ready` works the same way: it opens the pull request and then
+leaves the card alone while it is open. A pull request closed without merging flags the card, and
+Merge opens a new one. A clone whose `main`
 cannot fast-forward (it holds commits GitHub does not) flags the card with the pull request recorded
 as merged: bring the clone up to date, then `wilson card move <id> merged`. A failed fetch, a refused
 push or a project with no GitHub repository flags the card and opens nothing. Dry run still wins:

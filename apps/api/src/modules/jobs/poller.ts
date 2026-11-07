@@ -335,6 +335,9 @@ export class Poller {
                 // row is the `card.stage` claim, and a merge is not a `card.stage` job.
                 // `mergeInFlight` is what keeps one card from ever having two merges queued.
                 if (stageName === 'ready') {
+                    // A card whose merge opened a pull request is waiting on GitHub, not on a merge:
+                    // `PullRequestWatcher` moves it once the pull request merges.
+                    if (candidate.frontmatter.pullRequest?.state === 'open') continue;
                     if (await this.cardJobs.inFlight(cardId)) continue;
                     if (await this.cardJobs.mergeInFlight(cardId)) continue;
                     const jobId = await this.broker.send('card.merge', { cardId, project: this.boardConfig.project });

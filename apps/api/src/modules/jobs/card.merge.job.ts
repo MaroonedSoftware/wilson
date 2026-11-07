@@ -80,6 +80,12 @@ export class CardMergeJob extends Job<CardMergePayload> {
                     this.logger.info(`merged ${cardId}${result.reason ? ` (${result.reason})` : ''}`);
                     return;
                 }
+                // A project that lands merges as pull requests: the merge did all it can, and the
+                // card follows the pull request (`PullRequestWatcher`).
+                if (result.pullRequest?.state === 'open') {
+                    this.logger.info(`${cardId}: ${result.reason ?? `opened pull request #${result.pullRequest.number}`}`);
+                    return;
+                }
                 skipped = result.reason ?? 'the merge did not land';
             }
         } catch (err) {
@@ -101,6 +107,7 @@ export class CardMergeJob extends Job<CardMergePayload> {
         const card = await this.boardRepo.read(cardId);
         if (card.frontmatter.stage !== 'ready') return `${cardId} is in "${card.frontmatter.stage}", not "ready"`;
         if (card.frontmatter.needsHuman) return `${cardId} is flagged for a human`;
+        if (card.frontmatter.pullRequest?.state === 'open') return `${cardId} is waiting on pull request #${card.frontmatter.pullRequest.number}`;
 
         const ceiling = await this.settings.get(DAILY_OUTPUT_TOKEN_CEILING);
         if (ceiling <= 0) return undefined;
