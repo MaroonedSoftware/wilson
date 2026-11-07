@@ -1,24 +1,11 @@
-import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { promisify } from 'node:util';
 import { httpError } from '@maroonedsoftware/errors';
-import { Duration } from 'luxon';
 import type { GitHubApp } from './github.app.js';
+import { asApp, gitFailure, runGit, type GitRunner } from './github.git.js';
 
-const CLONE_TIMEOUT = Duration.fromObject({ minutes: 10 });
-
-/**
- * Answers git's request for credentials from the environment. The token lives in this one process
- * tree: not in argv, where `ps` would show it, and not in the remote URL, which `clone` would keep
- * in `.git/config` for every later stage to read.
- */
-const CREDENTIAL_HELPER = '!f() { test "$1" = get && printf "username=x-access-token\\npassword=%s\\n" "$WILSON_GIT_TOKEN"; }; f';
-
-export type GitRunner = (args: string[], env?: NodeJS.ProcessEnv) => Promise<{ stdout: string }>;
-
-const runGit: GitRunner = (args, env) => promisify(execFile)('git', args, { env: env ?? process.env, timeout: CLONE_TIMEOUT.toMillis() });
+export type { GitRunner } from './github.git.js';
 
 const exists = (path: string): Promise<boolean> =>
     stat(path).then(
@@ -58,27 +45,12 @@ export class GitHubCloner {
         const partial = join(dirname(target), `.${randomUUID()}.cloning`);
         await mkdir(dirname(target), { recursive: true });
         try {
-            await this.git(
-                [
-                    '-c',
-                    'credential.helper=',
-                    '-c',
-                    `credential.helper=${CREDENTIAL_HELPER}`,
-                    'clone',
-                    `https://github.com/${repository}.git`,
-                    partial,
-                ],
-                {
-                    ...process.env,
-                    WILSON_GIT_TOKEN: token,
-                    GIT_TERMINAL_PROMPT: '0',
-                },
-            );
+            const { args, env } = asApp(token, ['clone', `https://github.com/${repository}.git`, partial]);
+            await this.git(args, env);
             await rename(partial, target);
         } catch (err) {
             await rm(partial, { recursive: true, force: true });
-            const stderr = (err as { stderr?: string }).stderr?.trim().split('\n').pop();
-            throw httpError(503).withDetails({ reason: `could not clone ${repository}: ${stderr || (err as Error).message}` });
+            throw httpError(503).withDetails({ reason: `could not clone ${repository}: ${gitFailure(err)}` });
         }
     }
 

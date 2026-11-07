@@ -29,14 +29,50 @@ export interface GitHubAppRepository {
     defaultBranch: string;
 }
 
+/** A pull request as Wilson tracks it. `merged` is a closed pull request whose changes reached its base. */
+export interface GitHubPullRequest {
+    number: number;
+    url: string;
+    state: 'open' | 'closed' | 'merged';
+    /** The commit the merge made on the base branch. Present only once `state` is `merged`. */
+    mergeCommitSha?: string;
+}
+
+/** What opening a pull request needs. `head` is a branch in the same repository. */
+export interface PullRequestDraft {
+    head: string;
+    base: string;
+    title: string;
+    body: string;
+}
+
+interface RawPullRequest {
+    number: number;
+    html_url: string;
+    state: 'open' | 'closed';
+    merged?: boolean;
+    merged_at?: string | null;
+    merge_commit_sha?: string | null;
+}
+
+const toPullRequest = (raw: RawPullRequest): GitHubPullRequest => {
+    const merged = raw.merged === true || (raw.merged_at !== undefined && raw.merged_at !== null);
+    return {
+        number: raw.number,
+        url: raw.html_url,
+        state: merged ? 'merged' : raw.state,
+        ...(merged && raw.merge_commit_sha ? { mergeCommitSha: raw.merge_commit_sha } : {}),
+    };
+};
+
 const base64url = (value: string | Buffer): string => Buffer.from(value).toString('base64url');
 
 /**
  * Wilson's GitHub App: the signed request that proves it is the app, and the hour-long installation
- * tokens that buy. Each org that installs the app gets its own token, covering the repositories that
+ * tokens that buy, and the pull requests Merge opens with them. Each org that installs the app gets its own token, covering the repositories that
  * org chose, so nothing long-lived ever reaches git or a request for a repository.
  *
- * Hand-signed with `node:crypto` rather than through a GitHub client: one RS256 signature and three
+ * Hand-signed with `node:crypto` rather than through a GitHub client: one RS256 signature and a handful of
  * endpoints is all this needs. `fetchImpl` is a constructor parameter for the reason
  * `GitHubIssuesSource` gives: it is the only way this is testable without a real GitHub.
  *
@@ -91,6 +127,45 @@ export class GitHubApp {
             .sort((a, b) => a.fullName.localeCompare(b.fullName));
     }
 
+    /**
+     * Opens a pull request from `draft.head` into `draft.base`. When one is already open for that
+     * head, which is what GitHub's 422 means after a crash between opening and recording it, returns
+     * that one instead, so retrying a merge never opens a second.
+     *
+     * Needs the app's Pull requests write permission; a 403 says so.
+     */
+    async openPullRequest(repository: string, draft: PullRequestDraft): Promise<GitHubPullRequest> {
+        const token = await this.tokenFor(repository);
+        const response = await this.request(`/repos/${repository}/pulls`, token, 'POST', draft);
+        if (response.status === 422) {
+            const existing = await this.openPullRequestFor(repository, draft.head, token);
+            if (existing) return existing;
+        }
+        if (response.status === 403) {
+            throw httpError(503).withDetails({
+                reason: `GitHub refused to open a pull request on ${repository}: the GitHub App needs the Pull requests write permission`,
+            });
+        }
+        await this.ensureOk(response, `opening a pull request on ${repository}`);
+        return toPullRequest((await response.json()) as RawPullRequest);
+    }
+
+    /** Where pull request `number` has got to. */
+    async pullRequest(repository: string, number: number): Promise<GitHubPullRequest> {
+        const response = await this.request(`/repos/${repository}/pulls/${number}`, await this.tokenFor(repository));
+        await this.ensureOk(response, `reading pull request #${number} on ${repository}`);
+        return toPullRequest((await response.json()) as RawPullRequest);
+    }
+
+    private async openPullRequestFor(repository: string, head: string, token: string): Promise<GitHubPullRequest | undefined> {
+        const owner = repository.split('/')[0]!;
+        const query = new URLSearchParams({ head: `${owner}:${head}`, state: 'open' });
+        const response = await this.request(`/repos/${repository}/pulls?${query.toString()}`, token);
+        await this.ensureOk(response, `looking for an open pull request from ${head} on ${repository}`);
+        const [first] = (await response.json()) as RawPullRequest[];
+        return first ? toPullRequest(first) : undefined;
+    }
+
     private async installationToken(id: number): Promise<string> {
         const held = this.tokens.get(id);
         if (held && held.expiresAt.minus(TOKEN_MARGIN) > DateTime.now()) return held.token;
@@ -134,12 +209,14 @@ export class GitHubApp {
         return all;
     }
 
-    private request(pathOrUrl: string, bearer: string, method = 'GET'): Promise<Response> {
+    private request(pathOrUrl: string, bearer: string, method = 'GET', body?: unknown): Promise<Response> {
         const url = pathOrUrl.startsWith('http') ? pathOrUrl : `${GITHUB_API_BASE}${pathOrUrl}`;
         return this.fetchImpl(url, {
             method,
             signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
             headers: {
+                ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
                 Authorization: `Bearer ${bearer}`,
                 Accept: 'application/vnd.github+json',
                 'X-GitHub-Api-Version': '2022-11-28',

@@ -7,6 +7,7 @@ import { GITHUB_APP_ID } from '#modules/settings/github.app.id.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { GitHubApp } from './github.app.js';
 import { GitHubCloner } from './github.cloner.js';
+import { GitHubRemote } from './github.remote.js';
 
 /** The key's contents, or undefined while it is not there, which is how a deployment with no app looks. */
 const readKey = async (keyFile: string | undefined): Promise<string | undefined> => {
@@ -18,7 +19,7 @@ const readKey = async (keyFile: string | undefined): Promise<string | undefined>
     return key || undefined;
 };
 
-/** The deployment's GitHub App (`GitHubApp`), one for the process so its tokens are shared, and what clones through it. */
+/** The deployment's GitHub App (`GitHubApp`), one for the process so its tokens are shared, and what clones, fetches and pushes through it. */
 export const GitHubModule: ServerKitModule = {
     name: 'GitHub',
     setup: async (registry: Registry, config: AppConfig) => {
@@ -36,6 +37,10 @@ export const GitHubModule: ServerKitModule = {
         registry
             .register(GitHubCloner)
             .useFactory(container => new GitHubCloner(container.get(GitHubApp)))
+            .asSingleton();
+        registry
+            .register(GitHubRemote)
+            .useFactory(container => new GitHubRemote(container.get(GitHubApp)))
             .asSingleton();
     },
 };
