@@ -6,7 +6,7 @@ import { buildRunTrace } from './run.trace.js';
 import { compactMessages } from './compact.messages.js';
 import { ModelRegistry } from './model.registry.js';
 import { StageAgent, type AgentRunInput, type AgentRunOutput } from './stage.agent.js';
-import { BLOCKED_TOOL, blockedGuidance, buildTools, REPORT_TOOL } from './tools/index.js';
+import { BLOCKED_TOOL, blockedGuidance, buildTools, canReadGithub, GITHUB_GUIDANCE, GITHUB_TOOL, REPORT_TOOL, webAccessOf } from './tools/index.js';
 import { BlockedReportSchema } from './blocked.report.js';
 import { RepeatedCallWatch, describeRepeatedCall, type RepeatedCall } from './repeated.call.js';
 import { modelOf } from '#modules/stages/stage.config.js';
@@ -40,6 +40,7 @@ export class ApiStageAgent extends StageAgent {
         // means something where a stage actually compares test counts against a baseline.
         const checksTestCounts = stage.testReportPath !== undefined;
         const canAsk = !stage.step;
+        const readsGithub = canReadGithub(webAccessOf(stage));
         const agent = new ToolLoopAgent({
             model: this.models.resolve(stage.provider, modelOf(stage)),
             instructions: [
@@ -53,9 +54,12 @@ export class ApiStageAgent extends StageAgent {
                       ]
                     : []),
             ].join('\n'),
-            tools: buildTools(context, resultSchema as z.ZodTypeAny, stage.worktree, canAsk),
-            // A lane's `tools` narrows how it works. Being able to stop and ask is not part of that.
-            ...(stage.tools ? { activeTools: [...stage.tools, ...(canAsk ? [BLOCKED_TOOL] : [])] as never } : {}),
+            tools: buildTools(context, resultSchema as z.ZodTypeAny, stage.worktree, canAsk, webAccessOf(stage)),
+            // A lane's `tools` narrows how it works. Being able to stop and ask is not part of that,
+            // and neither is reading GitHub, which `webAccess` grants on its own (card 0013).
+            ...(stage.tools
+                ? { activeTools: [...stage.tools, ...(canAsk ? [BLOCKED_TOOL] : []), ...(readsGithub ? [GITHUB_TOOL] : [])] as never }
+                : {}),
             // The loop ends when the agent says it is finished or has a question, when it runs out of
             // steps, when it exceeds its input token budget, or when it keeps making the same call.
             stopWhen: [
@@ -102,6 +106,7 @@ export class ApiStageAgent extends StageAgent {
                       '',
                   ]
                 : []),
+            ...(readsGithub ? [...GITHUB_GUIDANCE, ''] : []),
             'Implement the plan, then return the structured result.',
             ...(canAsk ? ['', ...blockedGuidance(BLOCKED_TOOL)] : []),
         ].join('\n');

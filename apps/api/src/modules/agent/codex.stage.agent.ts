@@ -17,6 +17,15 @@ import { REPORT_RESULT_PATH, SCRATCH_PREFIX } from './scope.guard.js';
 import { StageInterrupt } from './stage.interrupt.js';
 import { StageAgent, type AgentRunInput, type AgentRunOutput } from './stage.agent.js';
 import { BLOCKED_TOOL, BLOCKED_TOOL_DESCRIPTION, blockedGuidance } from './tools/blocked.tool.js';
+import {
+    canReadGithub,
+    GITHUB_GUIDANCE,
+    GITHUB_TOOL,
+    GITHUB_TOOL_DESCRIPTION,
+    GithubToolInputSchema,
+    readGithub,
+    webAccessOf,
+} from './tools/github.tool.js';
 import { requestScope } from './tools/scope.tool.js';
 import { toolHost, type ToolContext } from './tools/index.js';
 
@@ -109,7 +118,7 @@ interface Turn {
  * with no approval request at all stops as soon as it starts, and a patch that touched more than was
  * approved counts too. `StageDispatcher.checkBeforeCommit` still checks the tree afterwards.
  *
- * **Tools.** `report_result` and `request_scope` are dynamic tools (experimental in the app-server,
+ * **Tools.** `report_result`, `request_scope` and, for a stage whose `webAccess` allows it, `read_github` are dynamic tools (experimental in the app-server,
  * hence `experimentalApi`), answered here over `item/tool/call`. Deleting a file needs no tool of its
  * own: it is a file change, which is scope-checked like any other. `report_result` takes the result
  * itself rather than a path, since a dynamic tool's arguments have only this stdio to cross.
@@ -239,6 +248,7 @@ export class CodexStageAgent extends StageAgent {
             idle.unref();
         };
 
+        const webAccess = webAccessOf(stage);
         const guard = createToolGuard(
             context,
             stage.worktree,
@@ -246,6 +256,8 @@ export class CodexStageAgent extends StageAgent {
                 denied += 1;
             },
             beat,
+            undefined,
+            webAccess,
         );
         const signal = new AbortController().signal;
         const consult = async (tool: string, input: Record<string, unknown>, id: string) => {
@@ -347,6 +359,17 @@ export class CodexStageAgent extends StageAgent {
             }
             if (params.tool === REQUEST_SCOPE_TOOL && canWrite) {
                 return toolReply(await requestScope(context, String(args.path ?? ''), String(args.reason ?? '')), true);
+            }
+            // Card 0013: offered only when `webAccess` allows it, and asked of the same guard as an
+            // approval would be, which refuses it at `none` and refuses a URL off GitHub. The fetch
+            // runs here, in this process, not through the host the engine runs on.
+            if (params.tool === GITHUB_TOOL) {
+                const url = typeof args.url === 'string' ? args.url : '';
+                // Keyed by call and URL, as a patch's approval is by item and path, so a decision is
+                // never replayed for a different URL.
+                const refusal = await consult(GITHUB_TOOL, { url }, `${String(params.callId)}:${url}`);
+                if (refusal !== undefined) return toolReply(`error: ${refusal}`, false);
+                return toolReply(await readGithub(context, url), true);
             }
             // Card 0020 lets the cli adapter's `WebFetch` reach a project's `webAllow` hosts. This
             // engine is left refusing the web on purpose: its only web tool is `webSearch`, which
@@ -573,7 +596,7 @@ export class CodexStageAgent extends StageAgent {
                     const started = await connection.request<{ thread: { id: string } }>('thread/start', {
                         ...thread,
                         ephemeral: false,
-                        dynamicTools: dynamicTools(schema, canWrite, canAsk),
+                        dynamicTools: dynamicTools(schema, canWrite, canAsk, canReadGithub(webAccess)),
                     });
                     threadId = started.thread.id;
                 }
@@ -703,7 +726,7 @@ const inputSchema = (schema: z.ZodTypeAny): unknown => {
     return json;
 };
 
-const dynamicTools = (schema: z.ZodTypeAny, canWrite: boolean, canAsk: boolean): unknown[] => [
+const dynamicTools = (schema: z.ZodTypeAny, canWrite: boolean, canAsk: boolean, readsGithub = false): unknown[] => [
     {
         type: 'function',
         name: REPORT_TOOL,
@@ -732,6 +755,9 @@ const dynamicTools = (schema: z.ZodTypeAny, canWrite: boolean, canAsk: boolean):
                   },
               },
           ]
+        : []),
+    ...(readsGithub
+        ? [{ type: 'function', name: GITHUB_TOOL, description: GITHUB_TOOL_DESCRIPTION, inputSchema: inputSchema(GithubToolInputSchema) }]
         : []),
 ];
 
@@ -796,6 +822,7 @@ const prompt = ({
             : []),
         stage.instructions,
         '',
+        ...(canReadGithub(webAccessOf(stage)) ? [...GITHUB_GUIDANCE, ''] : []),
         `Every command and file change is checked before it runs. Run one command at a time with plain`,
         `arguments: no pipes, redirects, chaining or globs. If a call is refused, you will be told why.`,
         '',
