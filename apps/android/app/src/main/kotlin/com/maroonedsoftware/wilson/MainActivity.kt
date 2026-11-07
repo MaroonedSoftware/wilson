@@ -48,6 +48,8 @@ import com.maroonedsoftware.wilson.ui.plan.PlanModel
 import com.maroonedsoftware.wilson.ui.plan.PlanScreen
 import com.maroonedsoftware.wilson.ui.signin.SignInModel
 import com.maroonedsoftware.wilson.ui.signin.SignInScreen
+import com.maroonedsoftware.wilson.ui.stats.StatsModel
+import com.maroonedsoftware.wilson.ui.stats.StatsScreen
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 
@@ -128,6 +130,14 @@ private fun SignedIn(app: WilsonApp, opening: MutableStateFlow<Destination.Card?
                     onNewCard = { project -> backStack.add(Destination.NewCard(project)) },
                     onChat = { backStack.add(Destination.Threads) },
                     onActivity = { project -> backStack.add(Destination.Activity(project)) },
+                    onStats = { project -> backStack.add(Destination.Stats(project)) },
+                )
+            }
+            entry<Destination.Stats> { key ->
+                StatsScreen(
+                    viewModel(key = "stats:${key.project}", factory = viewModelFactory { initializer { StatsModel(app, key.project) } }),
+                    onBack = { backStack.removeLastOrNull() },
+                    onCard = { id -> backStack.add(Destination.Card(key.project, id)) },
                 )
             }
             entry<Destination.Activity> { key ->

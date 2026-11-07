@@ -27,6 +27,9 @@ sealed interface Destination : NavKey {
     data class Activity(val project: String) : Destination
 
     @Serializable
+    data class Stats(val project: String) : Destination
+
+    @Serializable
     data object Threads : Destination
 
     @Serializable
@@ -43,6 +46,7 @@ val NavConfiguration = SavedStateConfiguration {
             subclass(Destination.EditCard::class, Destination.EditCard.serializer())
             subclass(Destination.Plan::class, Destination.Plan.serializer())
             subclass(Destination.Activity::class, Destination.Activity.serializer())
+            subclass(Destination.Stats::class, Destination.Stats.serializer())
             subclass(Destination.Threads::class, Destination.Threads.serializer())
             subclass(Destination.Chat::class, Destination.Chat.serializer())
         }

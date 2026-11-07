@@ -90,6 +90,11 @@ skill, and say plainly what you did not run. Record what you find here, dated.
   models are now in `SessionScope`, emptied when the session ends. `verify.sh seed` fails with `KeyError: 'accessToken'` when the throwaway account has an active
   authenticator left over from a desktop security walk; set `active = false` on it. With a second emulator
   attached, `export ANDROID_SERIAL=<wilson's serial>` before `verify.sh`.
+- 2026-11-07, not yet run on a screen: the stats screen (`ui/stats`) reads `/api/stats` and `/api/stats/gates`
+  together for one window, because the pass rate subtracts the gates' revises, as web's does. A read for a window
+  no longer chosen is dropped, and the previous figures stay up while a new window loads. It re-reads each time it
+  starts and on each non-tool feed event. The stage that built it could not run `./gradlew` or the emulator: check
+  it on `wilson`, rotating it, and check that the board's top bar still fits with four buttons on a narrow phone.
 - 2026-11-06, not run on a screen: chat questions (`ask_user`) are stored mid-turn like proposed actions, so a
   question card follows the answer of the turn that asked it, by the same rule. A refused answer is the chat's
   first snackbar; a refused Confirm or Decline still shows as the red line above the composer. Android is not a
