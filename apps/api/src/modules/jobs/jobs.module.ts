@@ -25,6 +25,7 @@ import { EvalRunSweep } from '#modules/evals/eval.run.sweep.js';
 import { GoalWatcher } from './goal.watcher.js';
 import { GoalWakeJob, GOAL_WAKE_POLICY, GOAL_WAKE_WORKER } from './goal.wake.job.js';
 import { PlanDraftJob, PLAN_DRAFT_POLICY, PLAN_DRAFT_WORKER } from './plan.draft.job.js';
+import { CardMergeJob, CARD_MERGE_POLICY, CARD_MERGE_WORKER } from './card.merge.job.js';
 import { RuleProposalJob, RULE_PROPOSAL_POLICY, RULE_PROPOSAL_WORKER } from './rule.proposal.job.js';
 import { PlanSessionSweep } from '#modules/plan/plan.session.sweep.js';
 import { Poller } from './poller.js';
@@ -534,8 +535,11 @@ export class BoundedCardStageJobRunner extends JobRunner {
  * The job queue.
  *
  * pg-boss on the same Postgres database as everything else — no separate broker to run or operate.
- * One queue for now, `card.stage`, which `CardStageJob` re-enqueues onto itself to walk a card
- * through consecutive `agent` stages without a human re-triggering each one.
+ * The main queue is `card.stage`, which `CardStageJob` re-enqueues onto itself to walk a card
+ * through consecutive `agent` stages without a human re-triggering each one. Beside it sit the
+ * single-purpose queues registered below — among them `card.plan-draft` (an agent drafting a plan for
+ * a card waiting in `planning`) and, since card 0036, `card.merge` (`CardMergeJob`: the runner merging
+ * a `ready` card behind the suite gate, one at a time, never retried).
  *
  * At most `CARD_STAGE_CONCURRENCY` (`settings/card.stage.concurrency.setting.ts`, card 0115) of
  * those jobs run at once, declared on the registration below as `CARD_STAGE_WORKER` rather than
@@ -573,6 +577,7 @@ export const JobsModule: ServerKitModule = {
         registerJobContext(registry);
         registry.register(CardStageDeadJob).useClass(CardStageDeadJob).asTransient();
         registry.register(PlanDraftJob).useClass(PlanDraftJob).asTransient();
+        registry.register(CardMergeJob).useClass(CardMergeJob).asTransient();
         registry.register(GoalWakeJob).useClass(GoalWakeJob).asTransient();
         registry.register(RuleProposalJob).useClass(RuleProposalJob).asTransient();
         registry.register(PlanSessionSweep).useClass(PlanSessionSweep).asTransient();
@@ -583,6 +588,7 @@ export const JobsModule: ServerKitModule = {
         jobRegistry.set('card.stage', { job: CardStageJob, policy: CARD_STAGE_POLICY, worker: CARD_STAGE_WORKER });
         jobRegistry.set('card.stage.dead', { job: CardStageDeadJob, policy: CARD_STAGE_DEAD_POLICY });
         jobRegistry.set('card.plan-draft', { job: PlanDraftJob, policy: PLAN_DRAFT_POLICY, worker: PLAN_DRAFT_WORKER });
+        jobRegistry.set('card.merge', { job: CardMergeJob, policy: CARD_MERGE_POLICY, worker: CARD_MERGE_WORKER });
         jobRegistry.set('goal.wake', { job: GoalWakeJob, policy: GOAL_WAKE_POLICY, worker: GOAL_WAKE_WORKER });
         jobRegistry.set('eval.run', { job: EvalRunJob, policy: EVAL_RUN_POLICY, worker: EVAL_RUN_WORKER });
         jobRegistry.set('card.rule-proposal', { job: RuleProposalJob, policy: RULE_PROPOSAL_POLICY, worker: RULE_PROPOSAL_WORKER });

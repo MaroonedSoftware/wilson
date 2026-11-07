@@ -72,6 +72,18 @@ const withoutStageRetries = (card: Card): Record<string, number> => {
 type MergeProof = { ok: true } | { ok: false; reason: string; unproven?: boolean };
 
 /**
+ * Card 0036. Who is making a {@link BoardWriteService.move} or `merge`: a person over HTTP/CLI
+ * (`'human'`, the default) or the runner on its own (`'runner'`, the value `StageDispatcher` and the
+ * poller already record for a transition the system made). Service-level only — no contract type
+ * carries it.
+ */
+export interface MoveOptions {
+    by?: 'human' | 'runner';
+    /** Why the runner moved the card, recorded on the transition event. */
+    reason?: string;
+}
+
+/**
  * The board's write surface — the service the generated `/api/cards*` `post`/`patch` handlers bind
  * to.
  *
@@ -172,10 +184,18 @@ export class BoardWriteService {
      * a card already in `backlog` (the flag-clearing no-op-that-writes case below) does not re-pin —
      * it is not *entering* `backlog`, it is already there.
      *
-     * `by` is who the transition event names: a person through the API, unless the runner itself
-     * moves the card (`PullRequestWatcher`, when GitHub merges a card's pull request), with `reason`.
+     * Card 0036: `by` names who made the move — `'human'` (the default, so every HTTP and CLI caller
+     * is unchanged) or `'runner'` when the poller approves a complete plan into `backlog` or a
+     * `card.merge` job lands a card in `merged`. It is recorded on the `transition.written` event and
+     * changes nothing else: the empty-scope refusal, the `planCheck === 'checking'` no-op, the pin and
+     * the worktree reclaim all behave the same whoever asked. The reasoning below that a move "is a
+     * person dropping the card" or "an operator saying they have looked" is about a human move; for a
+     * runner move the flag clearing and retry reset still happen, because the runner only moves a card
+     * it has itself judged — `nextCard` never offers it a flagged one, and a merge only reaches
+     * `merged` past the suite. A runner move may carry a `reason`, recorded on the event too
+     * (`PullRequestWatcher` names the pull request that merged).
      */
-    async move(id: string, request: MoveCardRequest, by: MoveAuthor = { by: 'human' }): Promise<CardDetail> {
+    async move(id: string, request: MoveCardRequest, { by = 'human', reason }: MoveOptions = {}): Promise<CardDetail> {
         // Refuse a state the stage graph does not name, with the same reason `wilson card move`
         // gives — carried in `details` since `httpError`'s `message` is pinned to the status code's
         // default text (see the contract's `400:` comment on this operation).
@@ -216,8 +236,8 @@ export class BoardWriteService {
         const payload: Record<string, unknown> = {
             from: before.frontmatter.stage,
             to: landing,
-            by: by.by,
-            ...(by.reason ? { reason: by.reason } : {}),
+            by,
+            ...(reason ? { reason } : {}),
             ...(planCheck ? { step: planCheck.name } : {}),
         };
 
@@ -913,11 +933,16 @@ export class BoardWriteService {
      * the card's diff over whatever merged since. A human rebasing the branch by hand after review
      * moves the merge-base and skips this check; that gap is accepted, not fixed here.
      *
+     * Card 0036: `opts.by` is threaded through to the landing `move`, {@link flagMergeFailure} and
+     * {@link reReviewOnOverlap}, so a merge the `card.merge` job runs on its own records `by:
+     * 'runner'` on every event it writes. The suite proof runs exactly the same whoever asked.
+     *
      * With dry run off and {@link MERGE_OPENS_PULL_REQUEST} on, none of the landing above happens:
      * {@link mergeAsPullRequest} proves the card against GitHub's `main` and opens a pull request,
      * and the card waits in `ready` until GitHub merges it.
      */
-    async merge(id: string): Promise<MergeResult> {
+    async merge(id: string, opts: MoveOptions = {}): Promise<MergeResult> {
+        const by = opts.by ?? 'human';
         const card = await this.readOrThrow(id);
         if (card.frontmatter.stage !== 'ready') {
             throw httpError(400).withDetails({ reason: `cannot merge ${id}: it is in "${card.frontmatter.stage}", not "ready"` });
@@ -925,7 +950,7 @@ export class BoardWriteService {
 
         const dryRun = await this.settings.get(DRY_RUN_ENABLED);
         if (!dryRun && (await this.settings.get(MERGE_OPENS_PULL_REQUEST))) {
-            return this.mergeAsPullRequest(id, card);
+            return this.mergeAsPullRequest(id, card, by);
         }
 
         const targetRef = dryRun ? await this.worktrees.ensureIntegrationBranch() : 'main';
@@ -939,13 +964,13 @@ export class BoardWriteService {
         const message = dryRun
             ? `Merge card ${id}: ${card.frontmatter.title} (dry run — rehearsed onto ${targetRef}, main withheld)`
             : `Merge card ${id}: ${card.frontmatter.title}`;
-        const proven = await this.proveAgainst(id, card, branch, targetRef, message);
+        const proven = await this.proveAgainst(id, card, branch, targetRef, message, by);
         if (!proven.ok) return proven.result;
         const { computed, mergeCommit } = proven;
 
         const landed = await this.worktrees.landMerge(computed.targetSha, mergeCommit, targetRef);
         if (!landed.ok) {
-            await this.flagMergeFailure(id, card.frontmatter.stage, landed.reason);
+            await this.flagMergeFailure(id, card.frontmatter.stage, landed.reason, by);
             return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason: landed.reason };
         }
 
@@ -968,7 +993,7 @@ export class BoardWriteService {
         // terminal transition uses. This runs even in dry run: a dry-run merge is what lets a
         // dependent card dispatch (this card's Constraints), so the card reaching `merged` cannot
         // wait for dry run to be turned off.
-        await this.move(id, { stage: 'merged' });
+        await this.move(id, { stage: 'merged' }, { by });
 
         const reason = dryRun ? `dry run: rehearsed onto ${targetRef} at ${mergeCommit.slice(0, 8)} — the write to main was withheld` : undefined;
         return { ...toCardDetail(await this.boardRepository.read(id)), merged: true, commit: mergeCommit, reason };
@@ -985,19 +1010,20 @@ export class BoardWriteService {
         branch: string,
         targetRef: string,
         message: string,
+        by: 'human' | 'runner',
     ): Promise<{ ok: true; computed: { targetSha: string; branchSha: string }; mergeCommit: string } | { ok: false; result: MergeResult }> {
         const reReviewOnMerge = await this.settings.get(RE_REVIEW_ON_MERGE);
         if (reReviewOnMerge) {
             const overlap = await this.worktrees.overlapSinceFork(branch, targetRef);
             if (overlap.movedUnder.length > 0) {
-                return { ok: false, result: await this.reReviewOnOverlap(id, card, overlap.movedUnder) };
+                return { ok: false, result: await this.reReviewOnOverlap(id, card, overlap.movedUnder, by) };
             }
         }
 
         const computed = await this.worktrees.computeMerge(branch, targetRef);
         if (!computed.ok) {
             const reason = `${branch} conflicts with ${targetRef}: ${computed.conflicts.length > 0 ? computed.conflicts.join(', ') : computed.raw.slice(0, 2000)}`;
-            return { ok: false, result: await this.refuseMerge(id, card, reason) };
+            return { ok: false, result: await this.refuseMerge(id, card, reason, by) };
         }
 
         const mergeCommit = await this.worktrees.commitMerge(computed.targetSha, computed.branchSha, computed.treeSha, message);
@@ -1007,15 +1033,15 @@ export class BoardWriteService {
             const reason = proof.unproven
                 ? `could not prove the merge of ${branch} into ${targetRef}: ${proof.reason}`
                 : `merge of ${branch} into ${targetRef} fails the suite: ${proof.reason}`;
-            return { ok: false, result: await this.refuseMerge(id, card, reason) };
+            return { ok: false, result: await this.refuseMerge(id, card, reason, by) };
         }
 
         return { ok: true, computed, mergeCommit };
     }
 
     /** Flag the card with `reason` and answer `merged: false` with it: an attempt that did not land. */
-    private async refuseMerge(id: string, card: Card, reason: string): Promise<MergeResult> {
-        await this.flagMergeFailure(id, card.frontmatter.stage, reason);
+    private async refuseMerge(id: string, card: Card, reason: string, by: 'human' | 'runner'): Promise<MergeResult> {
+        await this.flagMergeFailure(id, card.frontmatter.stage, reason, by);
         return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason };
     }
 
@@ -1030,7 +1056,7 @@ export class BoardWriteService {
      * (400), as a card outside `ready` is: pressing Merge again cannot do anything GitHub's own merge
      * button would not.
      */
-    private async mergeAsPullRequest(id: string, card: Card): Promise<MergeResult> {
+    private async mergeAsPullRequest(id: string, card: Card, by: 'human' | 'runner'): Promise<MergeResult> {
         const open = card.frontmatter.pullRequest?.state === 'open' ? card.frontmatter.pullRequest : undefined;
         if (open) {
             throw httpError(400).withDetails({
@@ -1038,29 +1064,36 @@ export class BoardWriteService {
             });
         }
         if (!this.pullRequests) {
-            return this.refuseMerge(id, card, 'merges open pull requests, but this deployment has no GitHub App to open them with');
+            return this.refuseMerge(id, card, 'merges open pull requests, but this deployment has no GitHub App to open them with', by);
         }
         const repository = await this.pullRequests.repository();
         if (!repository) {
-            return this.refuseMerge(id, card, `merges open pull requests, but project ${this.boardConfig.project} has no GitHub repository`);
+            return this.refuseMerge(id, card, `merges open pull requests, but project ${this.boardConfig.project} has no GitHub repository`, by);
         }
 
         let base: { ref: string; sha: string };
         try {
             base = await this.pullRequests.fetchBase(repository);
         } catch (err) {
-            return this.refuseMerge(id, card, reasonOf(err));
+            return this.refuseMerge(id, card, reasonOf(err), by);
         }
 
         const branch = this.worktrees.resolveBranch(card);
-        const proven = await this.proveAgainst(id, card, branch, base.ref, `Merge card ${id}: ${card.frontmatter.title} (proof for a pull request)`);
+        const proven = await this.proveAgainst(
+            id,
+            card,
+            branch,
+            base.ref,
+            `Merge card ${id}: ${card.frontmatter.title} (proof for a pull request)`,
+            by,
+        );
         if (!proven.ok) return proven.result;
 
         let pullRequest: CardPullRequest;
         try {
             pullRequest = await this.pullRequests.open(repository, card, branch, proven.computed.branchSha);
         } catch (err) {
-            return this.refuseMerge(id, card, reasonOf(err));
+            return this.refuseMerge(id, card, reasonOf(err), by);
         }
 
         const reason = `opened pull request #${pullRequest.number} (${pullRequest.url}); the card moves to merged when it merges`;
@@ -1076,7 +1109,7 @@ export class BoardWriteService {
                 cardId: id,
                 stage: card.frontmatter.stage,
                 type: 'card.pull-request-opened',
-                payload: { number: pullRequest.number, url: pullRequest.url, branch, sha: proven.computed.branchSha, base: base.sha },
+                payload: { number: pullRequest.number, url: pullRequest.url, branch, sha: proven.computed.branchSha, base: base.sha, by },
             },
         );
         return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason };
@@ -1088,9 +1121,9 @@ export class BoardWriteService {
      * imported: that function takes a `RebaseConflictError`, which a merge conflict or a failed
      * suite is not, and `writeWithEvent`ing the same two fields directly is the smaller cost. `from`
      * and `to` both name the card's current stage because this never moves it — `ready` is exactly
-     * where a human decides what happens next.
+     * where a human decides what happens next. `by` (card 0036) is whoever asked for the merge.
      */
-    private async flagMergeFailure(id: string, stage: string, reason: string): Promise<void> {
+    private async flagMergeFailure(id: string, stage: string, reason: string, by: 'human' | 'runner' = 'human'): Promise<void> {
         await this.boardRepository.writeWithEvent(
             id,
             `Flag ${id}: merge failed`,
@@ -1100,7 +1133,7 @@ export class BoardWriteService {
                 cardId: id,
                 stage,
                 type: 'transition.written',
-                payload: { from: stage, to: stage, by: 'human', needsHuman: true, reason },
+                payload: { from: stage, to: stage, by, needsHuman: true, reason },
             },
         );
     }
@@ -1116,15 +1149,16 @@ export class BoardWriteService {
      * Not `move`: `move` records `by: 'human'`, clears `needsHuman`, and carries no `reason` field —
      * none of which is true of a send-back the runner itself decided on. `writeWithEvent` directly,
      * the same door {@link flagMergeFailure} already uses for a runner-authored transition that is
-     * not an ordinary kickback either.
+     * not an ordinary kickback either. The send-back itself is always `by: 'runner'` — the runner
+     * decided it whoever asked for the merge; `by` (card 0036) only attributes the cap-reached flag.
      */
-    private async reReviewOnOverlap(id: string, card: Card, movedUnder: string[]): Promise<MergeResult> {
+    private async reReviewOnOverlap(id: string, card: Card, movedUnder: string[], by: 'human' | 'runner' = 'human'): Promise<MergeResult> {
         const paths = movedUnder.join(', ');
         const attempted = card.frontmatter.retries[RE_REVIEW_RETRY_KEY] ?? 0;
 
         if (attempted >= RE_REVIEW_CAP) {
             const reason = `re-review: main moved under ${paths} since review, reaching its re-review cap of ${RE_REVIEW_CAP} — a human must ack and merge`;
-            await this.flagMergeFailure(id, card.frontmatter.stage, reason);
+            await this.flagMergeFailure(id, card.frontmatter.stage, reason, by);
             return { ...toCardDetail(await this.boardRepository.read(id)), merged: false, reason };
         }
 
@@ -1491,12 +1525,6 @@ export class BoardWriteService {
  * tells implementing this `## Review findings` section came from a person reading the diff, not
  * from `review`'s own agent, since the bullets underneath read identically either way.
  */
-/** Who a move's transition event names, and why, when it was not a person's own. */
-export interface MoveAuthor {
-    by: 'human' | 'runner';
-    reason?: string;
-}
-
 /** What a thrown error says to a person: an HTTP error's `reason`, otherwise its message. */
 const reasonOf = (err: unknown): string => {
     const reason = (err as { details?: { reason?: unknown } }).details?.reason;

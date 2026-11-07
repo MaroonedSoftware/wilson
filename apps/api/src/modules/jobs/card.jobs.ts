@@ -194,6 +194,24 @@ export class CardJobs {
     }
 
     /**
+     * Card 0036. Whether a `card.merge` job for this card is already queued or running, so the poller
+     * never queues a second merge for one `ready` card. Read from `pgboss.job` directly, the way
+     * {@link planDraftAttempted} reads it: a merge is not a `card.stage` job and deliberately holds no
+     * `wilson.cardJobs` claim, so `inFlight` cannot answer this.
+     */
+    async mergeInFlight(cardId: string): Promise<boolean> {
+        const { rows } = await sql<{ found: number }>`
+            select 1 as found from pgboss.job
+            where name = 'card.merge'
+                and data->>'cardId' = ${cardId}
+                and data->>'project' = ${this.config.project}
+                and state in ('created', 'retry', 'active')
+            limit 1
+        `.execute(this.db);
+        return rows.length > 0;
+    }
+
+    /**
      * The `wilson.cardJobs` claim row for a given job id, regardless of which project recorded it —
      * card 0272's fallback for an orphaned `card.stage` job whose own payload carries no `project`
      * (`CardStagePayload`'s own doc comment: `BoardWriteService.start` sends none). Unlike every

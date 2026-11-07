@@ -8,7 +8,6 @@ import { runAsProject } from '#modules/board/project.context.js';
 import { EventLog } from '#modules/events/event.log.js';
 import { Notifier } from '#modules/notify/notifier.js';
 import { PlanService } from '#modules/plan/plan.service.js';
-import { AUTO_PLAN_ENABLED } from '#modules/settings/auto.plan.setting.js';
 import { AUTO_SPLIT_ENABLED } from '#modules/settings/auto.split.setting.js';
 import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
@@ -18,10 +17,11 @@ export interface PlanDraftPayload {
     /** The project the card belongs to, carried for the reason `CardStagePayload.project` is. */
     project: string;
     /**
-     * What asked for the draft, which decides the setting that gates it: `split` for a piece an
-     * automatic split created (`AUTO_SPLIT_ENABLED`), `unplanned` for a card the poller found waiting in
-     * `planning` without a plan (`AUTO_PLAN_ENABLED`). Absent means `split`, the only sender before
-     * `unplanned` existed, so a job queued by an older build keeps its meaning.
+     * What asked for the draft: `split` for a piece an automatic split created, gated by
+     * `AUTO_SPLIT_ENABLED`; `unplanned` for a card the poller found waiting in `planning` without a
+     * plan, gated by nothing but the daily ceiling (card 0036 — drafting is unconditional). Absent means
+     * `split`, the only sender before `unplanned` existed, so a job queued by an older build keeps its
+     * meaning. Kept as a payload field because `CardJobs.planDraftAttempted` queries it.
      */
     trigger?: PlanDraftTrigger;
 }
@@ -42,13 +42,13 @@ export const PLAN_DRAFT_WORKER: JobWorkerPolicy = { concurrency: 1 };
 
 /**
  * Drafts the plan of one card waiting in `planning` (`PlanService.autoDraft`): a piece an automatic
- * split created, or a card the poller found without a plan. Either way a person meets a plan to
- * approve rather than a stub. Approval stays theirs: the piece never leaves
- * `planning` here, which is also what keeps a chain of splits from running with nobody looking.
+ * split created, or a card the poller found without a plan. The card never leaves `planning` here:
+ * approval is a separate step, and since card 0036 it is the runner's — the poller approves a complete
+ * plan into `backlog` on a later tick, and `scope-check` against that pinned version is the gate.
  *
- * Nothing here fails the job. A piece that gets no plan is a piece waiting in `planning`, as it would
- * be with drafting off, and `card.plan-draft-skipped` says why. Re-reads the setting and the daily
- * ceiling because this runs after the refusal, and either can have changed in the queue.
+ * Nothing here fails the job. A piece that gets no plan is a piece waiting in `planning`, and
+ * `card.plan-draft-skipped` says why. Re-reads auto-split (for a `split` draft) and the daily ceiling
+ * because this runs after the refusal, and either can have changed in the queue.
  */
 @Injectable()
 export class PlanDraftJob extends Job<PlanDraftPayload> {
@@ -95,9 +95,8 @@ export class PlanDraftJob extends Job<PlanDraftPayload> {
     }
 
     private async whyNot(trigger: PlanDraftTrigger): Promise<string | undefined> {
-        if (trigger === 'unplanned') {
-            if (!(await this.settings.get(AUTO_PLAN_ENABLED))) return 'auto-plan was turned off';
-        } else if (!(await this.settings.get(AUTO_SPLIT_ENABLED))) {
+        // Card 0036: an `unplanned` draft has no switch — drafting is part of the pipeline now.
+        if (trigger === 'split' && !(await this.settings.get(AUTO_SPLIT_ENABLED))) {
             return 'auto-split was turned off';
         }
 

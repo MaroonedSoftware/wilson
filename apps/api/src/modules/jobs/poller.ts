@@ -5,6 +5,7 @@ import { JobBroker } from '@maroonedsoftware/jobbroker';
 import { Logger } from '@maroonedsoftware/logger';
 import { BoardConfig } from '#modules/board/board.config.js';
 import { BoardRepository } from '#modules/board/board.repository.js';
+import { BoardWriteService } from '#modules/board/board.write.service.js';
 import { planGap } from '#modules/board/card.js';
 import { nextCard } from '#modules/board/next.card.js';
 import { runAsProject } from '#modules/board/project.context.js';
@@ -14,7 +15,6 @@ import { findStage, type ProjectStages, stepOn } from '#modules/stages/stage.con
 import { StageConfigStore } from '#modules/stages/stage.config.store.js';
 import { SettingsStore } from '#modules/settings/settings.store.js';
 import { DRAIN_ENABLED } from '#modules/settings/drain.enabled.setting.js';
-import { AUTO_PLAN_ENABLED } from '#modules/settings/auto.plan.setting.js';
 import { POLLER_INTERVAL_MS } from '#modules/settings/poller.interval.setting.js';
 import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
 import { POLLER_INTERVAL_MS_DEFAULT } from './job.runner.config.js';
@@ -54,6 +54,23 @@ import { CardJobs } from './card.jobs.js';
  * too, with `onPass: merged`, and `planning` is manual with `onPass: backlog`; either one advanced the
  * same way would merge or approve a card with nobody having looked.
  *
+ * Card 0036 (autopilot): `planning` and `ready` now join `backlog` as stages the poller works rather
+ * than skips — still each named explicitly, still never derived from `mode: manual`. In `planning`
+ * it drafts a card with no plan (unconditionally — `auto-plan-enabled` is deprecated and unread) and
+ * approves a complete one into `backlog` through `BoardWriteService.move` with `by: 'runner'`, which
+ * pins the plan and sends the `scope-check` that is the real gate; a refused check
+ * (`planCheck: 'refused'`) is left for a person. In `ready` it queues a `card.merge` job
+ * (`CardMergeJob`) — never merging inside the tick, since a merge runs the whole suite. Neither is
+ * derived from `mode: manual`, because that would also sweep in the parking lot and any other manual
+ * stage a project defines: promoting a card out of the parking lot stays the one human act, and
+ * `nextCard` never offers a parking-lot card anyway (`NON_STAGE_STATES`). Every safeguard comes from
+ * the same places it always did — `nextCard.candidates` (dependencies, flags), the daily ceiling
+ * check below, and `tick`'s drain check — not from a new definition of "ready".
+ *
+ * `writes` is optional, defaulting to `undefined`, for exactly the reason `projects` is (below): a
+ * test may construct a `Poller` without it, and then the approval branch passes the card over.
+ * Production DI always supplies it.
+ *
  * One candidate per project per tick, never more: a board with thirty ready cards must not become
  * thirty concurrent stages the moment this starts ticking. `CARD_STAGE_CONCURRENCY` is what actually
  * bounds how many run at once, process-wide across every project (see its own doc comment in
@@ -89,7 +106,21 @@ import { CardJobs } from './card.jobs.js';
 // comment explains), and TypeScript's `emitDecoratorMetadata` cannot represent a union in
 // `design:paramtypes`; it would degrade to `Object`, which injectkit cannot resolve against a
 // registered class token. Explicit `deps` (injectkit's "Option A") sidesteps that entirely.
-@Injectable({ deps: [BoardRepository, BoardConfig, StageConfigStore, JobBroker, CardJobs, Logger, SettingsStore, EventLog, ProjectRepository] })
+// Card 0036: `writes` is optional for the same reason and so listed here for the same reason.
+@Injectable({
+    deps: [
+        BoardRepository,
+        BoardConfig,
+        StageConfigStore,
+        JobBroker,
+        CardJobs,
+        Logger,
+        SettingsStore,
+        EventLog,
+        ProjectRepository,
+        BoardWriteService,
+    ],
+})
 export class Poller {
     private abort: AbortController | undefined;
     private loopPromise: Promise<void> | undefined;
@@ -107,6 +138,7 @@ export class Poller {
         private readonly settings: SettingsStore,
         private readonly events: EventLog,
         private readonly projects: ProjectRepository | undefined = undefined,
+        private readonly writes: BoardWriteService | undefined = undefined,
     ) {}
 
     /** Idempotent: calling `start` while already running does nothing. */
@@ -277,8 +309,6 @@ export class Poller {
 
             const stages = await this.stageConfigs.load();
 
-            // Read at most once per tick, and only once a planning card is reached.
-            let autoPlan: boolean | undefined;
             let drafted = false;
 
             // Bounds the walk so a board with nothing dispatchable — every remaining candidate sitting
@@ -290,13 +320,25 @@ export class Poller {
                 const stageName = candidate.frontmatter.stage;
                 const cardId = candidate.frontmatter.id;
 
-                // Card 0127: `backlog`, named explicitly — never derived from `mode: manual`, so
-                // `ready` and every other manual stage fall through to the ordinary refusal below
-                // exactly as before. A card here is already approved and pinned; advance it rather
-                // than skipping it as "merely manual".
+                // Card 0127: `backlog`, named explicitly — never derived from `mode: manual`, so every
+                // manual stage not named here (card 0036 names `ready` and `planning` below) falls
+                // through to the ordinary refusal exactly as before. A card here is already approved
+                // and pinned; advance it rather than skipping it as "merely manual".
                 if (stageName === 'backlog') {
                     const advanced = await this.advanceBacklogCard(cardId, stages);
                     if (!advanced) continue;
+                    return;
+                }
+
+                // Card 0036: the runner merges at `ready`, as a `card.merge` job — never inside this
+                // tick, which must stay cheap and which `stop()` waits out. Not `cardJobs.record`: that
+                // row is the `card.stage` claim, and a merge is not a `card.stage` job.
+                // `mergeInFlight` is what keeps one card from ever having two merges queued.
+                if (stageName === 'ready') {
+                    if (await this.cardJobs.inFlight(cardId)) continue;
+                    if (await this.cardJobs.mergeInFlight(cardId)) continue;
+                    const jobId = await this.broker.send('card.merge', { cardId, project: this.boardConfig.project });
+                    this.logger.info(`poller: enqueued a merge for ${cardId} (job ${jobId})`);
                     return;
                 }
 
@@ -310,18 +352,42 @@ export class Poller {
                     return;
                 }
 
-                // A card waiting in `planning` without a plan gets one draft from an agent, when the
-                // project has opted in. It stays in `planning` for a person to approve, so this does not
-                // use the tick's one stage enqueue: the card then falls through to the refusal below like
-                // any other manual stage, and the walk carries on. One draft per tick, and the
-                // `card.plan-draft` worker runs one at a time, so a board full of stubs is drafted in turn.
+                // A card waiting in `planning` without a plan gets one draft from an agent — always,
+                // since card 0036; there is no setting. It stays in `planning` until a later tick finds
+                // its plan complete (below), so this does not use the tick's one stage enqueue: the card
+                // then falls through to the refusal below like any other manual stage, and the walk
+                // carries on. One draft per tick, and the `card.plan-draft` worker runs one at a time,
+                // so a board full of stubs is drafted in turn. `planDraftAttempted` is what stops a
+                // re-draft every tick.
                 if (stageName === 'planning' && !drafted && planGap(candidate.body)) {
-                    autoPlan ??= await this.settings.get(AUTO_PLAN_ENABLED);
-                    if (autoPlan && !(await this.cardJobs.planDraftAttempted(cardId))) {
+                    if (!(await this.cardJobs.planDraftAttempted(cardId))) {
                         const jobId = await this.broker.send('card.plan-draft', { cardId, project: this.boardConfig.project, trigger: 'unplanned' });
                         this.logger.info(`poller: enqueued a plan draft for ${cardId} (job ${jobId})`);
                         drafted = true;
                     }
+                }
+
+                // Card 0036: a complete plan is approved by the runner — `move` to `backlog`, which pins
+                // the plan version and sends the scope check against that same version (so it uses this
+                // tick's one enqueue). A refused check stays refused until a new plan version clears it,
+                // and is left for a person without a `needsHuman` flag of its own; a check already
+                // running, or a card something else carries, is passed over. Plan lint is deliberately
+                // not consulted — it reports, it never refuses.
+                if (stageName === 'planning' && planGap(candidate.body) === undefined) {
+                    const planCheck = candidate.frontmatter.planCheck;
+                    if (planCheck === 'refused' || planCheck === 'checking') continue;
+                    if (await this.cardJobs.inFlight(cardId)) continue;
+                    if (!this.writes) continue;
+                    try {
+                        await this.writes.move(cardId, { stage: 'backlog' }, { by: 'runner' });
+                    } catch (error) {
+                        // An empty "Files in scope" (`httpError(400)`) or a lost race: log it and try the
+                        // next candidate, as every other lookup here treats a failure.
+                        this.logger.error(error);
+                        continue;
+                    }
+                    this.logger.info(`poller: approved ${cardId} · planning → backlog`);
+                    return;
                 }
 
                 const reason = whyNotDispatchable(candidate, stages);

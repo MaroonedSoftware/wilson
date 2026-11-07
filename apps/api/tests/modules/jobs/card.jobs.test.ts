@@ -413,3 +413,53 @@ describe('CardJobs.planDraftAttempted', () => {
         expect(await cardJobs.planDraftAttempted('0001')).toBe(false);
     });
 });
+
+/**
+ * Card 0036. Whether a `card.merge` job for a card is queued or running — what keeps the poller from
+ * ever queueing a second merge for one `ready` card. Read from `pgboss.job`, scoped by project.
+ */
+describe('CardJobs.mergeInFlight', () => {
+    let config: StaticBoardConfig;
+    let cardJobs: CardJobs;
+    const inserted: string[] = [];
+
+    beforeEach(() => {
+        config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
+        cardJobs = new CardJobs(config, db, {} as unknown as JobBroker);
+    });
+
+    afterEach(async () => {
+        for (const id of inserted.splice(0)) await sql`delete from pgboss.job where id = ${id}`.execute(db);
+    });
+
+    const insertJob = async (name: string, state: string, data: Record<string, unknown>): Promise<void> => {
+        const id = randomUUID();
+        inserted.push(id);
+        await sql`insert into pgboss.job (id, state, name, data) values (${id}, ${state}, ${name}, ${JSON.stringify(data)}::jsonb)`.execute(db);
+    };
+
+    it('is false with no merge job for the card', async () => {
+        expect(await cardJobs.mergeInFlight('0001')).toBe(false);
+    });
+
+    it.each(['created', 'retry', 'active'])('is true while a merge for the card is %s', async state => {
+        await insertJob('card.merge', state, { cardId: '0001', project: config.project });
+
+        expect(await cardJobs.mergeInFlight('0001')).toBe(true);
+    });
+
+    it.each(['completed', 'failed', 'cancelled', 'expired'])('is false once a merge for the card is %s', async state => {
+        await insertJob('card.merge', state, { cardId: '0001', project: config.project });
+
+        expect(await cardJobs.mergeInFlight('0001')).toBe(false);
+    });
+
+    it('ignores a merge for another card, another project, or a job of another name', async () => {
+        await insertJob('card.merge', 'active', { cardId: '0002', project: config.project });
+        await insertJob('card.merge', 'active', { cardId: '0001', project: 'some-other-project' });
+        await insertJob('card.stage', 'active', { cardId: '0001', project: config.project });
+        await insertJob('card.plan-draft', 'active', { cardId: '0001', project: config.project });
+
+        expect(await cardJobs.mergeInFlight('0001')).toBe(false);
+    });
+});
