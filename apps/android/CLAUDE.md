@@ -77,10 +77,10 @@ skill, and say plainly what you did not run. Record what you find here, dated.
   in single quotes. A screenshot showed the failed action's error while `ui` did not list it.
 - 2026-11-07: a card's pull request (open or merged) shows in Merge's place and opens in the browser; a closed one
   shows Merge again. Seen on screen by setting `pull_request` on `ready` cards in `wilson_android`, with the two
-  pull request events inserted by hand. Give such rows a `stage`: the API leaves a null `stage` out of the JSON,
-  which the desktop SDK cannot decode. "Opened pull request #n" needs GitHub, so it is proved in `MergeOutcomeTest`
-  only. Changing the server address on the sign-in screen left projects reading the old address until the app was
-  restarted. `verify.sh seed` fails with `KeyError: 'accessToken'` when the throwaway account has an active
+  pull request events inserted by hand. "Opened pull request #n" needs GitHub, so it is proved in `MergeOutcomeTest`
+  only. Nothing scopes a view model to a navigation entry, so every screen's sat in the activity's store and
+  outlived signing out: the board kept the projects, or the error, of the session before. The signed-in screens'
+  models are now in `SessionScope`, emptied when the session ends. `verify.sh seed` fails with `KeyError: 'accessToken'` when the throwaway account has an active
   authenticator left over from a desktop security walk; set `active = false` on it. With a second emulator
   attached, `export ANDROID_SERIAL=<wilson's serial>` before `verify.sh`.
 - 2026-11-06, not run on a screen: chat questions (`ask_user`) are stored mid-turn like proposed actions, so a
