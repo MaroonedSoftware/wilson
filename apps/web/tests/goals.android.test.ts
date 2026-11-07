@@ -130,7 +130,8 @@ describe('Android goal screens are wired in', () => {
         const source = read(join(ANDROID_MAIN, 'ui/nav/Destination.kt'));
         const declared = [...source.matchAll(/data (?:object|class) (\w+)\b[^\n]*: Destination/g)].map(match => match[1]!);
         expect(declared).toEqual(expect.arrayContaining(['Goals', 'Goal']));
-        for (const name of declared) expect(source, `subclass for ${name}`).toContain(`subclass(Destination.${name}::class, Destination.${name}.serializer())`);
+        for (const name of declared)
+            expect(source, `subclass for ${name}`).toContain(`subclass(Destination.${name}::class, Destination.${name}.serializer())`);
     });
 
     it('defines ActivityTone.colour once, shared by the activity and goal screens', () => {
