@@ -108,7 +108,18 @@ import { CardJobs } from './card.jobs.js';
 // registered class token. Explicit `deps` (injectkit's "Option A") sidesteps that entirely.
 // Card 0036: `writes` is optional for the same reason and so listed here for the same reason.
 @Injectable({
-    deps: [BoardRepository, BoardConfig, StageConfigStore, JobBroker, CardJobs, Logger, SettingsStore, EventLog, ProjectRepository, BoardWriteService],
+    deps: [
+        BoardRepository,
+        BoardConfig,
+        StageConfigStore,
+        JobBroker,
+        CardJobs,
+        Logger,
+        SettingsStore,
+        EventLog,
+        ProjectRepository,
+        BoardWriteService,
+    ],
 })
 export class Poller {
     private abort: AbortController | undefined;

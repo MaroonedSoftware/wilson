@@ -341,7 +341,10 @@ describe('BoardWriteService', () => {
 
         it('records by: runner when the runner makes the move (card 0036), and nothing else about the move changes', async () => {
             const { board, events, service } = freshBoard();
-            await board.create(card('0003', { stage: 'implementing', needsHuman: true, needsHumanReason: 'x', retries: { implementing: 2 } }), 'seed');
+            await board.create(
+                card('0003', { stage: 'implementing', needsHuman: true, needsHumanReason: 'x', retries: { implementing: 2 } }),
+                'seed',
+            );
 
             const detail = await service.move('0003', { stage: 'testing' }, { by: 'runner' });
 
@@ -2758,7 +2761,9 @@ describe('BoardWriteService', () => {
 
                 await service.merge('0302');
 
-                expect(transitions(events)).toEqual([expect.objectContaining({ payload: expect.objectContaining({ by: 'human', needsHuman: true }) })]);
+                expect(transitions(events)).toEqual([
+                    expect.objectContaining({ payload: expect.objectContaining({ by: 'human', needsHuman: true }) }),
+                ]);
             });
 
             it("records a runner merge's landing move with by: runner", async () => {

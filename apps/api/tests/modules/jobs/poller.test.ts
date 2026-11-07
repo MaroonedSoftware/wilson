@@ -978,7 +978,8 @@ describe('Poller tick — the runner approves and merges (card 0036)', () => {
 
     const planned = (id: string, overrides: Partial<CardFrontmatter> = {}): Card => ({ ...card(id, 'planning', overrides), body: PLANNED });
 
-    const sentNames = (broker: ReturnType<typeof fakeBroker>) => (broker.send.mock.calls as unknown as Array<[string, unknown]>).map(([name]) => name);
+    const sentNames = (broker: ReturnType<typeof fakeBroker>) =>
+        (broker.send.mock.calls as unknown as Array<[string, unknown]>).map(([name]) => name);
 
     describe('approval at planning', () => {
         it('moves a complete plan to backlog as the runner, consuming the tick', async () => {
