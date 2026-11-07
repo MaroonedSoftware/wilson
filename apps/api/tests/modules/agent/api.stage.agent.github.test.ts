@@ -153,7 +153,9 @@ describe('ApiStageAgent: the GitHub tool it builds', () => {
     });
 
     it('AC2, AC8, AC11: reads a file with a plain GET and records the call with its URL', async () => {
-        const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('# readme', { status: 200, headers: { 'content-type': 'text/plain' } }));
+        const fetchMock = vi.fn(
+            async (_url: string, _init?: RequestInit) => new Response('# readme', { status: 200, headers: { 'content-type': 'text/plain' } }),
+        );
         vi.stubGlobal('fetch', fetchMock);
         const read = await githubToolOf();
 
@@ -165,7 +167,10 @@ describe('ApiStageAgent: the GitHub tool it builds', () => {
         expect(init.body).toBeUndefined();
         expect(Object.keys(init.headers as Record<string, string>).map(h => h.toLowerCase())).not.toContain('authorization');
         expect(events).toEqual([
-            expect.objectContaining({ type: 'tool.executed', payload: { tool: GITHUB_TOOL, url: 'https://raw.githubusercontent.com/o/r/main/README.md', status: 200 } }),
+            expect.objectContaining({
+                type: 'tool.executed',
+                payload: { tool: GITHUB_TOOL, url: 'https://raw.githubusercontent.com/o/r/main/README.md', status: 200 },
+            }),
         ]);
     });
 

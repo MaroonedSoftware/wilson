@@ -2193,7 +2193,14 @@ describe('BoardWriteService', () => {
             const passing = await scriptExiting(0);
             const worktrees = mergeWorktrees();
             const getJob = vi.fn(async () => ({ id: 'job-q', name: 'card.stage', state: 'created', data: {} }));
-            const { board, broker, cardJobs, service } = freshMergeBoard(worktrees, mergeStageConfigs(`node ${passing}`), false, false, undefined, getJob);
+            const { board, broker, cardJobs, service } = freshMergeBoard(
+                worktrees,
+                mergeStageConfigs(`node ${passing}`),
+                false,
+                false,
+                undefined,
+                getJob,
+            );
             await board.create(card('0145', { stage: 'ready' }), 'seed');
             await cardJobs.record('0145', 'job-q');
             const clearSpy = vi.spyOn(cardJobs, 'clear');

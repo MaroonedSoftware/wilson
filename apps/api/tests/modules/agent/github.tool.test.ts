@@ -68,12 +68,16 @@ const local: typeof fetch = (input, init) => {
 };
 const options = (over: GithubFetchOptions = {}): GithubFetchOptions => ({ fetch: local, ...over });
 
-const text = (body: string, type = 'text/plain; charset=utf-8', status = 200, headers: Record<string, string> = {}): Route => res => {
-    res.writeHead(status, { 'content-type': type, ...headers }).end(body);
-};
-const redirect = (location: string, status = 302): Route => res => {
-    res.writeHead(status, { location }).end();
-};
+const text =
+    (body: string, type = 'text/plain; charset=utf-8', status = 200, headers: Record<string, string> = {}): Route =>
+    res => {
+        res.writeHead(status, { 'content-type': type, ...headers }).end(body);
+    };
+const redirect =
+    (location: string, status = 302): Route =>
+    res => {
+        res.writeHead(status, { location }).end();
+    };
 
 const makeContext = () => {
     const events: { type: string; payload: Record<string, unknown> }[] = [];

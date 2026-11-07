@@ -160,7 +160,9 @@ describe('CodexStageAgent and webAccess', () => {
 
         expect(reply?.text).toMatch(/redirects to https:\/\/evil\.example\/steal, which was not followed/);
         expect(fetchMock).toHaveBeenCalledTimes(1);
-        expect(eventsOf('tool.denied')).toEqual([expect.objectContaining({ tool: GITHUB_TOOL, url: 'https://github.com/o/r/raw/main/x', status: 302 })]);
+        expect(eventsOf('tool.denied')).toEqual([
+            expect.objectContaining({ tool: GITHUB_TOOL, url: 'https://github.com/o/r/raw/main/x', status: 302 }),
+        ]);
     });
 
     it('AC4, AC10: at github, offers no web tool of its own and refuses one called by name', async () => {

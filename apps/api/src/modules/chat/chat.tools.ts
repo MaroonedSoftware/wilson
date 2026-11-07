@@ -170,13 +170,21 @@ export const chatTools = (catalog: ChatCatalog, context: ChatTurnContext): ChatT
             svg: z
                 .string()
                 .optional()
-                .describe('The whole SVG document, when kind is svg. Declare xmlns="http://www.w3.org/2000/svg" on its root, and use no scripts, event handlers or links.'),
+                .describe(
+                    'The whole SVG document, when kind is svg. Declare xmlns="http://www.w3.org/2000/svg" on its root, and use no scripts, event handlers or links.',
+                ),
             bytes: z.string().optional().describe('Base64 PNG, JPEG, WebP or GIF bytes, when kind is bytes.'),
             filename: z.string().min(1).max(120).describe('A short file name for the image, e.g. "stage-flow.svg".'),
             alt: z.string().min(1).max(200).describe('Alt text saying what the image shows.'),
         }),
         execute: async input => {
-            const { kind, svg, bytes, filename, alt } = input as { kind: 'svg' | 'bytes'; svg?: string; bytes?: string; filename: string; alt: string };
+            const { kind, svg, bytes, filename, alt } = input as {
+                kind: 'svg' | 'bytes';
+                svg?: string;
+                bytes?: string;
+                filename: string;
+                alt: string;
+            };
             if (context.created.length >= MAX_CREATED_IMAGES_PER_TURN)
                 return `You have already made ${MAX_CREATED_IMAGES_PER_TURN} images in this answer, which is the most one answer can show. Use one of those instead.`;
             if (kind === 'svg' && !svg)

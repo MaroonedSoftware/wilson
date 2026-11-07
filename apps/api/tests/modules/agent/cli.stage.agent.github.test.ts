@@ -155,11 +155,9 @@ describe('CliStageAgent and webAccess', () => {
         let n = 0;
         const viaHook = async (name: string, input: Record<string, unknown>): Promise<Decision> => {
             const id = `toolu_${++n}`;
-            const out = (await hook(
-                { hook_event_name: 'PreToolUse', tool_name: name, tool_input: input, tool_use_id: id },
-                id,
-                { signal: new AbortController().signal },
-            )) as { hookSpecificOutput: { permissionDecision: 'allow' | 'deny'; permissionDecisionReason?: string } };
+            const out = (await hook({ hook_event_name: 'PreToolUse', tool_name: name, tool_input: input, tool_use_id: id }, id, {
+                signal: new AbortController().signal,
+            })) as { hookSpecificOutput: { permissionDecision: 'allow' | 'deny'; permissionDecisionReason?: string } };
             const { permissionDecision, permissionDecisionReason } = out.hookSpecificOutput;
             return permissionDecision === 'allow' ? { behavior: 'allow' } : { behavior: 'deny', message: permissionDecisionReason };
         };
@@ -180,7 +178,10 @@ describe('CliStageAgent and webAccess', () => {
 
         for (const decide of [viaHook, viaCanUseTool]) {
             // One guard instance serves both paths, so the second refusal carries a repeat note first.
-            expect(await decide(name, { url })).toEqual({ behavior: 'deny', message: expect.stringMatching(new RegExp(`${name} is not available to this stage$`)) });
+            expect(await decide(name, { url })).toEqual({
+                behavior: 'deny',
+                message: expect.stringMatching(new RegExp(`${name} is not available to this stage$`)),
+            });
             expect((await decide('WebFetch', { url, prompt: 'x' })).behavior).toBe('deny');
         }
         expect(events.filter(e => e.type === 'tool.denied').map(e => e.payload?.url)).toContain(url);
@@ -204,8 +205,14 @@ describe('CliStageAgent and webAccess', () => {
             expect(plain.behavior).toBe('deny');
             expect(plain.message).toMatch(/only https/);
 
-            expect(await decide('WebFetch', { url, prompt: 'x' })).toEqual({ behavior: 'deny', message: expect.stringMatching(/WebFetch is not available to this stage$/) });
-            expect(await decide('WebSearch', { query: 'x' })).toEqual({ behavior: 'deny', message: expect.stringMatching(/WebSearch is not available to this stage$/) });
+            expect(await decide('WebFetch', { url, prompt: 'x' })).toEqual({
+                behavior: 'deny',
+                message: expect.stringMatching(/WebFetch is not available to this stage$/),
+            });
+            expect(await decide('WebSearch', { query: 'x' })).toEqual({
+                behavior: 'deny',
+                message: expect.stringMatching(/WebSearch is not available to this stage$/),
+            });
         }
         expect(events.filter(e => e.type === 'tool.denied').map(e => e.payload?.url)).toContain('https://example.com/x');
     });
@@ -221,7 +228,9 @@ describe('CliStageAgent and webAccess', () => {
         expect(reply.content[0]!.text).toMatch(/^error: it redirects to https:\/\/evil\.example\/steal, which was not followed/);
         expect(fetchMock).toHaveBeenCalledTimes(1);
         expect(events.filter(e => e.type === 'tool.denied')).toEqual([
-            expect.objectContaining({ payload: expect.objectContaining({ tool: GITHUB_TOOL, url: 'https://github.com/o/r/raw/main/x', status: 302 }) }),
+            expect.objectContaining({
+                payload: expect.objectContaining({ tool: GITHUB_TOOL, url: 'https://github.com/o/r/raw/main/x', status: 302 }),
+            }),
         ]);
     });
 });

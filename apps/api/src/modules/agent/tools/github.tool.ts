@@ -13,7 +13,9 @@ export const GITHUB_TOOL_DESCRIPTION =
 export const GithubToolInputSchema = z.object({
     url: z
         .string()
-        .describe('Full https URL on github.com, api.github.com or raw.githubusercontent.com, e.g. https://raw.githubusercontent.com/<owner>/<repo>/<ref>/<path>.'),
+        .describe(
+            'Full https URL on github.com, api.github.com or raw.githubusercontent.com, e.g. https://raw.githubusercontent.com/<owner>/<repo>/<ref>/<path>.',
+        ),
 });
 
 /** A stage's `webAccess` (`StageConfigSchema`). */
@@ -38,7 +40,8 @@ export const GITHUB_TIMEOUT_MS = 20_000;
 const MAX_REDIRECTS = 5;
 
 /** Content types read as text. Anything else, and any body holding a NUL byte, is refused as binary. */
-const TEXT_TYPE = /^(text\/|application\/(json|[\w.+-]*\+json|xml|[\w.+-]*\+xml|javascript|x-javascript|ecmascript|x-sh|x-yaml|yaml|toml|x-ndjson)\b)/i;
+const TEXT_TYPE =
+    /^(text\/|application\/(json|[\w.+-]*\+json|xml|[\w.+-]*\+xml|javascript|x-javascript|ecmascript|x-sh|x-yaml|yaml|toml|x-ndjson)\b)/i;
 
 export type GithubUrlCheck = { allowed: true; url: URL } | { allowed: false; reason: string; host?: string };
 
@@ -119,10 +122,7 @@ const readCapped = async (body: ReadableStream<Uint8Array> | null, maxBytes: num
  * {@link GITHUB_HOSTS}. Returns the text the model sees, success or not: a refusal is an answer
  * about the URL, never an exception.
  */
-export const fetchGithub = async (
-    raw: string,
-    options: GithubFetchOptions = {},
-): Promise<GithubFetchOutcome> => {
+export const fetchGithub = async (raw: string, options: GithubFetchOptions = {}): Promise<GithubFetchOutcome> => {
     const doFetch = options.fetch ?? fetch;
     const maxBytes = options.maxBytes ?? GITHUB_MAX_BYTES;
     const timeoutMs = options.timeoutMs ?? GITHUB_TIMEOUT_MS;
