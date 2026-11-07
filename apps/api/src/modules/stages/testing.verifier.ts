@@ -13,7 +13,65 @@ import { checkFormat, checkSecrets, type StageVerifier, type VerificationInput, 
 import { archiveTestReport } from './test.report.archive.js';
 import { parseTestReport, type FailingTest, type TestCounts, type TestReport } from './test.report.js';
 
+/**
+ * A vitest test file. Its four uses below split in two (card 0037):
+ *
+ * - the no-tests check and the scratch-name check (`newTestPaths`) only ask whether a path *is* a
+ *   test, and could take a Kotlin file as well;
+ * - the baseline run and its candidate paths (`checkBaseline`) hand the paths to `stage.testCommand`
+ *   and read the vitest report it writes, so they must never see a Kotlin file. Neither must the
+ *   red-run rerun or the test-count comparison, which read that same report.
+ *
+ * So this stays `*.test.ts`, and an Android-only diff takes its own path (`isAndroidOnlyDiff`,
+ * `KOTLIN_TEST_FILE_PATTERN`) rather than this pattern growing a `.kt` branch.
+ */
 const TEST_FILE_PATTERN = /(^|\/)[^/]*\.test\.ts$/;
+
+/** Code that belongs to the Android app: the app itself and the Kotlin SDK it builds against. */
+const ANDROID_PATH_PATTERN = /^(?:apps\/android|packages\/sdk-kotlin)\//;
+
+/**
+ * Paths an Android-only card may also carry without stopping being one: Markdown (a changeset, a
+ * README, PROJECT.md) and the runner's own `.wilson-*` bookkeeping. Neither can hold TypeScript.
+ */
+const NON_CODE_PATH_PATTERN = /\.md$|(^|\/)\.wilson-[^/]*$/;
+
+/** A Kotlin unit test of the Android app: `apps/android/<module>/src/test/**\/<Name>Test.kt`. */
+export const KOTLIN_TEST_FILE_PATTERN = /^apps\/android\/(?:[^/]+\/)*src\/test\/(?:[^/]+\/)*[^/]+Test\.kt$/;
+
+/**
+ * How the testing stage runs the Android app's unit tests, from the worktree root. Fixed here and
+ * never taken from the agent or a plan: `./gradlew :app:testDebugUnitTest`, spelled for a cwd at the
+ * repo root (`-p` points gradle at the Android project). A stage that may run it itself lists this
+ * exact string in its `allowedCommands`, and `CommandAllowlist` accepts a gradle entry only verbatim.
+ */
+export const KOTLIN_TEST_COMMAND = 'apps/android/gradlew -p apps/android :app:testDebugUnitTest';
+
+/**
+ * Whether this diff changes only the Android app (card 0037): at least one path under `apps/android`
+ * or `packages/sdk-kotlin`, and every other path Markdown or runner bookkeeping. Anything else — a
+ * `.ts` file above all — makes it an ordinary diff, which still needs a `*.test.ts`. A mixed diff is
+ * deliberately not Android-only: adding a Kotlin test must never excuse untested TypeScript.
+ */
+export const isAndroidOnlyDiff = (changedPaths: readonly string[]): boolean =>
+    changedPaths.some(path => ANDROID_PATH_PATTERN.test(path)) &&
+    changedPaths.every(path => ANDROID_PATH_PATTERN.test(path) || NON_CODE_PATH_PATTERN.test(path));
+
+/**
+ * The checks an Android-only diff does not run, because each reads the vitest report that only
+ * `stage.testCommand` writes. Logged as skipped, never folded into a pass.
+ */
+export const ANDROID_SKIPPED_CHECKS = [
+    'the vitest run and its report',
+    'the test-count and skipped-count comparison against the baseline',
+    'the failing-file rerun for flakes',
+    'the pre-existing-failure exemption',
+    'the scratch-name check on *.test.ts files',
+] as const;
+
+/** The no-tests failure for an Android-only diff. */
+export const NO_KOTLIN_TEST_FAILURE =
+    'the diff changes only Android code and contains no file matching apps/android/**/src/test/**/*Test.kt: the testing stage added no tests';
 
 // A leading underscore, or `tmp`/`scratch`/`temp` as the whole leading word (followed by `_`, `.`
 // or `-`), not merely a prefix — "temporary.test.ts" and "scratchpad.test.ts" are real names, not
@@ -274,6 +332,16 @@ export class TestingVerifier implements StageVerifier {
         const failures: string[] = [...secrets.failures];
         const changedPaths = await this.worktrees.changedPaths(worktree);
 
+        if (isAndroidOnlyDiff(changedPaths)) {
+            failures.push(...(await this.verifyAndroid(cardId, worktree, stage, card, changedPaths)));
+            return {
+                passed: failures.length === 0,
+                failures,
+                changedPaths,
+                ...(secrets.needsHumanReason ? { needsHumanReason: secrets.needsHumanReason } : {}),
+            };
+        }
+
         const startedAt = Date.now();
         const run = stage.testCommand
             ? await runConfiguredCommand(worktree.path, stage.testCommand, stage.testTimeoutMs, undefined, worktreeHost(worktree))
@@ -333,6 +401,100 @@ export class TestingVerifier implements StageVerifier {
             ...(judged.preExisting.length > 0 ? { preExistingFailures: judged.preExisting } : {}),
             ...(secrets.needsHumanReason ? { needsHumanReason: secrets.needsHumanReason } : {}),
         };
+    }
+
+    /**
+     * The exit condition for a diff that changes only the Android app (card 0037). Card 0027 stalled
+     * here: it could add no `*.test.ts` worth having and had no way to run gradle.
+     *
+     * The Kotlin unit tests (`KOTLIN_TEST_COMMAND`) stand in for the vitest run, and a red run fails
+     * the stage. The format and assertion checks run as for any diff. The no-tests check asks for a
+     * Kotlin test instead of a `*.test.ts`. The failing-before check still holds: the card's Kotlin
+     * test files are copied onto the pre-change tree and the gradle run there must fail
+     * (`checkKotlinBaseline`). What needs the vitest report — `ANDROID_SKIPPED_CHECKS` — is not run,
+     * and the log says so, rather than any of it counting as passed.
+     */
+    private async verifyAndroid(
+        cardId: string,
+        worktree: Worktree,
+        stage: StageConfig,
+        card: VerificationInput['card'],
+        changedPaths: string[],
+    ): Promise<string[]> {
+        this.logger.warn(
+            `${cardId}: the diff changes only Android code, so the Kotlin unit tests were run instead of the vitest suite. ` +
+                `Skipped, not passed: ${ANDROID_SKIPPED_CHECKS.join('; ')}`,
+        );
+
+        const failures: string[] = [];
+        const run = await runConfiguredCommand(worktree.path, KOTLIN_TEST_COMMAND, stage.testTimeoutMs, undefined, worktreeHost(worktree));
+        if (run) failures.push(`the Kotlin unit tests are not green: ${run.reason}`);
+
+        failures.push(...(await checkFormat(worktree, stage)));
+
+        if (stage.assertionCheck) {
+            failures.push(...(await this.checkAssertions(worktree, expectedAssertionDrop(card) ?? 0)));
+        }
+
+        if (!changedPaths.some(path => KOTLIN_TEST_FILE_PATTERN.test(path))) {
+            failures.push(NO_KOTLIN_TEST_FAILURE);
+        }
+
+        if (stage.baselineCheck) {
+            failures.push(...(await this.checkKotlinBaseline(cardId, worktree, stage, changedPaths)));
+        } else {
+            this.logger.warn('baselineCheck disabled: the Kotlin baseline check was skipped, not passed');
+        }
+        return failures;
+    }
+
+    /**
+     * The failing-before check for Kotlin tests: copy the card's Kotlin test files onto a worktree cut
+     * from the card's base and run `KOTLIN_TEST_COMMAND` there. Gradle writes no report this verifier
+     * reads, so the exit code is the whole proof — the same signal `baselineProvesChange` already
+     * accepts for vitest. A new test that does not compile against the pre-change code fails the run,
+     * which is the common case and counts, as a vitest import error does.
+     *
+     * Its limit: gradle cannot be narrowed to the copied files by path, so the whole unit-test task
+     * runs, and a test already red on the base tree would make this pass for the wrong reason.
+     */
+    private async checkKotlinBaseline(cardId: string, worktree: Worktree, stage: StageConfig, changedPaths: string[]): Promise<string[]> {
+        const testPaths = await this.existingPaths(
+            worktree,
+            changedPaths.filter(path => KOTLIN_TEST_FILE_PATTERN.test(path)),
+        );
+        if (testPaths.length === 0) return [];
+
+        return withBaselineWorktree<string[]>(
+            this.worktrees,
+            this.logger,
+            { id: `${cardId}-baseline`, source: worktree, setupCommand: stage.setupCommand, setupLabel: `${cardId} testing baseline setup` },
+            reason => [`the baseline worktree could not be set up: ${reason}`],
+            async baseline => {
+                for (const path of testPaths) {
+                    const dest = join(baseline.path, path);
+                    await worktreeHost(baseline).mkdir(dirname(dest));
+                    await worktreeHost(baseline).copyFile(join(worktree.path, path), dest);
+                }
+                const run = await runConfiguredCommand(baseline.path, KOTLIN_TEST_COMMAND, stage.testTimeoutMs, undefined, worktreeHost(baseline));
+                return run ? [] : [baselineRefusal(testPaths)];
+            },
+        );
+    }
+
+    /** The paths that still exist in the worktree: a deleted test is in the diff but cannot be copied (card 0078). */
+    private async existingPaths(worktree: Worktree, paths: string[]): Promise<string[]> {
+        return (
+            await Promise.all(
+                paths.map(async path =>
+                    (await worktreeHost(worktree)
+                        .stat(join(worktree.path, path))
+                        .catch(() => undefined))
+                        ? path
+                        : undefined,
+                ),
+            )
+        ).filter((path): path is string => path !== undefined);
     }
 
     /**
@@ -571,18 +733,10 @@ export class TestingVerifier implements StageVerifier {
         // happened to card 0078 once its `wilson card run` test file was removed. Deleted tests are
         // not this check's business anyway: it exists to prove the card's *new* tests fail against
         // the pre-change tree, and a test that no longer exists cannot be run in either tree.
-        const candidatePaths = changedPaths.filter(path => TEST_FILE_PATTERN.test(path));
-        const testPaths = (
-            await Promise.all(
-                candidatePaths.map(async path =>
-                    (await worktreeHost(worktree)
-                        .stat(join(worktree.path, path))
-                        .catch(() => undefined))
-                        ? path
-                        : undefined,
-                ),
-            )
-        ).filter((path): path is string => path !== undefined);
+        const testPaths = await this.existingPaths(
+            worktree,
+            changedPaths.filter(path => TEST_FILE_PATTERN.test(path)),
+        );
         if (testPaths.length === 0) return { failures: [] };
 
         const failures: string[] = [];

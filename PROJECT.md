@@ -494,6 +494,20 @@ and the like are not flagged. It does not depend on `baselineCheck`, and a lane 
 `Expected assertion drop: N (reason)`, whose `N` covers drops and new tautologies together; a stage's
 `caveats` do not count. Other languages' test files are not read.
 
+A diff that changes only the Android app — every path under `apps/android` or `packages/sdk-kotlin`,
+apart from Markdown and the runner's `.wilson-*` files — is tested in Kotlin instead (card 0037). Its
+added test is an `apps/android/**/src/test/**/*Test.kt` file, not a `*.test.ts`. "Suite green" is
+`apps/android/gradlew -p apps/android :app:testDebugUnitTest` exiting 0, and a red run fails the stage.
+The failing-before check copies the new Kotlin tests onto the pre-change tree and needs that gradle
+run to fail there, judged on its exit code alone. It cannot narrow to the copied files, so a test
+already red on the base would satisfy it. The test-count and skip comparison, the flake rerun and the
+pre-existing exemption all read the vitest report, so for such a card they are skipped, not passed,
+and the verifier's log names them. Any other diff, including one that changes Android files and
+TypeScript together, still needs a `*.test.ts`. A stage may run that gradle command itself only if
+its `allowedCommands` lists it, and `CommandAllowlist` matches a gradle entry verbatim, never as a
+prefix: gradle's extra arguments (`--init-script`, `-D`, more tasks) run other build logic. Emulator
+tests and `android-verify` stay out of the stages.
+
 Implementing and testing also fail on a credential in the card's diff: a private key with its body,
 a GitHub token, an AWS access key, or an Anthropic or OpenAI key, on any line added since the fork
 point. Each format must also look random, so a header in a parser, the AWS documentation key and
