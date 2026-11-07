@@ -12,11 +12,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -41,6 +43,7 @@ import com.maroonedsoftware.wilson.ui.edit.CardFormModel
 import com.maroonedsoftware.wilson.ui.edit.CardFormScreen
 import com.maroonedsoftware.wilson.ui.nav.Destination
 import com.maroonedsoftware.wilson.ui.nav.NavConfiguration
+import com.maroonedsoftware.wilson.ui.nav.SessionScope
 import com.maroonedsoftware.wilson.ui.plan.PlanModel
 import com.maroonedsoftware.wilson.ui.plan.PlanScreen
 import com.maroonedsoftware.wilson.ui.signin.SignInModel
@@ -94,10 +97,12 @@ private class Read(val session: StoredSession?)
 private fun Root(app: WilsonApp, opening: MutableStateFlow<Destination.Card?>) {
     val read by remember { app.session.session.map(::Read) }.collectAsState(initial = null)
     val current = read ?: return
+    val scope: SessionScope = viewModel()
     if (current.session == null) {
+        LaunchedEffect(Unit) { scope.end() }
         SignInScreen(viewModel(factory = viewModelFactory { initializer { SignInModel(app) } }))
     } else {
-        SignedIn(app, opening)
+        CompositionLocalProvider(LocalViewModelStoreOwner provides scope) { SignedIn(app, opening) }
     }
 }
 
