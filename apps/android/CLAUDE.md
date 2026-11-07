@@ -42,6 +42,10 @@ skill, and say plainly what you did not run. Record what you find here, dated.
   answer `image/svg+xml`, which `BitmapFactory` cannot read: such an image shows as failed. Images are decoded
   at most 2048 px on a side. Answers' images are drawn under the text, as Android has no Markdown renderer to
   place the ones an answer embeds.
+- Goals are across projects, `/api/goals` publishes no feed event of its own, and a goal's cards move
+  under their project's feed. So the goals list re-reads on every resume and on pull-to-refresh, and a
+  goal's detail re-reads on start, after each status change, and on each non-`tool.*` event of the goal's
+  own project's feed. Nothing polls: web's `GOAL_REFRESH_MS` has no equivalent here, for the battery.
 
 ## Found on the emulator
 
@@ -95,6 +99,14 @@ skill, and say plainly what you did not run. Record what you find here, dated.
   no longer chosen is dropped, and the previous figures stay up while a new window loads. It re-reads each time it
   starts and on each non-tool feed event. The stage that built it could not run `./gradlew` or the emulator: check
   it on `wilson`, rotating it, and check that the board's top bar still fits with four buttons on a narrow phone.
+- 2026-11-07, not yet run on a screen: the goals list and goal detail (`ui/goal`). The stage that built them ran on a
+  worker with no JDK and no emulator, so neither `./gradlew` nor the `android-verify` walk ran, and nothing about
+  them has been seen. With Stats merged, the board's top bar now holds Activity, Stats, Goals, Chat and Sign out
+  beside the project switcher: check on `wilson` in portrait that the switcher is still legible. Walk Board → Goals →
+  a goal → a card → Back → Back, change one status, and rotate on each screen. `verify.sh seed` makes no goals:
+  insert a `wilson.chat_threads` row, `POST /api/goals` twice through `tools/api.sh`, and patch one to `done` so
+  "Finished" draws. Record `GET /api/goals` and `GET /api/goals/{id}` as `goals.json` and `goal-detail.json` for
+  `ApiDecodeTest` then; none were recorded.
 - 2026-11-06, not run on a screen: chat questions (`ask_user`) are stored mid-turn like proposed actions, so a
   question card follows the answer of the turn that asked it, by the same rule. A refused answer is the chat's
   first snackbar; a refused Confirm or Decline still shows as the red line above the composer. Android is not a

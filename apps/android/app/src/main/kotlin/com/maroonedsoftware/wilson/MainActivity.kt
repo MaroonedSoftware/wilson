@@ -41,6 +41,10 @@ import com.maroonedsoftware.wilson.ui.chat.ThreadsModel
 import com.maroonedsoftware.wilson.ui.chat.ThreadsScreen
 import com.maroonedsoftware.wilson.ui.edit.CardFormModel
 import com.maroonedsoftware.wilson.ui.edit.CardFormScreen
+import com.maroonedsoftware.wilson.ui.goal.GoalModel
+import com.maroonedsoftware.wilson.ui.goal.GoalScreen
+import com.maroonedsoftware.wilson.ui.goal.GoalsModel
+import com.maroonedsoftware.wilson.ui.goal.GoalsScreen
 import com.maroonedsoftware.wilson.ui.nav.Destination
 import com.maroonedsoftware.wilson.ui.nav.NavConfiguration
 import com.maroonedsoftware.wilson.ui.nav.SessionScope
@@ -131,6 +135,7 @@ private fun SignedIn(app: WilsonApp, opening: MutableStateFlow<Destination.Card?
                     onChat = { backStack.add(Destination.Threads) },
                     onActivity = { project -> backStack.add(Destination.Activity(project)) },
                     onStats = { project -> backStack.add(Destination.Stats(project)) },
+                    onGoals = { backStack.add(Destination.Goals) },
                 )
             }
             entry<Destination.Stats> { key ->
@@ -138,6 +143,21 @@ private fun SignedIn(app: WilsonApp, opening: MutableStateFlow<Destination.Card?
                     viewModel(key = "stats:${key.project}", factory = viewModelFactory { initializer { StatsModel(app, key.project) } }),
                     onBack = { backStack.removeLastOrNull() },
                     onCard = { id -> backStack.add(Destination.Card(key.project, id)) },
+                )
+            }
+            entry<Destination.Goals> {
+                GoalsScreen(
+                    viewModel(factory = viewModelFactory { initializer { GoalsModel(app) } }),
+                    onBack = { backStack.removeLastOrNull() },
+                    onGoal = { id -> backStack.add(Destination.Goal(id)) },
+                )
+            }
+            entry<Destination.Goal> { key ->
+                GoalScreen(
+                    viewModel(key = "goal:${key.id}", factory = viewModelFactory { initializer { GoalModel(app, key.id) } }),
+                    onBack = { backStack.removeLastOrNull() },
+                    onCard = { project, id -> backStack.add(Destination.Card(project, id)) },
+                    onConversation = { threadId -> backStack.add(Destination.Chat(threadId)) },
                 )
             }
             entry<Destination.Activity> { key ->
