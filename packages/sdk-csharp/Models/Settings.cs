@@ -215,6 +215,23 @@ public sealed record SetAutoSplitSettingRequest
 }
 
 /// <summary>
+/// Whether Merge lands a card on GitHub as a pull request instead of moving `main` in the project clone.
+/// Needs dry run off and the GitHub App installed on the project's repository with Contents and Pull
+/// requests write permissions. See `merge.pull.request.setting.ts` for the default (off).
+/// </summary>
+public sealed record MergePullRequestSetting
+{
+    [JsonPropertyName("enabled")]
+    public required bool Enabled { get; init; }
+}
+
+public sealed record SetMergePullRequestSettingRequest
+{
+    [JsonPropertyName("enabled")]
+    public required bool Enabled { get; init; }
+}
+
+/// <summary>
 /// Whether the poller has an agent draft the plan of a card waiting in `planning` without one. Each draft
 /// is a model run, once per card, and the card still waits for a person to approve it. See
 /// `auto.plan.setting.ts` for the default (off).

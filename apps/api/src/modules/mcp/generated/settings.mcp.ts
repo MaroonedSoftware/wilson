@@ -15,6 +15,7 @@ import { DrainSettingService } from '#modules/settings/drain.setting.service.js'
 import { DryRunSettingService } from '#modules/settings/dry.run.setting.service.js';
 import { GitHubAppSettingService } from '#modules/settings/github.app.setting.service.js';
 import { LocalStageSlotsSettingService } from '#modules/settings/local.stage.slots.setting.service.js';
+import { MergePullRequestSettingService } from '#modules/settings/merge.pull.request.setting.service.js';
 import { NotifyWebhookSettingService } from '#modules/settings/notify.webhook.setting.service.js';
 import { OrchestratorSettingService } from '#modules/settings/orchestrator.setting.service.js';
 import { PollerIntervalSettingService } from '#modules/settings/poller.interval.setting.service.js';
@@ -30,6 +31,7 @@ import {
     DryRunSetting,
     GitHubAppSetting,
     LocalStageSlots,
+    MergePullRequestSetting,
     NotifyWebhookSetting,
     OrchestratorSetting,
     PollerInterval,
@@ -42,6 +44,7 @@ import {
     SetDryRunSettingRequest,
     SetGitHubAppSettingRequest,
     SetLocalStageSlotsRequest,
+    SetMergePullRequestSettingRequest,
     SetNotifyWebhookSettingRequest,
     SetPollerIntervalRequest,
     SetPollerSettingRequest,
@@ -71,6 +74,8 @@ const GetDryRunSettingArgs = z.object({});
 const SetDryRunSettingArgs = z.object({ body: SetDryRunSettingRequest });
 const GetAutoSplitSettingArgs = z.object({});
 const SetAutoSplitSettingArgs = z.object({ body: SetAutoSplitSettingRequest });
+const GetMergePullRequestSettingArgs = z.object({});
+const SetMergePullRequestSettingArgs = z.object({ body: SetMergePullRequestSettingRequest });
 const GetAutoPlanSettingArgs = z.object({});
 const GetRuleJudgeSettingArgs = z.object({});
 const GetChatEngineSettingArgs = z.object({});
@@ -426,6 +431,49 @@ export class SetAutoSplitSettingMcpTool implements McpToolHandler {
 }
 
 /**
+ * from [settings.ck](../../../../data/contracts/settings.ck) `GET /api/settings/merge-pull-request`
+ */
+@Injectable()
+export class GetMergePullRequestSettingMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'get_merge_pull_request_setting',
+        inputSchema: z.toJSONSchema(GetMergePullRequestSettingArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(MergePullRequestSetting, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
+    };
+
+    async handle(_args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
+        const result = await container.get(MergePullRequestSettingService).get();
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
+ * from [settings.ck](../../../../data/contracts/settings.ck) `PUT /api/settings/merge-pull-request`
+ */
+@Injectable()
+export class SetMergePullRequestSettingMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'set_merge_pull_request_setting',
+        inputSchema: z.toJSONSchema(SetMergePullRequestSettingArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(MergePullRequestSetting, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.manage' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.manage' });
+        const { body } = await parseAndValidate(args, SetMergePullRequestSettingArgs);
+        const result = await container.get(MergePullRequestSettingService).set(body);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
  * from [settings.ck](../../../../data/contracts/settings.ck) `GET /api/settings/auto-plan`
  */
 @Injectable()
@@ -637,6 +685,8 @@ export function registerSettingsMcpCatalog(map: McpToolHandlerMap, container: Co
     map.set('set_dry_run_setting', container.get(SetDryRunSettingMcpTool));
     map.set('get_auto_split_setting', container.get(GetAutoSplitSettingMcpTool));
     map.set('set_auto_split_setting', container.get(SetAutoSplitSettingMcpTool));
+    map.set('get_merge_pull_request_setting', container.get(GetMergePullRequestSettingMcpTool));
+    map.set('set_merge_pull_request_setting', container.get(SetMergePullRequestSettingMcpTool));
     map.set('get_auto_plan_setting', container.get(GetAutoPlanSettingMcpTool));
     map.set('get_rule_judge_setting', container.get(GetRuleJudgeSettingMcpTool));
     map.set('get_chat_engine_setting', container.get(GetChatEngineSettingMcpTool));
@@ -666,6 +716,8 @@ export function registerSettingsMcpToolClasses(registry: Registry): void {
     registry.register(SetDryRunSettingMcpTool).useClass(SetDryRunSettingMcpTool).asSingleton();
     registry.register(GetAutoSplitSettingMcpTool).useClass(GetAutoSplitSettingMcpTool).asSingleton();
     registry.register(SetAutoSplitSettingMcpTool).useClass(SetAutoSplitSettingMcpTool).asSingleton();
+    registry.register(GetMergePullRequestSettingMcpTool).useClass(GetMergePullRequestSettingMcpTool).asSingleton();
+    registry.register(SetMergePullRequestSettingMcpTool).useClass(SetMergePullRequestSettingMcpTool).asSingleton();
     registry.register(GetAutoPlanSettingMcpTool).useClass(GetAutoPlanSettingMcpTool).asSingleton();
     registry.register(GetRuleJudgeSettingMcpTool).useClass(GetRuleJudgeSettingMcpTool).asSingleton();
     registry.register(GetChatEngineSettingMcpTool).useClass(GetChatEngineSettingMcpTool).asSingleton();

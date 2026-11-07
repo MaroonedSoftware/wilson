@@ -9,6 +9,7 @@ import { DryRunSettingService } from '#modules/settings/dry.run.setting.service.
 import { EngineTokenSettingService } from '#modules/settings/engine.token.setting.service.js';
 import { GitHubAppSettingService } from '#modules/settings/github.app.setting.service.js';
 import { LocalStageSlotsSettingService } from '#modules/settings/local.stage.slots.setting.service.js';
+import { MergePullRequestSettingService } from '#modules/settings/merge.pull.request.setting.service.js';
 import { NotifyWebhookSettingService } from '#modules/settings/notify.webhook.setting.service.js';
 import { OrchestratorSettingService } from '#modules/settings/orchestrator.setting.service.js';
 import { PollerIntervalSettingService } from '#modules/settings/poller.interval.setting.service.js';
@@ -25,6 +26,7 @@ import {
     EngineTokenSetting,
     GitHubAppSetting,
     LocalStageSlots,
+    MergePullRequestSetting,
     NotifyWebhookSetting,
     OrchestratorSetting,
     PollerInterval,
@@ -39,6 +41,7 @@ import {
     SetEngineTokenSettingRequest,
     SetGitHubAppSettingRequest,
     SetLocalStageSlotsRequest,
+    SetMergePullRequestSettingRequest,
     SetNotifyWebhookSettingRequest,
     SetOrchestratorSettingRequest,
     SetPollerIntervalRequest,
@@ -279,6 +282,32 @@ SettingsRouter.put('/api/settings/auto-split', requirePolicy({ policy: 'wilson.m
 
     const service = ctx.container.get(AutoSplitSettingService);
     const result: AutoSplitSetting = await service.set(body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `GET /api/settings/merge-pull-request`
+ */
+SettingsRouter.get('/api/settings/merge-pull-request', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const service = ctx.container.get(MergePullRequestSettingService);
+    const result: MergePullRequestSetting = await service.get();
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
+ * from [settings.ck](../../data/contracts/settings.ck) `PUT /api/settings/merge-pull-request`
+ */
+SettingsRouter.put('/api/settings/merge-pull-request', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const body = await parseAndValidate(ctx.parsedBody, SetMergePullRequestSettingRequest);
+
+    const service = ctx.container.get(MergePullRequestSettingService);
+    const result: MergePullRequestSetting = await service.set(body);
 
     ctx.status = 200;
     ctx.type = 'application/json';

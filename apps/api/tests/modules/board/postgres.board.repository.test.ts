@@ -264,6 +264,21 @@ describe('PostgresBoardRepository', () => {
         expect(stored.frontmatter.needsHumanReason).toBe('blocked on a design call');
     });
 
+    it('keeps the pull request a merge opened, through the card reaching merged', async () => {
+        await board.create(card('0001'), 'create');
+        expect((await board.read('0001')).frontmatter.pullRequest).toBeUndefined();
+
+        const pullRequest = { number: 12, url: 'https://github.com/acme/app/pull/12', state: 'open' as const };
+        await board.write('0001', 'open a pull request', c => ({ ...c, frontmatter: { ...c.frontmatter, pullRequest } }));
+        expect((await board.read('0001')).frontmatter.pullRequest).toEqual(pullRequest);
+
+        await board.write('0001', 'merged', c => ({
+            ...c,
+            frontmatter: { ...c.frontmatter, stage: 'merged', pullRequest: { ...pullRequest, state: 'merged' } },
+        }));
+        expect((await board.read('0001')).frontmatter.pullRequest).toEqual({ ...pullRequest, state: 'merged' });
+    });
+
     it('refuses a dependency on a card that does not exist', async () => {
         await expect(board.create(card('0002', { dependsOn: ['9999'] }), 'create')).rejects.toThrow();
     });

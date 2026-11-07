@@ -74,6 +74,19 @@ data class CardBlocked(
 )
 
 /**
+ * The GitHub pull request Merge opened for a card, when its project lands merges as pull requests
+ * (`merge-opens-pull-request`). The card waits in `ready` while it is `open` and reaches `merged` when
+ * GitHub merges it. `closed` is one closed without merging: the card is flagged, and Merge opens a
+ * new one.
+ */
+@Serializable
+data class CardPullRequest(
+    val number: Long,
+    val url: String,
+    val state: CardPullRequestState,
+)
+
+/**
  * One card cut from a split origin, as `CardDetail.pieces` lists it: enough to show how far the split
  * has got without a read per piece.
  */
@@ -662,6 +675,8 @@ data class CardSummary(
      * `getById`), the same way `resolvedBranch` is. A write response leaves it absent rather than guess.
      */
     val mergeStatus: MergeStatus? = null,
+    /** Absent until a merge opens one, and kept once the card is merged. */
+    val pullRequest: CardPullRequest? = null,
 )
 
 @Serializable
@@ -945,6 +960,8 @@ data class CardDetail(
      * `getById`), the same way `resolvedBranch` is. A write response leaves it absent rather than guess.
      */
     val mergeStatus: MergeStatus? = null,
+    /** Absent until a merge opens one, and kept once the card is merged. */
+    val pullRequest: CardPullRequest? = null,
     val body: String,
     val sections: Map<String, String>,
     /**
@@ -1040,6 +1057,8 @@ data class ReleaseResult(
      * `getById`), the same way `resolvedBranch` is. A write response leaves it absent rather than guess.
      */
     val mergeStatus: MergeStatus? = null,
+    /** Absent until a merge opens one, and kept once the card is merged. */
+    val pullRequest: CardPullRequest? = null,
     val body: String,
     val sections: Map<String, String>,
     /**
@@ -1057,6 +1076,9 @@ data class ReleaseResult(
  * attempt can have, the same way `ReleaseResult.releasedAs` names which safe-to-cancel case a
  * release was, so both come back as `merged: false` with `reason` in a 200, not a 400. The only
  * thing this operation refuses outright is a card that is not in `ready` (see its 400 below).
+ *
+ * A project that lands merges as pull requests answers a proven merge with `merged: false`, the
+ * card's `pullRequest` open, and `reason` naming it: the card has not merged until GitHub merges it.
  */
 @Serializable
 data class MergeResult(
@@ -1116,6 +1138,8 @@ data class MergeResult(
      * `getById`), the same way `resolvedBranch` is. A write response leaves it absent rather than guess.
      */
     val mergeStatus: MergeStatus? = null,
+    /** Absent until a merge opens one, and kept once the card is merged. */
+    val pullRequest: CardPullRequest? = null,
     val body: String,
     val sections: Map<String, String>,
     /**
@@ -1129,7 +1153,8 @@ data class MergeResult(
     val commit: String? = null,
     /**
      * Why the attempt did not land — a conflict naming the paths, or the suite's own failure —
-     * present only when `merged` is false.
+     * or, with `pullRequest` open, which pull request it opened instead. Present only when `merged`
+     * is false.
      */
     val reason: String? = null,
 )
@@ -1196,6 +1221,28 @@ object CardBlockedCategorySerializer : SdkEnumSerializer<CardBlockedCategory>(
     CardBlockedCategory.REQUIREMENTS to "requirements",
     CardBlockedCategory.ENVIRONMENT to "environment",
     CardBlockedCategory.OTHER to "other",
+)
+
+@Serializable(with = CardPullRequestStateSerializer::class)
+enum class CardPullRequestState {
+    OPEN,
+    CLOSED,
+    MERGED,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [CardPullRequestState] by its wire spelling. A spelling it does not know reads as [CardPullRequestState.UNKNOWN]. */
+object CardPullRequestStateSerializer : SdkEnumSerializer<CardPullRequestState>(
+    "CardPullRequestState",
+    CardPullRequestState.UNKNOWN,
+    CardPullRequestState.OPEN to "open",
+    CardPullRequestState.CLOSED to "closed",
+    CardPullRequestState.MERGED to "merged",
 )
 
 /** How the card ended, once it has. Absent for a card still on the board. */

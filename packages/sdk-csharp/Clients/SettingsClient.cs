@@ -214,6 +214,27 @@ public sealed class SettingsClient(SdkHttp http)
         return http.ReadJson<AutoSplitSetting>(response);
     }
 
+    /// <summary>Get merge pull request setting</summary>
+    public async Task<MergePullRequestSetting> GetMergePullRequestSettingAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "settings", "merge-pull-request"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<MergePullRequestSetting>(response);
+    }
+
+    /// <summary>Set merge pull request setting</summary>
+    public async Task<MergePullRequestSetting> SetMergePullRequestSettingAsync(SetMergePullRequestSettingRequest body, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Put,
+            http.Path("api", "settings", "merge-pull-request"),
+            content: http.JsonContent(body, "application/json"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<MergePullRequestSetting>(response);
+    }
+
     /// <summary>Get auto plan setting</summary>
     public async Task<AutoPlanSetting> GetAutoPlanSettingAsync(CancellationToken cancellationToken = default)
     {

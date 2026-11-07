@@ -92,6 +92,18 @@ export interface CardFrontmatter {
      * on the stored row.
      */
     position?: number;
+    /**
+     * The GitHub pull request Merge opened for this card, when its project lands merges as pull
+     * requests. The card waits in `ready` while it is open and reaches `merged` when it merges.
+     */
+    pullRequest?: CardPullRequest;
+}
+
+/** A GitHub pull request as a card records it. */
+export interface CardPullRequest {
+    number: number;
+    url: string;
+    state: 'open' | 'closed' | 'merged';
 }
 
 export interface Card {

@@ -182,6 +182,21 @@ data class SetAutoSplitSettingRequest(
 )
 
 /**
+ * Whether Merge lands a card on GitHub as a pull request instead of moving `main` in the project clone.
+ * Needs dry run off and the GitHub App installed on the project's repository with Contents and Pull
+ * requests write permissions. See `merge.pull.request.setting.ts` for the default (off).
+ */
+@Serializable
+data class MergePullRequestSetting(
+    val enabled: Boolean,
+)
+
+@Serializable
+data class SetMergePullRequestSettingRequest(
+    val enabled: Boolean,
+)
+
+/**
  * Whether the poller has an agent draft the plan of a card waiting in `planning` without one. Each draft
  * is a model run, once per card, and the card still waits for a person to approve it. See
  * `auto.plan.setting.ts` for the default (off).

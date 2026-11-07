@@ -167,6 +167,7 @@ export interface WilsonCards {
   planCheckReason: string | null;
   position: number | null;
   project: string;
+  pullRequest: Json | null;
   retries: Generated<Json>;
   sourceClosed: boolean | null;
   splitFrom: string | null;

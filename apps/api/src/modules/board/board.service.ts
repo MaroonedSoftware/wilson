@@ -72,6 +72,7 @@ export const toCardSummary = (card: Card): CardSummary => ({
     blocked: card.frontmatter.blocked && { ...card.frontmatter.blocked, askedAt: DateTime.fromISO(card.frontmatter.blocked.askedAt) },
     position: card.frontmatter.position,
     splitFrom: card.frontmatter.splitFrom,
+    pullRequest: card.frontmatter.pullRequest,
 });
 
 export const toCardDetail = (card: Card): CardDetail => ({
