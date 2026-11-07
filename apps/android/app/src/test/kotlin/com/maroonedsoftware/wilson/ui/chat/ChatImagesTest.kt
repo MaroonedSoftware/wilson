@@ -99,11 +99,11 @@ class ChatImagesTest {
         val images = ChatImages(backgroundScope, { _, _ -> answer.await() }, { it.size })
 
         val load = images.load("12", "34")
-        testScheduler.advanceUntilIdle()
+        testScheduler.runCurrent()
         assertEquals(ImageLoad.Loading, load.value)
 
         answer.complete(PNG)
-        testScheduler.advanceUntilIdle()
+        testScheduler.runCurrent()
         assertEquals(ImageLoad.Loaded(4), load.value)
     }
 
@@ -112,7 +112,7 @@ class ChatImagesTest {
         val images = ChatImages<ByteArray>(backgroundScope, { _, _ -> throw IOException("no route") }, { it })
 
         val load = images.load("12", "34")
-        testScheduler.advanceUntilIdle()
+        testScheduler.runCurrent()
         assertEquals(ImageLoad.Failed, load.value)
     }
 
@@ -129,7 +129,7 @@ class ChatImagesTest {
         val images = ChatImages<Int>(backgroundScope, { _, _ -> PNG }, { null })
 
         val load = images.load("12", "34")
-        testScheduler.advanceUntilIdle()
+        testScheduler.runCurrent()
         assertEquals(ImageLoad.Failed, load.value)
     }
 
@@ -139,10 +139,10 @@ class ChatImagesTest {
         val images = ChatImages(backgroundScope, { _, _ -> fetches.incrementAndGet(); PNG }, { it })
 
         val first = images.load("12", "34")
-        testScheduler.advanceUntilIdle()
+        testScheduler.runCurrent()
         assertSame(first, images.load("12", "34"))
         images.load("12", "35")
-        testScheduler.advanceUntilIdle()
+        testScheduler.runCurrent()
         assertEquals(2, fetches.get())
     }
 
