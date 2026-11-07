@@ -90,6 +90,25 @@ describe('wilson card merge', () => {
         expect(logger.error).not.toHaveBeenCalled();
     });
 
+    it('names the pull request a merge opened, exiting 0', async () => {
+        fetchMock.mockResolvedValueOnce(card());
+        fetchMock.mockResolvedValueOnce(
+            jsonResponse({
+                merged: false,
+                reason: 'opened pull request #12',
+                pullRequest: { number: 12, url: 'https://github.com/acme/app/pull/12', state: 'open' },
+            }),
+        );
+        const { ctx, logger } = buildCtx();
+
+        const result = await run(ctx, '0090');
+
+        expect(result).toBe(0);
+        expect(logger.info.mock.calls.map(call => call[0])).toEqual([
+            '0090: opened pull request #12, https://github.com/acme/app/pull/12; the card moves to merged when it merges',
+        ]);
+    });
+
     it('surfaces the API error for an unknown card id, the way other commands do', async () => {
         fetchMock.mockResolvedValueOnce(jsonResponse({ details: { reason: '9999 does not exist' } }, 404));
         const { ctx, logger } = buildCtx();
