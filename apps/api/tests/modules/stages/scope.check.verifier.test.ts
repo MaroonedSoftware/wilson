@@ -784,4 +784,152 @@ describe('ScopeCheckVerifier', () => {
         expect(outcome.passed).toBe(false);
         expect(outcome.failures[0]).toContain('does not match the scope-check schema');
     });
+
+    /**
+     * `siteWork` (2026-11-07): a pass past fan-out stands when the model says the sites are a rote
+     * edit, generated output or only read. Each fixture is the shape a scope-check reported on Tower
+     * that day, refused once by this verifier and then again for the matching piece of its split.
+     */
+    describe('fan-out the model says needs no per-site judgment', () => {
+        // Card 0024: codegen run once, its output committed verbatim across the router, types and SDKs.
+        const card0024: ScopeCheckResult = {
+            summary: 'rename a token on the server, regenerate the contract',
+            groups: [
+                { title: 'rename transaction', tasks: ['Task 4 — EngineTokenRepository.rename transaction'], sites: 2 },
+                { title: 'regenerate the contract', tasks: ['Task 5 — run codegen and commit its output verbatim'], sites: 8, siteWork: 'generated' },
+            ],
+            verdict: 'pass',
+            reason: 'one rename with its regenerated contract; nothing repeats by hand',
+            division: [],
+        };
+
+        // Cards 0032 and 0039: fourteen literal CornerRadius values replaced with tokens in App.axaml.
+        const card0032: ScopeCheckResult = {
+            summary: 'replace literal corner radii with tokens',
+            groups: [
+                {
+                    title: 'swap a CornerRadius literal for its token',
+                    tasks: ['1. replace CornerRadius literals in App.axaml'],
+                    sites: 14,
+                    siteWork: 'mechanical',
+                },
+            ],
+            verdict: 'pass',
+            reason: 'one rote substitution in one file',
+            division: [],
+        };
+
+        // Card 0035: a read-only survey of 22 view files.
+        const card0035: ScopeCheckResult = {
+            summary: 'survey which views still use literal values',
+            groups: [{ title: 'read a view for literal values', tasks: ['1. survey the views'], sites: 22, siteWork: 'read-only' }],
+            verdict: 'pass',
+            reason: 'reads 22 views and writes one report; nothing is edited',
+            division: [],
+        };
+
+        it.each([
+            ['0024, generated output', card0024],
+            ['0032 and 0039, a mechanical edit', card0032],
+            ['0035, a read-only sweep', card0035],
+        ])('lets a "pass" stand on card %s', async (_name, result) => {
+            const outcome = await verify(result);
+
+            expect(outcome.failures).toEqual([]);
+            expect(outcome.passed).toBe(true);
+        });
+
+        it('does not count those sites toward a refusal either', async () => {
+            const outcome = await verify({
+                ...card0032,
+                verdict: 'refuse',
+                division: [
+                    { title: 'first half', tasks: ['1'], delivers: 'half the radii' },
+                    { title: 'second half', tasks: ['1'], delivers: 'the other half' },
+                ],
+            });
+
+            expect(outcome.failures).toEqual([]);
+            expect(outcome.supportedRefusal).toBeUndefined();
+        });
+
+        it('still rejects a fanned-out "pass" whose sites are reported as edited', async () => {
+            const edited = { ...card0032, groups: [{ ...card0032.groups[0]!, siteWork: 'edited' as const }] };
+            const outcome = await verify(edited);
+
+            expect(outcome.failures).toHaveLength(1);
+            expect(outcome.failures[0]).toContain('14 places');
+            expect(outcome.failures[0]).toContain('siteWork');
+        });
+
+        it('judges a group that omits siteWork as edited, so card 0153 is still caught', async () => {
+            expect(card0153.groups[0]!.siteWork).toBeUndefined();
+            const outcome = await verify(card0153);
+
+            expect(outcome.failures).toEqual([`refusing: ${card0153.reason}`]);
+        });
+
+        it('still finds the fan-out in an edited group beside a wider generated one', async () => {
+            const outcome = await verify({
+                ...card0024,
+                groups: [...card0024.groups, { title: 'migrate an importer', tasks: ['Task 6 — move importers to the new SDK'], sites: 9 }],
+            });
+
+            expect(outcome.failures).toHaveLength(1);
+            expect(outcome.failures[0]).toContain('"migrate an importer" lands in 9 places');
+        });
+
+        it('rejects a siteWork outside the enum', async () => {
+            const outcome = await verify({ ...card0032, groups: [{ ...card0032.groups[0]!, siteWork: 'trivial' }] });
+
+            expect(outcome.failures[0]).toContain('does not match the scope-check schema');
+        });
+    });
+
+    describe('citing tasks numbered as "Task N"', () => {
+        const taskNumbered: ScopeCheckResult = {
+            ...card0075,
+            groups: [
+                {
+                    title: 'add a write endpoint',
+                    tasks: [
+                        'Task 4 — EngineTokenRepository.rename transaction',
+                        'Task 5 — create card endpoint',
+                        'Task 6 — edit card endpoint',
+                        'Task 7 — move card endpoint',
+                    ],
+                    sites: 4,
+                },
+            ],
+        };
+
+        // Card 0024's third attempt: the division narrowed a task the groups quoted in full.
+        it('matches a citation that narrows a "Task N —" item', async () => {
+            const outcome = await verify({
+                ...taskNumbered,
+                division: [
+                    {
+                        title: 'Rename the token row, with hosts following by cascade',
+                        tasks: ['Task 4 — EngineTokenRepository.rename transaction, steps 1 and 4 only (the row update)', 'Task 5'],
+                        delivers: 'the rename',
+                    },
+                    { title: 'the rest', tasks: ['task 6: edit', '7 — move'], delivers: 'edit and move' },
+                ],
+            });
+
+            expect(outcome.failures).toEqual([`refusing: ${taskNumbered.reason}`]);
+        });
+
+        it('still rejects a task number no group reported', async () => {
+            const outcome = await verify({
+                ...taskNumbered,
+                division: [
+                    { title: 'first', tasks: ['Task 9 — something else'], delivers: 'x' },
+                    { title: 'second', tasks: ['Task 5'], delivers: 'y' },
+                ],
+            });
+
+            expect(outcome.failures.some(f => f.includes('"Task 9 — something else"'))).toBe(true);
+        });
+    });
 });

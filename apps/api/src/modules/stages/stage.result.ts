@@ -177,6 +177,12 @@ export type ChallengeResult = z.infer<typeof ChallengeResultSchema>;
  * existing is that the model already knows the real number and, before this field, had nowhere
  * checkable to put it — cards 0153, 0155 and 0156 named it in `reason` prose instead ("roughly 10
  * files", "~8 route files"), which a verifier cannot check.
+ *
+ * `siteWork` says whether those sites are real work. A count of sites predicts an overrun only when
+ * each site needs its own reading and judgment; fourteen literals swapped for tokens in one file
+ * (cards 0032 and 0039), a generator's committed output (card 0024) or a read-only survey of 22 views
+ * (card 0035) reach the same count without that cost, and no split makes them smaller. Omitted means
+ * `"edited"`, so a model that never reports it is judged exactly as before.
  */
 export const ScopeGroupSchema = z.object({
     title: z.string().describe('What kind of work this group is — the label under which its tasks repeat.'),
@@ -189,6 +195,15 @@ export const ScopeGroupSchema = z.object({
             "How many distinct places in the codebase this group's work actually lands — files, call sites, routes — not " +
                 'how many Tasks-section items describe it. A task like "update every internal link" is one entry in `tasks` ' +
                 'but may land in ten files: report the ten.',
+        ),
+    siteWork: z
+        .enum(['edited', 'mechanical', 'generated', 'read-only'])
+        .optional()
+        .describe(
+            'What happens at each of those sites. "edited": each site needs its own reading, judgment or tests (the default). ' +
+                '"mechanical": the same rote edit at every site, such as swapping a literal for a token or a find-and-replace, ' +
+                'with no per-site decision. "generated": the sites are a generator\'s output, committed as produced. ' +
+                '"read-only": the sites are only read, as in a survey or audit. Omitted means "edited". Only "edited" sites count toward fan-out.',
         ),
 });
 
