@@ -359,6 +359,31 @@ export interface ProjectGateTouchpoint {
 }
 
 /**
+ * `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
+ * person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
+ * with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
+ * re-review keep. `matched` is every older event in these figures placed by matching its text, since
+ * those events do not say why they failed.
+ * One stage's own note on what slowed it down (`difficulty` on its report). Information only: nothing
+ * routes on it. `step` names the step that wrote it, absent for the lane's own run.
+ * generated from [ProjectGateDifficulty](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectGateDifficulty {
+    cardId: string;
+    stage: string;
+    step?: string;
+    note: string;
+    at: DateTime;
+}
+
+/** Rehydrates every wire-encoded scalar in a ProjectGateDifficulty into its runtime type. Mutates and returns `raw`. */
+export function reviveProjectGateDifficulty(raw: ProjectGateDifficulty): ProjectGateDifficulty {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['at'] = __dt(__o0['at'], 'ProjectGateDifficulty.at');
+    return raw;
+}
+
+/**
  * Card 0265. One file changed in a card's branch since it forked from `main` —
  * `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
  * `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
@@ -777,11 +802,6 @@ export interface ProjectStatsTotal extends ProjectStatsCounts {
 }
 
 /**
- * `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
- * person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
- * with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
- * re-review keep. `matched` is every older event in these figures placed by matching its text, since
- * those events do not say why they failed.
  * generated from [ProjectGateStats](../../../../apps/api/data/contracts/board.ck)
  */
 export interface ProjectGateStats {
@@ -798,6 +818,8 @@ export interface ProjectGateStats {
     touchpoints: ProjectGateTouchpoint[];
     firstPass: { reached: number; firstPass: number };
     matched: number;
+    /** The newest difficulty notes in the window, newest first, at most 20. */
+    difficulties: ProjectGateDifficulty[];
 }
 
 /** Rehydrates every wire-encoded scalar in a ProjectGateStats into its runtime type. Mutates and returns `raw`. */
@@ -805,6 +827,12 @@ export function reviveProjectGateStats(raw: ProjectGateStats): ProjectGateStats 
     const __o0 = raw as unknown as Record<string, unknown>;
     __o0['since'] = __dt(__o0['since'], 'ProjectGateStats.since');
     __o0['until'] = __dt(__o0['until'], 'ProjectGateStats.until');
+    {
+        const __a1 = __o0['difficulties'] as unknown[];
+        for (let __i2 = 0; __i2 < __a1.length; __i2++) {
+            reviveProjectGateDifficulty(__a1[__i2] as never);
+        }
+    }
     return raw;
 }
 

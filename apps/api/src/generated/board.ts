@@ -357,6 +357,25 @@ export const ProjectGateTouchpoint = z.strictObject({
 export type ProjectGateTouchpoint = z.infer<typeof ProjectGateTouchpoint>;
 
 /**
+ * `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
+ * person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
+ * with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
+ * re-review keep. `matched` is every older event in these figures placed by matching its text, since
+ * those events do not say why they failed.
+ * One stage's own note on what slowed it down (`difficulty` on its report). Information only: nothing
+ * routes on it. `step` names the step that wrote it, absent for the lane's own run.
+ * generated from [ProjectGateDifficulty](../../data/contracts/board.ck)
+ */
+export const ProjectGateDifficulty = z.strictObject({
+    cardId: z.string(),
+    stage: z.string(),
+    step: z.string().optional(),
+    note: z.string(),
+    at: _ZodDatetime,
+});
+export type ProjectGateDifficulty = z.infer<typeof ProjectGateDifficulty>;
+
+/**
  * Card 0265. One file changed in a card's branch since it forked from `main` —
  * `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
  * `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
@@ -741,11 +760,6 @@ export const ProjectStatsTotal = ProjectStatsCounts.extend({
 export type ProjectStatsTotal = z.infer<typeof ProjectStatsTotal>;
 
 /**
- * `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
- * person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
- * with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
- * re-review keep. `matched` is every older event in these figures placed by matching its text, since
- * those events do not say why they failed.
  * generated from [ProjectGateStats](../../data/contracts/board.ck)
  */
 export const ProjectGateStats = z.strictObject({
@@ -771,6 +785,7 @@ export const ProjectGateStats = z.strictObject({
         firstPass: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
     }),
     matched: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    difficulties: z.array(ProjectGateDifficulty).describe('The newest difficulty notes in the window, newest first, at most 20.'),
 });
 export type ProjectGateStats = z.infer<typeof ProjectGateStats>;
 

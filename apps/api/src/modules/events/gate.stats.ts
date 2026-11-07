@@ -1,6 +1,7 @@
 import { isOverBudgetMessage } from '#modules/agent/budget.js';
 import { PROCESS_FAILURE_CLASSES, type FailureClass } from '#modules/stages/stage.result.js';
-import type { ProjectGateKickback, ProjectGateTouchpoint } from '../../generated/board.js';
+import type { DateTime } from 'luxon';
+import type { ProjectGateDifficulty, ProjectGateKickback, ProjectGateTouchpoint } from '../../generated/board.js';
 
 type TouchpointCause = ProjectGateTouchpoint['cause'];
 
@@ -29,7 +30,13 @@ export interface GateEventRow {
     reason: string | null;
     /** A transition's whole counters, or the one count `card.acked` dropped. */
     retries: Record<string, number> | number | null;
+    /** A stage's own note on what slowed it, lifted onto its event by the dispatcher. */
+    difficulty?: string | null;
+    createdAt?: DateTime;
 }
+
+/** How many difficulty notes the gate stats list. */
+export const MAX_DIFFICULTIES = 20;
 
 /** The figures {@link foldGateStats} works out from events, which `EventLog.gateStats` completes. */
 export interface GateFigures {
@@ -42,6 +49,7 @@ export interface GateFigures {
     touchpoints: ProjectGateTouchpoint[];
     firstPass: { reached: number; firstPass: number };
     matched: number;
+    difficulties: ProjectGateDifficulty[];
 }
 
 /**
@@ -105,6 +113,7 @@ export const foldGateStats = (rows: GateEventRow[]): GateFigures => {
     const questions = { asked: 0, answered: 0 };
     let loopStops = 0;
     let matched = 0;
+    const difficulties: ProjectGateDifficulty[] = [];
 
     /** A lane's own `revise` whose transition has not been read yet, which says if a step holds it. */
     const awaitingTransition = new Map<string, string>();
@@ -123,6 +132,10 @@ export const foldGateStats = (rows: GateEventRow[]): GateFigures => {
 
     for (const row of rows) {
         const stage = row.stage ?? '';
+
+        if ((row.type === 'stage.passed' || row.type === 'stage.failed') && row.difficulty && row.createdAt) {
+            difficulties.push({ cardId: row.cardId, stage, ...(row.step ? { step: row.step } : {}), note: row.difficulty, at: row.createdAt });
+        }
 
         if (row.type === 'stage.passed' && row.verdict === 'revise') {
             bump(revised, stage);
@@ -199,5 +212,6 @@ export const foldGateStats = (rows: GateEventRow[]): GateFigures => {
         touchpoints: [...touchpoints].map(([cause, count]) => ({ cause, count })).sort((a, b) => b.count - a.count),
         firstPass: { reached: reached.size, firstPass: [...reached].filter(cardId => !paidForARetry.has(cardId)).length },
         matched,
+        difficulties: difficulties.reverse().slice(0, MAX_DIFFICULTIES),
     };
 };

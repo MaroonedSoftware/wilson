@@ -68,6 +68,7 @@ const noGates: ProjectGateStats = {
     touchpoints: [],
     firstPass: { reached: 0, firstPass: 0 },
     matched: 0,
+    difficulties: [],
 };
 
 class FakeEventSource {
@@ -178,6 +179,7 @@ describe('the stats page', () => {
             touchpoints: [{ cause: 'question', count: 3 }],
             firstPass: { reached: 5, firstPass: 3 },
             matched: 3,
+            difficulties: [{ cardId: '0042', stage: 'testing', note: 'suite takes nine minutes', at: stats.until }],
         });
 
         renderApp();
@@ -194,6 +196,7 @@ describe('the stats page', () => {
         expect(screen.getByText('Asked a question')).toBeTruthy();
         expect(screen.getByText('No secrets in logs')).toBeTruthy();
         expect(screen.getByText(/3 older failed attempts do not say why/)).toBeTruthy();
+        expect(screen.getByText('suite takes nine minutes')).toBeTruthy();
     });
 
     it('keeps planning and review in a table of their own, beside the stage total', async () => {

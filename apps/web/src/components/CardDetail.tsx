@@ -413,6 +413,8 @@ function deferredReason(payload: unknown): string | undefined {
  */
 function eventDetail(event: CardEvent): string | undefined {
     if (event.type === 'dispatch.deferred') return deferredReason(event.payload);
+    const difficulty = payloadString(event.payload, 'difficulty');
+    if ((event.type === 'stage.passed' || event.type === 'stage.failed') && difficulty) return `slowed by: ${difficulty}`;
     const host = payloadString(event.payload, 'host');
     if (event.type === 'stage.placed' && host) return `on ${host}`;
     if (event.type === 'stage.host-lost' && host) {

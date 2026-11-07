@@ -3,6 +3,30 @@ import type { TreeSnapshot } from '#modules/worktree/worktree.manager.js';
 import { z } from 'zod';
 import type { RunTrace } from '#modules/agent/run.trace.js';
 
+/** The longest difficulty note an event keeps. Longer ones are trimmed, never refused. */
+export const DIFFICULTY_LIMIT = 300;
+
+/**
+ * One line on what slowed a stage down, said by the stage itself. Information only: no verifier reads
+ * it, so leaving it out or filling it in never changes whether the stage passes. It lands on the
+ * stage's event and in the gate stats, where a pattern across cards (the same missing seam, the same
+ * flaky command, the same unclear plan heading) shows what to fix in a lane, a prompt or the code.
+ */
+const DifficultyNote = z
+    .string()
+    .optional()
+    .describe(
+        'Optional. One line on what slowed you down, if anything did: a missing seam, a flaky or slow command, a plan section you had to guess at. Leave it out when nothing did. It never affects whether this stage passes.',
+    );
+
+/** A stage's difficulty note, trimmed to one line of {@link DIFFICULTY_LIMIT}, or undefined when it gave none. */
+export const difficultyOf = (result: unknown): string | undefined => {
+    const note = (result as { difficulty?: unknown } | undefined)?.difficulty;
+    if (typeof note !== 'string') return undefined;
+    const line = note.replace(/\s+/g, ' ').trim();
+    return line.length === 0 ? undefined : line.slice(0, DIFFICULTY_LIMIT);
+};
+
 /**
  * What a stage returns.
  *
@@ -15,6 +39,7 @@ export const ImplementingResultSchema = z.object({
     filesTouched: z.array(z.string()).describe('Worktree-relative paths that were created or modified.'),
     /** Where the agent knows it fell short. Recorded for the review stage rather than acted on here. */
     caveats: z.array(z.string()).default([]),
+    difficulty: DifficultyNote,
 });
 
 export type ImplementingResult = z.infer<typeof ImplementingResultSchema>;
@@ -84,6 +109,7 @@ export const ReviewResultSchema = z.object({
      * empty plan-side list, matching what a review verified before this field existed.
      */
     criteria: z.array(ReviewCriterionSchema).default([]),
+    difficulty: DifficultyNote,
 });
 
 export type ReviewResult = z.infer<typeof ReviewResultSchema>;

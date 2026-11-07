@@ -329,6 +329,24 @@ data class ProjectGateTouchpoint(
 )
 
 /**
+ * `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
+ * person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
+ * with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
+ * re-review keep. `matched` is every older event in these figures placed by matching its text, since
+ * those events do not say why they failed.
+ * One stage's own note on what slowed it down (`difficulty` on its report). Information only: nothing
+ * routes on it. `step` names the step that wrote it, absent for the lane's own run.
+ */
+@Serializable
+data class ProjectGateDifficulty(
+    val cardId: String,
+    val stage: String,
+    val step: String? = null,
+    val note: String,
+    val at: Instant,
+)
+
+/**
  * Card 0265. One file changed in a card's branch since it forked from `main` —
  * `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
  * `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
@@ -735,13 +753,6 @@ data class ProjectStatsTotal(
     val cards: Long,
 )
 
-/**
- * `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
- * person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
- * with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
- * re-review keep. `matched` is every older event in these figures placed by matching its text, since
- * those events do not say why they failed.
- */
 @Serializable
 data class ProjectGateStats(
     val since: Instant,
@@ -757,6 +768,8 @@ data class ProjectGateStats(
     val touchpoints: List<ProjectGateTouchpoint>,
     val firstPass: ProjectGateStatsFirstPass,
     val matched: Long,
+    /** The newest difficulty notes in the window, newest first, at most 20. */
+    val difficulties: List<ProjectGateDifficulty>,
 )
 
 /**

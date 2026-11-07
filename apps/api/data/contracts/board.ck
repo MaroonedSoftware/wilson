@@ -424,6 +424,16 @@ contract ProjectGateTouchpoint: {
 # with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
 # re-review keep. `matched` is every older event in these figures placed by matching its text, since
 # those events do not say why they failed.
+# One stage's own note on what slowed it down (`difficulty` on its report). Information only: nothing
+# routes on it. `step` names the step that wrote it, absent for the lane's own run.
+contract ProjectGateDifficulty: {
+    cardId: string
+    stage: string
+    step?: string
+    note: string
+    at: datetime
+}
+
 contract ProjectGateStats: {
     since: datetime
     until: datetime
@@ -447,6 +457,8 @@ contract ProjectGateStats: {
         firstPass: int
     }
     matched: int
+    # The newest difficulty notes in the window, newest first, at most 20.
+    difficulties: array(ProjectGateDifficulty)
 }
 
 # Card 0265. One file changed in a card's branch since it forked from `main` —

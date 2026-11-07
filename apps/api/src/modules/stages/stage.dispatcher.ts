@@ -32,7 +32,7 @@ import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
 import { atDepth, scalesWithDiff, withDepth } from './lane.depth.js';
 import { findStage, isPlanCheck, type ProjectStages, type StageConfig } from './stage.config.js';
 import { StageConfigStore } from './stage.config.store.js';
-import { REASON_LIMIT, StageResultSchemaMap, type ReviewCriterion, type ReviewFinding, type StageOutcome } from './stage.result.js';
+import { difficultyOf, REASON_LIMIT, StageResultSchemaMap, type ReviewCriterion, type ReviewFinding, type StageOutcome } from './stage.result.js';
 import { checkFinishedTree, executeStage, type StageExecutionInput } from './stage.execution.js';
 import { prepareStage } from './stage.preparation.js';
 import { StageVerifierMap } from './stage.verifier.js';
@@ -605,6 +605,8 @@ export class StageDispatcher {
                     // The result itself, not just its shape. A review's findings *are* the output of
                     // the stage; recording only that it passed throws away the thing it produced.
                     result: outcome.result ?? null,
+                    // Lifted out of `result` so the gate stats can read it without the whole payload.
+                    ...(difficultyOf(outcome.result) ? { difficulty: difficultyOf(outcome.result) } : {}),
                     ...(outcome.trace ? { trace: outcome.trace } : {}),
                     ...(outcome.passed
                         ? {}
