@@ -176,6 +176,12 @@ internal static class Steps
             return;
         }
 
+        if (only == "pullrequest")
+        {
+            await PullRequestAsync(walk);
+            return;
+        }
+
         if (only == "question")
         {
             await QuestionAsync(walk);
@@ -337,6 +343,37 @@ internal static class Steps
         var card = walk.Page<CardViewModel>();
         await walk.UntilAsync("the card's merge status", () => card.MergeStatus is not null);
         walk.Shot("03-merge-status-card");
+    }
+
+    /// <summary>
+    /// A card's pull request in Merge's place, and Merge back once it closed. Nothing opens one on the
+    /// throwaway API, so set `pull_request` on two `ready` cards in project `wilson` first: one open, one closed.
+    /// </summary>
+    private static async Task PullRequestAsync(Walker walk)
+    {
+        walk.Shell.ShowProject("wilson");
+        var board = walk.Page<BoardViewModel>();
+        await walk.UntilAsync("cards with pull requests", () => board.Columns.SelectMany(column => column.Cards).Count(tile => tile.Card.PullRequest is not null) >= 2);
+        var tiles = board.Columns.SelectMany(column => column.Cards).Where(tile => tile.Card.PullRequest is not null).ToList();
+        foreach (var state in new[] { CardPullRequestState.Closed, CardPullRequestState.Open })
+        {
+            var tile = tiles.First(tile => tile.Card.PullRequest!.State == state);
+            board.OpenCard(tile.Card);
+            var card = walk.Page<CardViewModel>();
+            await walk.UntilAsync($"card {tile.Card.Id} read", () => card.Card is not null || card.Error is not null);
+            if (card.Error is { } error)
+            {
+                throw new InvalidOperationException(error);
+            }
+            Console.WriteLine($"     {tile.Card.Id} ({state}): {card.PullRequest ?? "Merge"}");
+            if ((state == CardPullRequestState.Open) == card.CanMerge)
+            {
+                throw new InvalidOperationException($"A {state} pull request left Merge {(card.CanMerge ? "showing" : "hidden")}");
+            }
+
+            walk.Shot($"03-pull-request-{state.ToString().ToLowerInvariant()}");
+            walk.Shell.BackCommand.Execute(null);
+        }
     }
 
     /// <summary>

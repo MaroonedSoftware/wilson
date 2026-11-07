@@ -39,6 +39,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -162,7 +163,14 @@ private fun Actions(card: CardDetail, state: CardState, model: CardModel, onPlan
         OutlinedButton(onClick = model::start, enabled = idle) { Text("Start") }
         OutlinedButton(onClick = model::approve, enabled = idle) { Text("Approve plan") }
         if (card.planCheck == CardSummaryPlanCheck.REFUSED) OutlinedButton(onClick = model::split, enabled = idle) { Text("Split as proposed") }
-        OutlinedButton(onClick = { confirming = Confirm.MERGE }, enabled = idle) { Text(if (state.acting == "merge") "Merging…" else "Merge") }
+        val pullRequest = card.pullRequest
+        val pullRequestLabel = pullRequestLabel(pullRequest)
+        if (pullRequest != null && pullRequestLabel != null) {
+            val uriHandler = LocalUriHandler.current
+            OutlinedButton(onClick = { if (pullRequest.url.startsWith("https://")) uriHandler.openUri(pullRequest.url) }) { Text(pullRequestLabel) }
+        } else {
+            OutlinedButton(onClick = { confirming = Confirm.MERGE }, enabled = idle) { Text(if (state.acting == "merge") "Merging…" else "Merge") }
+        }
         OutlinedButton(onClick = { confirming = Confirm.RELEASE }, enabled = idle) { Text("Release") }
         Box {
             OutlinedButton(onClick = { moving = true }, enabled = idle && state.stages.isNotEmpty()) { Text("Move") }

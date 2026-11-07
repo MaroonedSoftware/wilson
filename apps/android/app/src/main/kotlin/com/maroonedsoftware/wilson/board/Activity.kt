@@ -46,6 +46,8 @@ private val SUMMARIES = mapOf(
     "rule.proposed" to ActivitySummary("Looked for a rule to propose", ActivityTone.INFO),
     "card.auto-split" to ActivitySummary("Split automatically", ActivityTone.INFO),
     "card.plan-drafted" to ActivitySummary("Drafted a plan", ActivityTone.GOOD),
+    "card.pull-request-opened" to ActivitySummary("Opened a pull request", ActivityTone.INFO),
+    "card.pull-request-closed" to ActivitySummary("Pull request closed without merging", ActivityTone.WARNING),
     "job.orphaned" to ActivitySummary("Recovered an orphaned job", ActivityTone.WARNING),
     "stage.interrupted" to ActivitySummary("Paused {stage} for a restart", ActivityTone.WARNING),
 )

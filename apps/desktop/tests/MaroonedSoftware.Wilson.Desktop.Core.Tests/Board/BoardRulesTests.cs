@@ -256,4 +256,14 @@ public class BoardRulesTests
         Assert.Equal("Checking the plan's scope", BoardRules.PlanCheck(CardSummaryPlanCheck.Checking, null));
         Assert.Equal("Scope check refused: too broad", BoardRules.PlanCheck(CardSummaryPlanCheck.Refused, "too broad"));
     }
+
+    [Theory]
+    [InlineData(CardPullRequestState.Open, "PR #7 open")]
+    [InlineData(CardPullRequestState.Merged, "PR #7 merged")]
+    [InlineData(CardPullRequestState.Closed, null)]
+    public void APullRequestTakesMergesPlace_UntilItIsClosed(CardPullRequestState state, string? label) =>
+        Assert.Equal(label, BoardRules.PullRequestLabel(new CardPullRequest { Number = 7, Url = "https://github.com/o/r/pull/7", State = state }));
+
+    [Fact]
+    public void NoPullRequestMeansMerge() => Assert.Null(BoardRules.PullRequestLabel(null));
 }

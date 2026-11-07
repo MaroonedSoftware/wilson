@@ -49,6 +49,18 @@ public static class BoardRules
             _ => null,
         };
 
+    /// <summary>
+    /// The card's pull request as a button label, or none when Merge should show instead: a card with no
+    /// pull request, or one whose pull request was closed unmerged, can be merged again.
+    /// </summary>
+    public static string? PullRequestLabel(CardPullRequest? pullRequest) =>
+        pullRequest?.State switch
+        {
+            CardPullRequestState.Open => $"PR #{pullRequest.Number} open",
+            CardPullRequestState.Merged => $"PR #{pullRequest.Number} merged",
+            _ => null,
+        };
+
     /// <summary>What Merge would do on a `ready` card, in the web app's words, or none for any other card.</summary>
     public static string? MergeStatusLine(MergeStatus? status)
     {

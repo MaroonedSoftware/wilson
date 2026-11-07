@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Globalization;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -136,6 +137,8 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     [NotifyPropertyChangedFor(nameof(MergeStatusWarns))]
     [NotifyPropertyChangedFor(nameof(CanSplit))]
     [NotifyPropertyChangedFor(nameof(SplitFrom))]
+    [NotifyPropertyChangedFor(nameof(PullRequest))]
+    [NotifyPropertyChangedFor(nameof(CanMerge))]
     private CardDetail? _card;
 
     [ObservableProperty]
@@ -233,6 +236,21 @@ public sealed partial class CardViewModel(ShellViewModel shell, string project, 
     public bool MergeStatusWarns => BoardRules.MergeStatusWarns(Card?.MergeStatus);
 
     public bool CanSplit => Card?.PlanCheck == CardSummaryPlanCheck.Refused;
+
+    /// <summary>The card's open or merged pull request, as its button's label. It takes Merge's place.</summary>
+    public string? PullRequest => BoardRules.PullRequestLabel(Card?.PullRequest);
+
+    public bool CanMerge => PullRequest is null;
+
+    /// <summary>Opens the card's pull request on GitHub. Only an https link is opened.</summary>
+    [RelayCommand]
+    public void OpenPullRequest()
+    {
+        if (Card?.PullRequest?.Url is { } url && url.StartsWith("https://", StringComparison.Ordinal))
+        {
+            using var opened = Process.Start(new ProcessStartInfo("open") { ArgumentList = { url } });
+        }
+    }
 
     [RelayCommand]
     public Task AcknowledgeAsync() => ActAsync("Acknowledged.", token => _sdk.Board.AcknowledgeAFlaggedCardAsync(id, token));

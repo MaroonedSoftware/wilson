@@ -12,8 +12,11 @@ import com.maroonedsoftware.wilson.sdk.models.AnswerCardRequest
 import com.maroonedsoftware.wilson.sdk.models.CardDetail
 import com.maroonedsoftware.wilson.sdk.models.CardDiff
 import com.maroonedsoftware.wilson.sdk.models.CardEvent
+import com.maroonedsoftware.wilson.sdk.models.CardPullRequest
+import com.maroonedsoftware.wilson.sdk.models.CardPullRequestState
 import com.maroonedsoftware.wilson.sdk.models.CardUsage
 import com.maroonedsoftware.wilson.sdk.models.ListQuery
+import com.maroonedsoftware.wilson.sdk.models.MergeResult
 import com.maroonedsoftware.wilson.sdk.models.MoveCardRequest
 import com.maroonedsoftware.wilson.sdk.models.SplitCardsRequest
 import com.maroonedsoftware.wilson.sdk.runtime.SdkError
@@ -45,15 +48,40 @@ data class CardState(
 sealed interface MergeOutcome {
     data class Landed(val commit: String?) : MergeOutcome
 
+    /** The merge opened a GitHub pull request instead of landing: the card follows it when it merges there. */
+    data class OpenedPullRequest(val number: Long) : MergeOutcome
+
     data class Refused(val reason: String) : MergeOutcome
 
     /** The answer never arrived, which says nothing about whether the merge happened. Never retried. */
     data object Unknown : MergeOutcome
 }
 
+/** What the server's answer to a merge says happened. An open pull request is success, not a refusal. */
+internal fun mergeOutcomeOf(result: MergeResult): MergeOutcome {
+    val pullRequest = result.pullRequest
+    return when {
+        result.merged -> MergeOutcome.Landed(result.commit)
+        pullRequest?.state == CardPullRequestState.OPEN -> MergeOutcome.OpenedPullRequest(pullRequest.number)
+        else -> MergeOutcome.Refused(result.reason ?: "The merge did not land.")
+    }
+}
+
+/**
+ * The card's pull request as a button label, or none when Merge should show instead: a card with no pull
+ * request, or one whose pull request was closed unmerged, can be merged again.
+ */
+internal fun pullRequestLabel(pullRequest: CardPullRequest?): String? =
+    when (pullRequest?.state) {
+        CardPullRequestState.OPEN -> "PR #${pullRequest.number} open"
+        CardPullRequestState.MERGED -> "PR #${pullRequest.number} merged"
+        else -> null
+    }
+
 internal fun mergeMessage(outcome: MergeOutcome): String =
     when (outcome) {
         is MergeOutcome.Landed -> "Landed on main${outcome.commit?.let { " as ${it.take(8)}" } ?: ""}."
+        is MergeOutcome.OpenedPullRequest -> "Opened pull request #${outcome.number}. The card moves to merged when it merges on GitHub."
         is MergeOutcome.Refused -> outcome.reason
         MergeOutcome.Unknown -> "The merge's answer was lost, so it may still have landed. Check the card before trying again."
     }
@@ -140,8 +168,7 @@ class CardModel(private val app: WilsonApp, private val project: String, private
         viewModelScope.launch {
             val outcome =
                 try {
-                    val result = app.session.call(project, Patience.LONG) { it.board.mergeCard(id) }
-                    if (result.merged) MergeOutcome.Landed(result.commit) else MergeOutcome.Refused(result.reason ?: "The merge did not land.")
+                    mergeOutcomeOf(app.session.call(project, Patience.LONG) { it.board.mergeCard(id) })
                 } catch (error: SdkError) {
                     MergeOutcome.Refused(reasonFor(error))
                 } catch (error: IOException) {
