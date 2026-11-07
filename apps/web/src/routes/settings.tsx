@@ -29,7 +29,6 @@ import { SecurityControls } from '#src/components/SecurityControls.js';
 
 const POLLER_QUERY_KEY = ['settings', 'poller'];
 const AUTO_SPLIT_QUERY_KEY = ['settings', 'auto-split'];
-const AUTO_PLAN_QUERY_KEY = ['settings', 'auto-plan'];
 const ORCHESTRATOR_QUERY_KEY = ['settings', 'orchestrator'];
 const POLLER_INTERVAL_QUERY_KEY = ['settings', 'poller-interval'];
 const CARD_STAGE_CONCURRENCY_QUERY_KEY = ['settings', 'card-stage-concurrency'];
@@ -116,43 +115,6 @@ function AutoSplitToggle() {
             <Switch
                 label="Auto-split"
                 description="When the scope check refuses a card, split it into the proposed pieces and draft a plan for each. The plans wait in planning for your approval."
-                checked={setting.data.enabled}
-                disabled={mutation.isPending}
-                onChange={event => mutation.mutate(event.currentTarget.checked)}
-            />
-            {mutation.isError && (
-                <Text size="sm" c="red">
-                    {apiErrorMessage(mutation.error)}
-                </Text>
-            )}
-        </Stack>
-    );
-}
-
-/** The same shape as `AutoSplitToggle`, for whether a card waiting in planning without a plan gets one drafted. */
-function AutoPlanToggle() {
-    const wilson = useWilsonSdk();
-    const queryClient = useQueryClient();
-    const setting = useQuery({ queryKey: AUTO_PLAN_QUERY_KEY, queryFn: () => wilson.settings.getAutoPlanSetting() });
-    const mutation = useMutation({
-        mutationFn: (enabled: boolean) => wilson.settings.setAutoPlanSetting({ enabled }),
-        onSuccess: result => queryClient.setQueryData(AUTO_PLAN_QUERY_KEY, result),
-    });
-
-    if (setting.error) {
-        return (
-            <Alert color="red" title="Cannot load auto-plan">
-                {apiErrorMessage(setting.error)}
-            </Alert>
-        );
-    }
-    if (!setting.data) return <Loader size="sm" />;
-
-    return (
-        <Stack gap="xs">
-            <Switch
-                label="Auto-plan"
-                description="When a card waits in planning without a complete plan, have an agent draft one, once per card. The plan waits in planning for your approval. Needs Auto-mode on."
                 checked={setting.data.enabled}
                 disabled={mutation.isPending}
                 onChange={event => mutation.mutate(event.currentTarget.checked)}
@@ -991,13 +953,6 @@ function SettingsRoute() {
                 <Stack gap="sm">
                     <Title order={4}>Auto-split</Title>
                     <AutoSplitToggle />
-                </Stack>
-            </Paper>
-
-            <Paper withBorder p="md" radius="sm">
-                <Stack gap="sm">
-                    <Title order={4}>Auto-plan</Title>
-                    <AutoPlanToggle />
                 </Stack>
             </Paper>
 

@@ -1,17 +1,24 @@
 import type { SettingDefinition } from './setting.definition.js';
 
 /**
- * Whether the poller has an agent draft the plan of a card waiting in `planning` without one
- * (`PlanDraftJob`), so a person meets a plan to approve rather than a stub. Each draft is a model run,
- * once per card. Approval stays a person's: a drafted card still waits in `planning`.
+ * **Deprecated as of card 0036. Nothing reads this setting.**
  *
- * Parsed identically to `AUTO_SPLIT_ENABLED`: only `"true"` or `"1"` count as on. `defaultValue` is
- * `false`, because turning it on spends tokens on every unplanned card already on the board, so a
- * project opts in. Read fresh on every poller tick and again when the job runs, so persisting the row
- * is the whole job.
+ * It used to decide whether the poller had an agent draft the plan of a card waiting in `planning`
+ * without one (`PlanDraftJob`), per project and off by default. Card 0036 made the whole pipeline
+ * autopilot: the poller drafts every unplanned card, the runner approves a complete plan into
+ * `backlog` (scope-check is the gate) and merges at `ready` behind the suite. With drafting
+ * unconditional, this switch means nothing — `Poller` and `PlanDraftJob` no longer consult it, and the
+ * web Settings toggle is gone. The only things that still bound drafting are the daily output-token
+ * ceiling, drain, and the poller's own on/off switch.
  *
- * `scope: 'project'`, matching `AUTO_SPLIT_ENABLED`: how much of a project's board an operator hands
- * to the runner is a property of that project.
+ * The key, `GET/PUT /api/settings/auto-plan`, its `settings.ck` operation (still `mcp: exclude`, so no
+ * chat agent can reach it), the generated route/MCP files and the TypeScript, C# and Kotlin SDKs remain
+ * only so existing clients keep working: they still persist a row that nothing reads. Retiring all of
+ * those is deliberately deferred to a follow-up card — doing it here would have spread this card past
+ * `scope-check`'s fan-out threshold.
+ *
+ * The definition itself is unchanged (parsing, `false` default, `scope: 'project'`) so those surfaces
+ * keep answering exactly as before.
  */
 export const AUTO_PLAN_ENABLED: SettingDefinition<boolean> = {
     key: 'auto-plan-enabled',

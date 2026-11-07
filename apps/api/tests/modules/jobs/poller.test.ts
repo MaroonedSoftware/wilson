@@ -11,7 +11,7 @@ import type { EventLog } from '#modules/events/event.log.js';
 import type { CardJobs } from '#modules/jobs/card.jobs.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
 import { DRAIN_ENABLED } from '#modules/settings/drain.enabled.setting.js';
-import { AUTO_PLAN_ENABLED } from '#modules/settings/auto.plan.setting.js';
+import type { BoardWriteService } from '#modules/board/board.write.service.js';
 import { POLLER_INTERVAL_MS } from '#modules/settings/poller.interval.setting.js';
 import { DAILY_OUTPUT_TOKEN_CEILING } from '#modules/settings/daily.output.token.ceiling.setting.js';
 import type { JobBroker } from '@maroonedsoftware/jobbroker';
@@ -142,6 +142,7 @@ type FakeCardJobs = {
     record: ReturnType<typeof vi.fn>;
     clear: ReturnType<typeof vi.fn>;
     planDraftAttempted: ReturnType<typeof vi.fn>;
+    mergeInFlight: ReturnType<typeof vi.fn>;
 };
 const statefulCardJobs = (initial: Record<string, string> = {}): FakeCardJobs => {
     const claims = new Map(Object.entries(initial));
@@ -154,6 +155,7 @@ const statefulCardJobs = (initial: Record<string, string> = {}): FakeCardJobs =>
             claims.delete(cardId);
         }),
         planDraftAttempted: vi.fn(async () => false),
+        mergeInFlight: vi.fn(async () => false),
     };
 };
 
@@ -179,6 +181,9 @@ const fakeSettingsStore = (): SettingsStore =>
 const noConflict = vi.fn(async () => undefined);
 
 const fakeEvents = () => ({}) as unknown as EventLog;
+
+/** A `BoardWriteService` fake with only the `move` the poller's approval branch calls. */
+const fakeWrites = () => ({ move: vi.fn(async () => ({})) });
 
 /**
  * Card 0264: `tickProject` now reads a second setting, `DAILY_OUTPUT_TOKEN_CEILING`, through the same
@@ -226,6 +231,9 @@ const buildPoller = (
         // `outputTokensSince`; every other caller keeps `fakeEvents()`'s bare `{}`, which would throw
         // if that method were ever reached — proof by survival that a ceiling of 0 never calls it.
         events: EventLog;
+        // Card 0036: the runner's own `move` for approving a complete plan. Absent by default, which is
+        // the test-construction fallback `Poller`'s doc comment describes: a complete plan is passed over.
+        writes: ReturnType<typeof fakeWrites>;
     }> = {},
 ) => {
     const config = new StaticBoardConfig('poller-test-project', '/tmp/code', '/tmp/wt', '/tmp/run');
@@ -249,6 +257,8 @@ const buildPoller = (
         logger as unknown as Logger,
         settings,
         events,
+        undefined,
+        deps.writes as unknown as BoardWriteService | undefined,
     );
     return { poller, board, cardJobs, broker, logger, settings, events };
 };
@@ -574,6 +584,7 @@ describe('Poller tick — multiple registered projects (card 0149)', () => {
                 claims.set(key(config.project, cardId), jobId);
             }),
             planDraftAttempted: vi.fn(async () => false),
+            mergeInFlight: vi.fn(async () => false),
             clear: vi.fn(async (cardId: string) => {
                 claims.delete(key(config.project, cardId));
             }),
@@ -731,26 +742,29 @@ describe('Poller tick — the backlog queue (card 0127)', () => {
     });
 
     /**
-     * Constraint: only `backlog`, never derived from `mode: manual`. `ready` is manual too, with
-     * `onPass: merged` — a poller that advanced it the same way `backlog` gets advanced would merge
-     * a card to main with nobody having looked. This is the direct assertion the plan calls for.
+     * Constraint: never derived from `mode: manual`. `ready` is manual too, with `onPass: merged` —
+     * card 0036 has the runner merge it, but only through a `card.merge` job that runs the suite,
+     * never by writing the `onPass` transition the way `backlog` is advanced.
      */
-    it('never advances a card in ready, even though it is also a manual stage', async () => {
-        const { poller, board, broker } = buildPoller([card('0001', 'ready')]);
+    it('never advances a card in ready by writing its onPass — it queues a merge job instead', async () => {
+        const { poller, board, broker, cardJobs } = buildPoller([card('0001', 'ready')]);
 
         await runOneTick(poller);
 
         expect(board.writeWithEvent).not.toHaveBeenCalled();
-        expect(broker.send).not.toHaveBeenCalled();
+        expect(broker.send).toHaveBeenCalledTimes(1);
+        expect(broker.send).toHaveBeenCalledWith('card.merge', { cardId: '0001', project: 'poller-test-project' });
+        expect(cardJobs.record).not.toHaveBeenCalled();
     });
 
-    it('never advances a card in planning either — its onPass is backlog, not something to skip straight past', async () => {
+    it('never advances a card in planning by writing its onPass either — an unplanned one only gets a draft', async () => {
         const { poller, board, broker } = buildPoller([card('0001', 'planning')]);
 
         await runOneTick(poller);
 
         expect(board.writeWithEvent).not.toHaveBeenCalled();
-        expect(broker.send).not.toHaveBeenCalled();
+        expect(broker.send).toHaveBeenCalledTimes(1);
+        expect(broker.send).toHaveBeenCalledWith('card.plan-draft', { cardId: '0001', project: 'poller-test-project', trigger: 'unplanned' });
     });
 
     it('does not advance a backlog card something already holds a claim on, falling through to the next candidate', async () => {
@@ -854,10 +868,16 @@ describe('Poller tick — drafting unplanned planning cards', () => {
         .join('\n')
         .concat('\n');
 
-    const autoPlanSettings = (enabled: boolean): SettingsStore =>
+    /**
+     * Card 0036: the deprecated `auto-plan-enabled` row, by its stored key. Named as a literal rather
+     * than through the setting's definition, because nothing outside the settings module reads that
+     * definition any more — this only proves a row saying "off" changes nothing.
+     */
+    const AUTO_PLAN_KEY = 'auto-plan-enabled';
+    const autoPlanRowSettings = (stored: boolean): SettingsStore =>
         ({
             get: vi.fn(async (definition: { key: string; defaultValue: unknown }) =>
-                definition.key === AUTO_PLAN_ENABLED.key ? enabled : definition.defaultValue,
+                definition.key === AUTO_PLAN_KEY ? stored : definition.defaultValue,
             ),
             set: vi.fn(async () => undefined),
         }) as unknown as SettingsStore;
@@ -865,10 +885,11 @@ describe('Poller tick — drafting unplanned planning cards', () => {
     const planDrafts = (broker: ReturnType<typeof fakeBroker>) =>
         (broker.send.mock.calls as unknown as Array<[string, unknown]>).filter(([name]) => name === 'card.plan-draft');
 
-    it('enqueues one unplanned draft for a planning card without a plan, and still enqueues the stage work behind it', async () => {
-        const { poller, broker, cardJobs } = buildPoller([card('0001', 'planning'), card('0002', 'implementing')], {
-            settings: autoPlanSettings(true),
-        });
+    const settingKeysRead = (settings: SettingsStore) =>
+        ((settings.get as ReturnType<typeof vi.fn>).mock.calls as Array<[{ key: string }]>).map(([definition]) => definition.key);
+
+    it('enqueues one unplanned draft for a planning card without a plan with no setting read, and still enqueues the stage work behind it', async () => {
+        const { poller, broker, cardJobs, settings } = buildPoller([card('0001', 'planning'), card('0002', 'implementing')]);
 
         await runOneTick(poller);
 
@@ -876,30 +897,34 @@ describe('Poller tick — drafting unplanned planning cards', () => {
         expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing', project: 'poller-test-project' });
         expect(cardJobs.record).toHaveBeenCalledTimes(1);
         expect(cardJobs.record).toHaveBeenCalledWith('0002', 'job-1');
+        expect(settingKeysRead(settings)).not.toContain(AUTO_PLAN_KEY);
     });
 
-    it('does nothing while auto-plan is off', async () => {
-        const { poller, broker, cardJobs } = buildPoller([card('0001', 'planning')], { settings: autoPlanSettings(false) });
+    it('drafts even with the deprecated auto-plan row stored as false', async () => {
+        const settings = autoPlanRowSettings(false);
+        const { poller, broker, cardJobs } = buildPoller([card('0001', 'planning')], { settings });
 
         await runOneTick(poller);
 
-        expect(broker.send).not.toHaveBeenCalled();
-        expect(cardJobs.planDraftAttempted).not.toHaveBeenCalled();
+        expect(cardJobs.planDraftAttempted).toHaveBeenCalledWith('0001');
+        expect(planDrafts(broker)).toEqual([['card.plan-draft', { cardId: '0001', project: 'poller-test-project', trigger: 'unplanned' }]]);
+        expect(settingKeysRead(settings)).not.toContain(AUTO_PLAN_KEY);
     });
 
-    it('leaves a card that already has a complete plan alone', async () => {
+    it('does not draft a card that already has a complete plan, and with no BoardWriteService passes it over', async () => {
         const planned = { ...card('0001', 'planning'), body: PLANNED };
-        const { poller, broker } = buildPoller([planned], { settings: autoPlanSettings(true) });
+        const { poller, broker, cardJobs } = buildPoller([planned]);
 
         await runOneTick(poller);
 
+        expect(cardJobs.planDraftAttempted).not.toHaveBeenCalled();
         expect(broker.send).not.toHaveBeenCalled();
     });
 
-    it('leaves a card whose draft was already attempted to a person', async () => {
+    it('leaves a card whose draft was already attempted', async () => {
         const cardJobs = statefulCardJobs();
         cardJobs.planDraftAttempted.mockResolvedValue(true);
-        const { poller, broker } = buildPoller([card('0001', 'planning')], { settings: autoPlanSettings(true), cardJobs });
+        const { poller, broker } = buildPoller([card('0001', 'planning')], { cardJobs });
 
         await runOneTick(poller);
 
@@ -910,14 +935,222 @@ describe('Poller tick — drafting unplanned planning cards', () => {
     it('enqueues at most one draft per tick, skipping past an attempted card to the next', async () => {
         const cardJobs = statefulCardJobs();
         cardJobs.planDraftAttempted.mockImplementation(async (cardId: string) => cardId === '0001');
-        const { poller, broker } = buildPoller([card('0001', 'planning'), card('0002', 'planning'), card('0003', 'planning')], {
-            settings: autoPlanSettings(true),
-            cardJobs,
-        });
+        const { poller, broker } = buildPoller([card('0001', 'planning'), card('0002', 'planning'), card('0003', 'planning')], { cardJobs });
 
         await runOneTick(poller);
 
         expect(planDrafts(broker)).toEqual([['card.plan-draft', { cardId: '0002', project: 'poller-test-project', trigger: 'unplanned' }]]);
+    });
+
+    it('never drafts a card in the parking lot', async () => {
+        const { poller, broker, cardJobs } = buildPoller([card('0001', 'parking-lot')]);
+
+        await runOneTick(poller);
+
+        expect(cardJobs.planDraftAttempted).not.toHaveBeenCalled();
+        expect(broker.send).not.toHaveBeenCalled();
+    });
+});
+
+/**
+ * Card 0036 (autopilot). The runner approves a complete plan into `backlog` through
+ * `BoardWriteService.move` with `by: 'runner'`, and queues a `card.merge` job for a `ready` card. Both
+ * read their candidates from `nextCard.candidates`, so the parking lot, flagged cards and cards
+ * blocked on an unmerged dependency never reach either branch.
+ */
+describe('Poller tick — the runner approves and merges (card 0036)', () => {
+    const PLANNED = [
+        '## Goal',
+        'g',
+        '## Constraints',
+        'c',
+        '## Files in scope',
+        '- src/a.ts',
+        '## Tasks',
+        't',
+        '## Acceptance criteria',
+        'a',
+        '## Out of scope',
+        'o',
+    ]
+        .join('\n')
+        .concat('\n');
+
+    const planned = (id: string, overrides: Partial<CardFrontmatter> = {}): Card => ({ ...card(id, 'planning', overrides), body: PLANNED });
+
+    const sentNames = (broker: ReturnType<typeof fakeBroker>) => (broker.send.mock.calls as unknown as Array<[string, unknown]>).map(([name]) => name);
+
+    describe('approval at planning', () => {
+        it('moves a complete plan to backlog as the runner, consuming the tick', async () => {
+            const writes = fakeWrites();
+            const { poller, broker, cardJobs, logger } = buildPoller([planned('0001'), card('0002', 'implementing')], { writes });
+
+            await runOneTick(poller);
+
+            expect(writes.move).toHaveBeenCalledTimes(1);
+            expect(writes.move).toHaveBeenCalledWith('0001', { stage: 'backlog' }, { by: 'runner' });
+            // The tick's one enqueue is the plan check `move` itself sends, so `0002` waits.
+            expect(broker.send).not.toHaveBeenCalled();
+            expect(cardJobs.record).not.toHaveBeenCalled();
+            expect(logger.info.mock.calls[0]![0]).toContain('0001');
+        });
+
+        it('approves only one complete plan per tick', async () => {
+            const writes = fakeWrites();
+            const { poller } = buildPoller([planned('0001'), planned('0002')], { writes });
+
+            await runOneTick(poller);
+
+            expect(writes.move).toHaveBeenCalledTimes(1);
+            expect(writes.move).toHaveBeenCalledWith('0001', { stage: 'backlog' }, { by: 'runner' });
+        });
+
+        it('skips a plan whose scope check refused it, without flagging it, on every tick', async () => {
+            const writes = fakeWrites();
+            const refused = planned('0001', { planCheck: 'refused', planCheckReason: 'too wide' } as Partial<CardFrontmatter>);
+            const { poller, board, broker } = buildPoller([refused, card('0002', 'implementing')], { writes });
+
+            await runOneTick(poller);
+            await runOneTick(poller);
+
+            expect(writes.move).not.toHaveBeenCalled();
+            expect(board.writeWithEvent).not.toHaveBeenCalled();
+            expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing', project: 'poller-test-project' });
+        });
+
+        it('does not approve a plan whose check is already running', async () => {
+            const writes = fakeWrites();
+            const checking = planned('0001', { planCheck: 'checking' } as Partial<CardFrontmatter>);
+            const cardJobs = statefulCardJobs({ '0001': 'plan-check-job' });
+            const { poller, broker } = buildPoller([checking], { writes, cardJobs });
+
+            await runOneTick(poller);
+
+            expect(writes.move).not.toHaveBeenCalled();
+            expect(broker.send).not.toHaveBeenCalled();
+        });
+
+        it('does not approve a card something already carries', async () => {
+            const writes = fakeWrites();
+            const cardJobs = statefulCardJobs({ '0001': 'already-running-job' });
+            const { poller } = buildPoller([planned('0001')], { writes, cardJobs });
+
+            await runOneTick(poller);
+
+            expect(cardJobs.inFlight).toHaveBeenCalledWith('0001');
+            expect(writes.move).not.toHaveBeenCalled();
+        });
+
+        it('logs a refused move and carries on to the next candidate', async () => {
+            const refusal = Object.assign(new Error('Bad Request'), { details: { reason: 'Files in scope is empty' } });
+            const writes = { move: vi.fn(async () => Promise.reject(refusal)) };
+            const { poller, broker, logger } = buildPoller([planned('0001'), card('0002', 'implementing')], { writes });
+
+            await runOneTick(poller);
+
+            expect(logger.error).toHaveBeenCalledWith(refusal);
+            expect(broker.send).toHaveBeenCalledWith('card.stage', { cardId: '0002', stageName: 'implementing', project: 'poller-test-project' });
+        });
+
+        it('never approves a flagged plan, one blocked on an unmerged dependency, or a parked card', async () => {
+            const writes = fakeWrites();
+            const parked = { ...card('0003', 'parking-lot'), body: PLANNED };
+            const { poller } = buildPoller([planned('0001', { needsHuman: true }), planned('0002', { dependsOn: ['0099'] }), parked], { writes });
+
+            await runOneTick(poller);
+
+            expect(writes.move).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('merge at ready', () => {
+        it('enqueues exactly one card.merge job and nothing more that tick', async () => {
+            const { poller, broker, cardJobs, logger } = buildPoller([card('0001', 'ready'), card('0002', 'ready'), card('0003', 'implementing')]);
+
+            await runOneTick(poller);
+
+            expect(broker.send).toHaveBeenCalledTimes(1);
+            expect(broker.send).toHaveBeenCalledWith('card.merge', { cardId: '0001', project: 'poller-test-project' });
+            expect(cardJobs.mergeInFlight).toHaveBeenCalledWith('0001');
+            expect(cardJobs.record).not.toHaveBeenCalled();
+            expect(logger.info.mock.calls[0]![0]).toContain('0001');
+        });
+
+        it('skips a ready card whose merge is already queued or running', async () => {
+            const cardJobs = statefulCardJobs();
+            cardJobs.mergeInFlight.mockImplementation(async (cardId: string) => cardId === '0001');
+            const { poller, broker } = buildPoller([card('0001', 'ready'), card('0002', 'ready')], { cardJobs });
+
+            await runOneTick(poller);
+
+            expect(broker.send).toHaveBeenCalledTimes(1);
+            expect(broker.send).toHaveBeenCalledWith('card.merge', { cardId: '0002', project: 'poller-test-project' });
+        });
+
+        it('skips a ready card a card.stage job still carries', async () => {
+            const cardJobs = statefulCardJobs({ '0001': 'already-running-job' });
+            const { poller, broker } = buildPoller([card('0001', 'ready')], { cardJobs });
+
+            await runOneTick(poller);
+
+            expect(broker.send).not.toHaveBeenCalled();
+        });
+
+        it('never enqueues a merge for a flagged ready card, one blocked on an unmerged dependency, or a parked card', async () => {
+            const cards = [card('0001', 'ready', { needsHuman: true }), card('0002', 'ready', { dependsOn: ['0099'] }), card('0003', 'parking-lot')];
+            const { poller, broker } = buildPoller(cards);
+
+            await runOneTick(poller);
+
+            expect(sentNames(broker)).not.toContain('card.merge');
+            expect(broker.send).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('nothing runs while autopilot is stopped', () => {
+        const cards = () => [planned('0001'), card('0002', 'ready'), card('0003', 'planning')];
+
+        const settingsWith = (key: string, value: unknown): SettingsStore =>
+            ({
+                get: vi.fn(async (definition: { key: string; defaultValue: unknown }) => (definition.key === key ? value : definition.defaultValue)),
+                set: vi.fn(async () => undefined),
+            }) as unknown as SettingsStore;
+
+        it('does nothing while the server drains', async () => {
+            const writes = fakeWrites();
+            const { poller, broker, board } = buildPoller(cards(), { writes, settings: settingsWith(DRAIN_ENABLED.key, true) });
+
+            await runOneTick(poller);
+
+            expect(board.list).not.toHaveBeenCalled();
+            expect(writes.move).not.toHaveBeenCalled();
+            expect(broker.send).not.toHaveBeenCalled();
+        });
+
+        it('does nothing at the daily output token ceiling', async () => {
+            const writes = fakeWrites();
+            const events = { outputTokensSince: vi.fn(async () => 1000) } as unknown as EventLog;
+            const { poller, broker, board } = buildPoller(cards(), { writes, events, settings: settingsWith(DAILY_OUTPUT_TOKEN_CEILING.key, 1000) });
+
+            await runOneTick(poller);
+
+            expect(board.list).not.toHaveBeenCalled();
+            expect(writes.move).not.toHaveBeenCalled();
+            expect(broker.send).not.toHaveBeenCalled();
+        });
+
+        it('does nothing while the poller is off', async () => {
+            const writes = fakeWrites();
+            const { poller, broker, board } = buildPoller(cards(), { writes });
+
+            // Off is a poller never started, or one stopped before its first interval elapsed.
+            poller.start();
+            await poller.stop();
+
+            expect(board.list).not.toHaveBeenCalled();
+            expect(writes.move).not.toHaveBeenCalled();
+            expect(broker.send).not.toHaveBeenCalled();
+        });
     });
 });
 
