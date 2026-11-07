@@ -230,6 +230,14 @@ export const StageConfigSchema = z
          */
         typecheckCommand: z.string().optional(),
         /**
+         * On a lane that reviews: a fast check (usually the tests the card touches, or the whole suite
+         * when it is quick) that the runner runs once per changed file with only that file put back to its
+         * pre-card version, so the reviewer's plan names the files no check notices. Evidence only, it
+         * fails nothing, and it shares the evidence deadline: files it has no time for are listed as not
+         * tried. Like `typecheckCommand`, it must not write outside ignored files.
+         */
+        revertProofCommand: z.string().optional(),
+        /**
          * The command whose exit code the exit condition checks for formatting.
          *
          * Check, not write: a formatter that reformats a stage's files on its way out would hide the

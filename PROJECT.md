@@ -700,6 +700,14 @@ failing to work it out writes "could not compute" and leaves the stage to run.
   file uses, a move between changed files, and files found without an import (entry points, routes,
   migrations, configs) are never listed, and a match is written up as evidence, not a verdict.
 
+- **Files no check notices.** A lane with a `revertProofCommand` (a fast check, such as the tests the
+  card touches) has it run once per changed source file, with only that file put back to its version at
+  `baseSha` (an added file removed). A file whose old version still passes is listed: nothing would catch
+  a mistake in its change. Tests, docs and lockfiles are left alone, at most eight files are tried, and
+  the rest are named as not tried. A check that already fails on the branch reads "could not compute",
+  since then every file would look noticed. It runs in the review's own tree and restores each file and
+  anything the command wrote.
+
 All of it fits in `REVIEW_EVIDENCE_DEADLINE_MS` (4 minutes). That time is outside the stage's own wall
 clock and comes out of the ten minutes `CARD_STAGE_EXPIRES_IN` leaves around it. Steps of a review lane
 inherit its settings but get no evidence. `review.evidence` records the counts on the event log.
