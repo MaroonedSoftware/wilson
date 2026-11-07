@@ -1,0 +1,39 @@
+<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:MaroonedSoftware.Wilson.Desktop.ViewModels"
+    x:Class="MaroonedSoftware.Wilson.Desktop.Views.GoalsView"
+    x:DataType="vm:GoalsViewModel">
+    <UserControl.DataTemplates>
+        <!-- `GoalRow` in routes/goals.index.tsx: title and outcome, then project and the status badge. -->
+        <DataTemplate DataType="vm:GoalRow">
+            <Border Classes="panel" Margin="0,0,0,8" AutomationProperties.Name="{Binding Title, StringFormat='goal {0}'}">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="12,0,0,0">
+                        <TextBlock Classes="quiet" Text="{Binding Project}" VerticalAlignment="Center" />
+                        <Border Classes="badge" VerticalAlignment="Center">
+                            <TextBlock Classes="quiet" Classes.good="{Binding Active}" Classes.caution="{Binding Paused}" Classes.done="{Binding Done}" FontWeight="SemiBold" Text="{Binding Status}" />
+                        </Border>
+                    </StackPanel>
+                    <StackPanel Spacing="2">
+                        <TextBlock FontWeight="Medium" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Classes="quiet" FontSize="13" Text="{Binding Outcome}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+        </DataTemplate>
+    </UserControl.DataTemplates>
+    <ScrollViewer>
+        <StackPanel Margin="16" Spacing="12" MaxWidth="880" HorizontalAlignment="Left" MinWidth="560">
+            <TextBlock Classes="title" Text="Goals" />
+            <TextBlock Classes="quiet" Text="Loading…" IsVisible="{Binding Loading}" />
+            <TextBlock Classes="error" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <TextBlock Classes="quiet" TextWrapping="Wrap" Text="No goals yet. Ask the chat to start one for work that will take several cards." IsVisible="{Binding NoGoals}" />
+            <ItemsControl ItemsSource="{Binding Open}" />
+            <StackPanel Spacing="8" IsVisible="{Binding HasFinished}">
+                <TextBlock Classes="heading" Foreground="{DynamicResource Quiet}" Text="Finished" />
+                <ItemsControl ItemsSource="{Binding Finished}" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

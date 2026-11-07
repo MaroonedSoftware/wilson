@@ -45,6 +45,7 @@
         <DataTemplate DataType="vm:AppViewModel"><views:AppView /></DataTemplate>
         <DataTemplate DataType="vm:LanesViewModel"><views:LanesView /></DataTemplate>
         <DataTemplate DataType="vm:NewProjectViewModel"><views:NewProjectView /></DataTemplate>
+        <DataTemplate DataType="vm:GoalsViewModel"><views:GoalsView /></DataTemplate>
         <DataTemplate DataType="vm:HostsViewModel"><views:HostsView /></DataTemplate>
         <DataTemplate DataType="vm:SettingsViewModel"><views:SettingsView /></DataTemplate>
         <DataTemplate DataType="vm:StepUpViewModel"><views:StepUpView /></DataTemplate>
@@ -95,6 +96,8 @@
                     <SolidColorBrush x:Key="Marked" Color="#fbe9a8" />
                     <SolidColorBrush x:Key="MarkedActive" Color="#f5cf5c" />
                     <SolidColorBrush x:Key="Good" Color="#2f7d4a" />
+                    <!-- A finished goal, `statusColor`'s blue. -->
+                    <SolidColorBrush x:Key="Done" Color="#1f63b0" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <SolidColorBrush x:Key="Ink" Color="#e8e8e5" />
@@ -111,6 +114,7 @@
                     <SolidColorBrush x:Key="Marked" Color="#5c4a14" />
                     <SolidColorBrush x:Key="MarkedActive" Color="#8f7320" />
                     <SolidColorBrush x:Key="Good" Color="#6cc58d" />
+                    <SolidColorBrush x:Key="Done" Color="#7aaeea" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
@@ -342,6 +346,9 @@
         </Style>
         <Style Selector="TextBlock.quiet.caution">
             <Setter Property="Foreground" Value="{DynamicResource Caution}" />
+        </Style>
+        <Style Selector="TextBlock.quiet.done">
+            <Setter Property="Foreground" Value="{DynamicResource Done}" />
         </Style>
         <Style Selector="Border.panel">
             <Setter Property="BorderBrush" Value="{DynamicResource Line}" />
