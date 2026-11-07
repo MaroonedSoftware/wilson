@@ -614,6 +614,41 @@ describe('BoardService', () => {
         });
     });
 
+    describe('timeline', () => {
+        it('translates a missing card into a 404', async () => {
+            const boardRepository = {
+                read: async () => {
+                    throw new CardNotFoundError('card 0001 does not exist');
+                },
+            } as unknown as BoardRepository;
+            const service = new BoardService(boardRepository, noHistory, config, worktrees);
+
+            await expect(service.timeline('missing')).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it("folds the found card's own events for this board's project", async () => {
+            const boardRepository = { read: async () => card('0007') } as unknown as BoardRepository;
+            let seen: [string, string] | undefined;
+            const eventLog = {
+                timeline: async (project: string, id: string) => {
+                    seen = [project, id];
+                    return {
+                        spans: [],
+                        totals: { queuedMs: 0, runningMs: 0, waitingOnPersonMs: 0, wallClockMs: 0 },
+                        reviewRounds: 0,
+                        kickbacks: 0,
+                        repeatedRuns: [],
+                        ended: false,
+                    };
+                },
+            } as unknown as EventLog;
+            const service = new BoardService(boardRepository, eventLog, config, worktrees);
+
+            expect(await service.timeline('0007')).toMatchObject({ ended: false });
+            expect(seen).toEqual(['proj', '0007']);
+        });
+    });
+
     // Card 0263. `usage` is a thin translation over `EventLog.usageByStage`, the same shape as
     // `events` above — the 404 guard mirrors `getById`'s own (AC5), and a card that exists but has
     // no usage recorded yet gets `usageByStage`'s zeros back in an ordinary 200 (AC4), not a refusal.

@@ -626,6 +626,46 @@ export interface AnswerCardRequest {
 }
 
 /**
+ * Card 0263. Read-only, like `division`/`lint` above: nothing here recomputes or stores anything,
+ * it only sums what `EventLog` already has. A card with no `stage.passed`/`stage.failed` events on
+ * record gets zeros and an empty `stages` list, in a 200 — that is an ordinary card that has not
+ * run yet, not the same fact as "no such card", which stays the 404 every other operation on this
+ * surface gives.
+ * Where a card's time went: one stretch at a time, queued for the runner, running a stage (or a step
+ * of one), or waiting on a person (a flag, a question, or a lane a person moves: planning, ready).
+ * generated from [CardTimelineSpan](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface CardTimelineSpan {
+    kind: 'queued' | 'running' | 'waitingOnPerson';
+    stage: string;
+    step?: string;
+    startedAt: DateTime;
+    endedAt: DateTime;
+    durationMs: number;
+    /** How a running span ended. Absent on the others. */
+    outcome?: 'passed' | 'failed' | 'blocked' | 'interrupted';
+}
+
+/** Rehydrates every wire-encoded scalar in a CardTimelineSpan into its runtime type. Mutates and returns `raw`. */
+export function reviveCardTimelineSpan(raw: CardTimelineSpan): CardTimelineSpan {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['startedAt'] = __dt(__o0['startedAt'], 'CardTimelineSpan.startedAt');
+    __o0['endedAt'] = __dt(__o0['endedAt'], 'CardTimelineSpan.endedAt');
+    return raw;
+}
+
+/**
+ * A stage dispatched again on code it had already judged: no commit since its last finished run, and
+ * the same base. Each could have reused the earlier result, so the count bounds what caching would save.
+ * generated from [CardRepeatedRun](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface CardRepeatedRun {
+    stage: string;
+    step?: string;
+    count: number;
+}
+
+/**
  * generated from [CardSummary](../../../../apps/api/data/contracts/board.ck)
  */
 export interface CardSummary {
@@ -902,6 +942,34 @@ export interface SplitCardsRequest {
  */
 export interface RecordFindingsRequest {
     findings: HumanFinding[];
+}
+
+/**
+ * `GET /api/cards/{id}/timeline`'s response, folded from the card's own events. The spans cover every
+ * moment from its first event to now, or to reaching `done`, so the totals add up to `wallClockMs`.
+ * `reviewRounds` counts the lane's own review runs that judged the work, and `kickbacks` the runner's
+ * transitions that sent the card back.
+ * generated from [CardTimeline](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface CardTimeline {
+    spans: CardTimelineSpan[];
+    totals: { queuedMs: number; runningMs: number; waitingOnPersonMs: number; wallClockMs: number };
+    reviewRounds: number;
+    kickbacks: number;
+    repeatedRuns: CardRepeatedRun[];
+    ended: boolean;
+}
+
+/** Rehydrates every wire-encoded scalar in a CardTimeline into its runtime type. Mutates and returns `raw`. */
+export function reviveCardTimeline(raw: CardTimeline): CardTimeline {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    {
+        const __a1 = __o0['spans'] as unknown[];
+        for (let __i2 = 0; __i2 < __a1.length; __i2++) {
+            reviveCardTimelineSpan(__a1[__i2] as never);
+        }
+    }
+    return raw;
 }
 
 /**

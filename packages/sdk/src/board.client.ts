@@ -10,6 +10,7 @@ import type {
     CardPlan,
     CardPlanQuery,
     CardSummary,
+    CardTimeline,
     CardUsage,
     CardVersion,
     CreateCardRequest,
@@ -43,6 +44,7 @@ import {
     reviveCardDetail,
     reviveCardEvent,
     reviveCardSummary,
+    reviveCardTimeline,
     reviveCardVersion,
     reviveMergeResult,
     revivePlanComment,
@@ -483,13 +485,15 @@ export class BoardClient {
     }
 
     /**
-     * @name Get card usage
-     * @description Card 0263. Read-only, like `division`/`lint` above: nothing here recomputes or stores anything,
-     * it only sums what `EventLog` already has. A card with no `stage.passed`/`stage.failed` events on
-     * record gets zeros and an empty `stages` list, in a 200 — that is an ordinary card that has not
-     * run yet, not the same fact as "no such card", which stays the 404 every other operation on this
-     * surface gives.
+     * @name Get card timeline
+     * @description Read-only, like `usage` below: a projection of the card's events, never stored.
      */
+    async getCardTimeline(id: string): Promise<CardTimeline> {
+        const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/timeline`, { method: 'GET' });
+        return reviveCardTimeline(await parseJson<CardTimeline>(result));
+    }
+
+    /** @name Get card usage */
     async getCardUsage(id: string): Promise<CardUsage> {
         const result = await this.fetch(`/api/cards/${encodeURIComponent(id)}/usage`, { method: 'GET' });
         return await parseJson<CardUsage>(result);

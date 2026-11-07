@@ -846,6 +846,59 @@ public sealed record AnswerCardRequest
     public required string Answer { get; init; }
 }
 
+/// <summary>
+/// Card 0263. Read-only, like `division`/`lint` above: nothing here recomputes or stores anything,
+/// it only sums what `EventLog` already has. A card with no `stage.passed`/`stage.failed` events on
+/// record gets zeros and an empty `stages` list, in a 200 — that is an ordinary card that has not
+/// run yet, not the same fact as "no such card", which stays the 404 every other operation on this
+/// surface gives.
+/// Where a card's time went: one stretch at a time, queued for the runner, running a stage (or a step
+/// of one), or waiting on a person (a flag, a question, or a lane a person moves: planning, ready).
+/// </summary>
+public sealed record CardTimelineSpan
+{
+    [JsonPropertyName("kind")]
+    public required CardTimelineSpanKind Kind { get; init; }
+
+    [JsonPropertyName("stage")]
+    public required string Stage { get; init; }
+
+    [JsonPropertyName("step")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Step { get; init; }
+
+    [JsonPropertyName("startedAt")]
+    public required DateTimeOffset StartedAt { get; init; }
+
+    [JsonPropertyName("endedAt")]
+    public required DateTimeOffset EndedAt { get; init; }
+
+    [JsonPropertyName("durationMs")]
+    public required long DurationMs { get; init; }
+
+    /// <summary>How a running span ended. Absent on the others.</summary>
+    [JsonPropertyName("outcome")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CardTimelineSpanOutcome? Outcome { get; init; }
+}
+
+/// <summary>
+/// A stage dispatched again on code it had already judged: no commit since its last finished run, and
+/// the same base. Each could have reused the earlier result, so the count bounds what caching would save.
+/// </summary>
+public sealed record CardRepeatedRun
+{
+    [JsonPropertyName("stage")]
+    public required string Stage { get; init; }
+
+    [JsonPropertyName("step")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Step { get; init; }
+
+    [JsonPropertyName("count")]
+    public required long Count { get; init; }
+}
+
 public sealed record CardSummary
 {
     [JsonPropertyName("id")]
@@ -1305,6 +1358,33 @@ public sealed record RecordFindingsRequest
 {
     [JsonPropertyName("findings")]
     public required List<HumanFinding> Findings { get; init; }
+}
+
+/// <summary>
+/// `GET /api/cards/{id}/timeline`'s response, folded from the card's own events. The spans cover every
+/// moment from its first event to now, or to reaching `done`, so the totals add up to `wallClockMs`.
+/// `reviewRounds` counts the lane's own review runs that judged the work, and `kickbacks` the runner's
+/// transitions that sent the card back.
+/// </summary>
+public sealed record CardTimeline
+{
+    [JsonPropertyName("spans")]
+    public required List<CardTimelineSpan> Spans { get; init; }
+
+    [JsonPropertyName("totals")]
+    public required CardTimelineTotals Totals { get; init; }
+
+    [JsonPropertyName("reviewRounds")]
+    public required long ReviewRounds { get; init; }
+
+    [JsonPropertyName("kickbacks")]
+    public required long Kickbacks { get; init; }
+
+    [JsonPropertyName("repeatedRuns")]
+    public required List<CardRepeatedRun> RepeatedRuns { get; init; }
+
+    [JsonPropertyName("ended")]
+    public required bool Ended { get; init; }
 }
 
 public sealed record CardDetail
@@ -2902,4 +2982,147 @@ public sealed class HumanFindingSeverityConverter : JsonConverter<HumanFindingSe
         HumanFindingSeverity.Concern => "concern",
         _ => throw new JsonException($"HumanFindingSeverity.{value} has no wire spelling, so it cannot be sent."),
     };
+}
+
+[JsonConverter(typeof(CardTimelineSpanKindConverter))]
+public enum CardTimelineSpanKind
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("queued")]
+    Queued,
+
+    [JsonStringEnumMemberName("running")]
+    Running,
+
+    [JsonStringEnumMemberName("waitingOnPerson")]
+    WaitingOnPerson,
+}
+
+/// <summary>
+/// Reads and writes <see cref="CardTimelineSpanKind"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="CardTimelineSpanKind.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class CardTimelineSpanKindConverter : JsonConverter<CardTimelineSpanKind>
+{
+    public override CardTimelineSpanKind Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for CardTimelineSpanKind, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, CardTimelineSpanKind value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override CardTimelineSpanKind ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, CardTimelineSpanKind value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static CardTimelineSpanKind FromWire(string? text) => text switch
+    {
+        "queued" => CardTimelineSpanKind.Queued,
+        "running" => CardTimelineSpanKind.Running,
+        "waitingOnPerson" => CardTimelineSpanKind.WaitingOnPerson,
+        _ => CardTimelineSpanKind.Unknown,
+    };
+
+    private static string ToWire(CardTimelineSpanKind value) => value switch
+    {
+        CardTimelineSpanKind.Queued => "queued",
+        CardTimelineSpanKind.Running => "running",
+        CardTimelineSpanKind.WaitingOnPerson => "waitingOnPerson",
+        _ => throw new JsonException($"CardTimelineSpanKind.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+/// <summary>How a running span ended. Absent on the others.</summary>
+[JsonConverter(typeof(CardTimelineSpanOutcomeConverter))]
+public enum CardTimelineSpanOutcome
+{
+    /// <summary>
+    /// A value this SDK does not know, such as a member the service added after it was generated.
+    /// Never sent: writing it throws a <see cref="JsonException"/>.
+    /// </summary>
+    Unknown = 0,
+
+    [JsonStringEnumMemberName("passed")]
+    Passed,
+
+    [JsonStringEnumMemberName("failed")]
+    Failed,
+
+    [JsonStringEnumMemberName("blocked")]
+    Blocked,
+
+    [JsonStringEnumMemberName("interrupted")]
+    Interrupted,
+}
+
+/// <summary>
+/// Reads and writes <see cref="CardTimelineSpanOutcome"/> by its wire spelling. A spelling it does not know reads as
+/// <see cref="CardTimelineSpanOutcome.Unknown"/> rather than failing the payload.
+/// </summary>
+public sealed class CardTimelineSpanOutcomeConverter : JsonConverter<CardTimelineSpanOutcome>
+{
+    public override CardTimelineSpanOutcome Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException($"Expected a string for CardTimelineSpanOutcome, got {reader.TokenType}.");
+        }
+
+        return FromWire(reader.GetString());
+    }
+
+    public override void Write(Utf8JsonWriter writer, CardTimelineSpanOutcome value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    public override CardTimelineSpanOutcome ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        FromWire(reader.GetString());
+
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, CardTimelineSpanOutcome value, JsonSerializerOptions options) =>
+        writer.WritePropertyName(ToWire(value));
+
+    private static CardTimelineSpanOutcome FromWire(string? text) => text switch
+    {
+        "passed" => CardTimelineSpanOutcome.Passed,
+        "failed" => CardTimelineSpanOutcome.Failed,
+        "blocked" => CardTimelineSpanOutcome.Blocked,
+        "interrupted" => CardTimelineSpanOutcome.Interrupted,
+        _ => CardTimelineSpanOutcome.Unknown,
+    };
+
+    private static string ToWire(CardTimelineSpanOutcome value) => value switch
+    {
+        CardTimelineSpanOutcome.Passed => "passed",
+        CardTimelineSpanOutcome.Failed => "failed",
+        CardTimelineSpanOutcome.Blocked => "blocked",
+        CardTimelineSpanOutcome.Interrupted => "interrupted",
+        _ => throw new JsonException($"CardTimelineSpanOutcome.{value} has no wire spelling, so it cannot be sent."),
+    };
+}
+
+public sealed record CardTimelineTotals
+{
+    [JsonPropertyName("queuedMs")]
+    public required long QueuedMs { get; init; }
+
+    [JsonPropertyName("runningMs")]
+    public required long RunningMs { get; init; }
+
+    [JsonPropertyName("waitingOnPersonMs")]
+    public required long WaitingOnPersonMs { get; init; }
+
+    [JsonPropertyName("wallClockMs")]
+    public required long WallClockMs { get; init; }
 }

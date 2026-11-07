@@ -599,6 +599,39 @@ export const AnswerCardRequest = z.strictObject({
 export type AnswerCardRequest = z.infer<typeof AnswerCardRequest>;
 
 /**
+ * Card 0263. Read-only, like `division`/`lint` above: nothing here recomputes or stores anything,
+ * it only sums what `EventLog` already has. A card with no `stage.passed`/`stage.failed` events on
+ * record gets zeros and an empty `stages` list, in a 200 — that is an ordinary card that has not
+ * run yet, not the same fact as "no such card", which stays the 404 every other operation on this
+ * surface gives.
+ * Where a card's time went: one stretch at a time, queued for the runner, running a stage (or a step
+ * of one), or waiting on a person (a flag, a question, or a lane a person moves: planning, ready).
+ * generated from [CardTimelineSpan](../../data/contracts/board.ck)
+ */
+export const CardTimelineSpan = z.strictObject({
+    kind: z.enum(['queued', 'running', 'waitingOnPerson']),
+    stage: z.string(),
+    step: z.string().optional(),
+    startedAt: _ZodDatetime,
+    endedAt: _ZodDatetime,
+    durationMs: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    outcome: z.enum(['passed', 'failed', 'blocked', 'interrupted']).optional().describe('How a running span ended. Absent on the others.'),
+});
+export type CardTimelineSpan = z.infer<typeof CardTimelineSpan>;
+
+/**
+ * A stage dispatched again on code it had already judged: no commit since its last finished run, and
+ * the same base. Each could have reused the earlier result, so the count bounds what caching would save.
+ * generated from [CardRepeatedRun](../../data/contracts/board.ck)
+ */
+export const CardRepeatedRun = z.strictObject({
+    stage: z.string(),
+    step: z.string().optional(),
+    count: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type CardRepeatedRun = z.infer<typeof CardRepeatedRun>;
+
+/**
  * generated from [CardSummary](../../data/contracts/board.ck)
  */
 export const CardSummary = z.strictObject({
@@ -859,6 +892,28 @@ export const RecordFindingsRequest = z.strictObject({
     findings: z.array(HumanFinding),
 });
 export type RecordFindingsRequest = z.infer<typeof RecordFindingsRequest>;
+
+/**
+ * `GET /api/cards/{id}/timeline`'s response, folded from the card's own events. The spans cover every
+ * moment from its first event to now, or to reaching `done`, so the totals add up to `wallClockMs`.
+ * `reviewRounds` counts the lane's own review runs that judged the work, and `kickbacks` the runner's
+ * transitions that sent the card back.
+ * generated from [CardTimeline](../../data/contracts/board.ck)
+ */
+export const CardTimeline = z.strictObject({
+    spans: z.array(CardTimelineSpan),
+    totals: z.strictObject({
+        queuedMs: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+        runningMs: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+        waitingOnPersonMs: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+        wallClockMs: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    }),
+    reviewRounds: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    kickbacks: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    repeatedRuns: z.array(CardRepeatedRun),
+    ended: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+});
+export type CardTimeline = z.infer<typeof CardTimeline>;
 
 /**
  * generated from [CardDetail](../../data/contracts/board.ck)

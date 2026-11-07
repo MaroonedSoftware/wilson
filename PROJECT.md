@@ -755,6 +755,15 @@ gets one look however many kickbacks it takes, and most looks should find nothin
 `wilson.rule_proposals`, and is nothing until a person names and accepts it (`wilson rules accept`, or the
 rules page), behind step-up. It stops being offered after 45 days. Rule failures are never proposed from.
 
+### Where a card's time went
+
+`GET /api/cards/{id}/timeline` (`wilson card timeline`) folds a card's events into stretches: queued for
+the runner, running a stage or step, or waiting on a person (a flag, a question, or `planning`/`ready`).
+They cover every moment from its first event to now or to `done`, so the totals add up to the wall clock.
+It also counts review rounds, kickbacks, and runs repeated on unchanged code: a stage dispatched again
+with no commit since its last finished run and the same base. That last count bounds what reusing a
+stage's result by tree would save, before anyone builds it. Nothing is stored; it is read from the log.
+
 ### Measuring the reviewer
 
 Lanes can be re-routed and prompts edited, and neither says whether the change helped.

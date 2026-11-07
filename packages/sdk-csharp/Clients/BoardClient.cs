@@ -547,13 +547,20 @@ public sealed class BoardClient(SdkHttp http)
     }
 
     /// <summary>
-    /// Get card usage
-    /// Card 0263. Read-only, like `division`/`lint` above: nothing here recomputes or stores anything,
-    /// it only sums what `EventLog` already has. A card with no `stage.passed`/`stage.failed` events on
-    /// record gets zeros and an empty `stages` list, in a 200 — that is an ordinary card that has not
-    /// run yet, not the same fact as "no such card", which stays the 404 every other operation on this
-    /// surface gives.
+    /// Get card timeline
+    /// Read-only, like `usage` below: a projection of the card's events, never stored.
     /// </summary>
+    /// <exception cref="SdkException">On 404.</exception>
+    public async Task<CardTimeline> GetCardTimelineAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var response = await http.ExecuteAsync(
+            HttpMethod.Get,
+            http.Path("api", "cards", http.Segment(id), "timeline"),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return http.ReadJson<CardTimeline>(response);
+    }
+
+    /// <summary>Get card usage</summary>
     /// <exception cref="SdkException">On 404.</exception>
     public async Task<CardUsage> GetCardUsageAsync(string id, CancellationToken cancellationToken = default)
     {

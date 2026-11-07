@@ -8,7 +8,11 @@ import { EVAL_RUN_ID_PREFIX } from '#modules/evals/eval.run.id.js';
 import { CARD_FEED_CHANNEL } from '#modules/feed/card.feed.js';
 import type { ProjectConversationStats, ProjectGateStats, ProjectStageStats, ProjectStats, ProjectStatsCounts } from '../../generated/board.js';
 import type { CardEvent, CardEventType } from './card.event.js';
+import { foldCardTimeline, type CardTimelineFigures } from './card.timeline.js';
 import { foldGateStats, type GateEventRow } from './gate.stats.js';
+
+/** The most of one card's events a timeline reads. A card's whole life is far fewer than this. */
+const TIMELINE_EVENT_LIMIT = 10_000;
 
 export interface CardEventRow {
     id: string;
@@ -282,6 +286,11 @@ export class EventLog {
      * `inputTokens` includes cached tokens and `cachedInputTokens` says how many of them those are.
      * These are raw tokens: a card's budget weights them (`budgetedInputTokens`), so the two differ.
      */
+    /** Where one card's time went, from its whole history (`foldCardTimeline`). */
+    async timeline(project: string, cardId: string, now: DateTime): Promise<CardTimelineFigures> {
+        return foldCardTimeline(await this.tail(project, cardId, TIMELINE_EVENT_LIMIT), now);
+    }
+
     async usageByStage(project: string, cardId: string): Promise<CardUsage> {
         const rows = await this.db
             .selectFrom('wilson.cardEvents')
