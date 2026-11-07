@@ -559,6 +559,133 @@ describe('BoardWriteService', () => {
             expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('0013'));
             expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('boom: directory busy'));
         });
+
+        describe('a job still queued for a card that ends (card 0014)', () => {
+            const jobIn = (state: string) => vi.fn(async () => ({ id: 'job-q', name: 'card.stage', state, data: {} }));
+
+            it.each(['done', 'merged', 'dropped'])('cancels a created job and clears the claim on a move to %s', async target => {
+                const { board, broker, cardJobs, service } = freshBoard(undefined, { getJob: jobIn('created') });
+                await board.create(card('0140', { stage: 'testing' }), 'seed');
+                await cardJobs.record('0140', 'job-q');
+                const clearSpy = vi.spyOn(cardJobs, 'clear');
+
+                const detail = await service.move('0140', { stage: target });
+
+                expect(detail.stage).toBe('done');
+                expect(broker.cancel).toHaveBeenCalledExactlyOnceWith('card.stage', 'job-q');
+                expect(clearSpy).toHaveBeenCalledWith('0140');
+                expect(broker.cancel.mock.invocationCallOrder[0]).toBeLessThan(clearSpy.mock.invocationCallOrder[0]!);
+                expect(await cardJobs.inFlight('0140')).toBeUndefined();
+            });
+
+            it('cancels a job in retry the same way', async () => {
+                const { board, broker, cardJobs, service } = freshBoard(undefined, { getJob: jobIn('retry') });
+                await board.create(card('0141', { stage: 'testing' }), 'seed');
+                await cardJobs.record('0141', 'job-q');
+                const clearSpy = vi.spyOn(cardJobs, 'clear');
+
+                await service.move('0141', { stage: 'merged' });
+
+                expect(broker.cancel).toHaveBeenCalledExactlyOnceWith('card.stage', 'job-q');
+                expect(clearSpy).toHaveBeenCalledWith('0141');
+            });
+
+            it('leaves an active job claimed and uncancelled — the running stage notices the move itself', async () => {
+                const { board, broker, cardJobs, service } = freshBoard(undefined, { getJob: jobIn('active') });
+                await board.create(card('0142', { stage: 'testing' }), 'seed');
+                await cardJobs.record('0142', 'job-q');
+
+                await service.move('0142', { stage: 'merged' });
+
+                expect(broker.cancel).not.toHaveBeenCalled();
+                expect(await cardJobs.inFlight('0142')).toBe('job-q');
+            });
+
+            it('leaves the job and the claim alone on a move to a lane that is not an ending', async () => {
+                const { board, broker, cardJobs, service } = freshBoard(undefined, { getJob: jobIn('created') });
+                await board.create(card('0143', { stage: 'implementing' }), 'seed');
+                await cardJobs.record('0143', 'job-q');
+
+                await service.move('0143', { stage: 'testing' });
+
+                expect(broker.cancel).not.toHaveBeenCalled();
+                expect(await cardJobs.inFlight('0143')).toBe('job-q');
+            });
+
+            it('still returns the ended card, warning with its id, when the cancel throws', async () => {
+                const { board, cardJobs, logger, service } = freshBoard(undefined, {
+                    getJob: jobIn('created'),
+                    cancel: vi.fn(async () => {
+                        throw new Error('broker down');
+                    }),
+                });
+                await board.create(card('0144', { stage: 'testing' }), 'seed');
+                await cardJobs.record('0144', 'job-q');
+
+                const detail = await service.move('0144', { stage: 'merged' });
+
+                expect(detail.stage).toBe('done');
+                expect(detail.doneReason).toBe('merged');
+                expect((await board.read('0144')).frontmatter.stage).toBe('done');
+                expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('0144'));
+                expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('broker down'));
+            });
+
+            it('still returns the ended card, warning with its id, when reading the job state throws', async () => {
+                const { board, broker, cardJobs, logger, service } = freshBoard(undefined, {
+                    getJob: vi.fn(async () => {
+                        throw new Error('queue unreachable');
+                    }),
+                });
+                await board.create(card('0146', { stage: 'testing' }), 'seed');
+                await cardJobs.record('0146', 'job-q');
+
+                const detail = await service.move('0146', { stage: 'dropped' });
+
+                expect(detail.stage).toBe('done');
+                expect(detail.doneReason).toBe('dropped');
+                expect(broker.cancel).not.toHaveBeenCalled();
+                expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/0146.*queue unreachable/));
+            });
+
+            it('does nothing new on a no-op move of a card that has already ended', async () => {
+                const { board, broker, cardJobs, service } = freshBoard(undefined, { getJob: jobIn('created') });
+                await board.create(card('0147', { stage: 'done', doneReason: 'merged' }), 'seed');
+                await cardJobs.record('0147', 'job-q');
+                const versionBefore = await board.currentVersion('0147');
+
+                const detail = await service.move('0147', { stage: 'merged' });
+
+                expect(detail.doneReason).toBe('merged');
+                expect(await board.currentVersion('0147')).toBe(versionBefore);
+                expect(broker.getJob).not.toHaveBeenCalled();
+                expect(broker.cancel).not.toHaveBeenCalled();
+                expect(await cardJobs.inFlight('0147')).toBe('job-q');
+            });
+
+            it('cancels nothing and warns about nothing when the ended card holds no claim', async () => {
+                const { board, broker, logger, service } = freshBoard(undefined, { getJob: jobIn('created') });
+                await board.create(card('0148', { stage: 'testing' }), 'seed');
+
+                const detail = await service.move('0148', { stage: 'merged' });
+
+                expect(detail.doneReason).toBe('merged');
+                expect(broker.cancel).not.toHaveBeenCalled();
+                expect(logger.warn).not.toHaveBeenCalled();
+            });
+
+            it('cancels a queued job for a flagged card too, even though its worktree is kept', async () => {
+                const { board, broker, cardJobs, worktrees, service } = freshBoard(undefined, { getJob: jobIn('created') });
+                await board.create(card('0149', { stage: 'testing', needsHuman: true, needsHumanReason: 'usage limit' }), 'seed');
+                await cardJobs.record('0149', 'job-q');
+
+                await service.move('0149', { stage: 'dropped' });
+
+                expect(worktrees.reclaim).not.toHaveBeenCalled();
+                expect(broker.cancel).toHaveBeenCalledExactlyOnceWith('card.stage', 'job-q');
+                expect(await cardJobs.inFlight('0149')).toBeUndefined();
+            });
+        });
     });
 
     describe('reposition', () => {
@@ -2023,6 +2150,7 @@ describe('BoardWriteService', () => {
             dryRun = false,
             reReviewOnMerge = false,
             placer?: HostPlacer,
+            getJob: ReturnType<typeof vi.fn> = vi.fn(async () => null),
         ) => {
             // What `tail` returns: the card's history as the merge check reads it (`test.preexisting`).
             const history: Array<{ id: string; stage: string | null; type: string; payload: Record<string, unknown> }> = [];
@@ -2030,7 +2158,7 @@ describe('BoardWriteService', () => {
             const config = new StaticBoardConfig(uniqueProject(), '/tmp/code', '/tmp/wt', '/tmp/run');
             const board = new PostgresBoardRepository(config, db, events as unknown as EventLog);
             const logger = fakeLogger();
-            const broker = { send: vi.fn(async () => 'job-1'), cancel: vi.fn(async () => {}), getJob: vi.fn(async () => null) };
+            const broker = { send: vi.fn(async () => 'job-1'), cancel: vi.fn(async () => {}), getJob };
             const cardJobs = new CardJobs(config, db, broker as unknown as JobBroker);
             const runningCards = new RunningCards();
             const service = new BoardWriteService(
@@ -2046,7 +2174,7 @@ describe('BoardWriteService', () => {
                 stages,
                 placer,
             );
-            return { board, events, history, service };
+            return { board, events, history, broker, cardJobs, service };
         };
 
         it('refuses a card that is not in ready, touching none of the git plumbing', async () => {
@@ -2059,6 +2187,22 @@ describe('BoardWriteService', () => {
                 details: { reason: expect.stringContaining('not "ready"') },
             });
             expect(worktrees.computeMerge).not.toHaveBeenCalled();
+        });
+
+        it('cancels a job still queued for the card once the merge lands it, through the same move (card 0014)', async () => {
+            const passing = await scriptExiting(0);
+            const worktrees = mergeWorktrees();
+            const getJob = vi.fn(async () => ({ id: 'job-q', name: 'card.stage', state: 'created', data: {} }));
+            const { board, broker, cardJobs, service } = freshMergeBoard(worktrees, mergeStageConfigs(`node ${passing}`), false, false, undefined, getJob);
+            await board.create(card('0145', { stage: 'ready' }), 'seed');
+            await cardJobs.record('0145', 'job-q');
+            const clearSpy = vi.spyOn(cardJobs, 'clear');
+
+            const result = await service.merge('0145');
+
+            expect(result.merged).toBe(true);
+            expect(broker.cancel).toHaveBeenCalledExactlyOnceWith('card.stage', 'job-q');
+            expect(clearSpy).toHaveBeenCalledWith('0145');
         });
 
         it('flags a conflicting merge, leaves the card in ready with its retries untouched, and lands nothing', async () => {

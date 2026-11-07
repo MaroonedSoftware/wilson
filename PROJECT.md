@@ -661,6 +661,13 @@ cutting a worktree and installing dependencies before failing at the first model
 The job returns normally after poisoning so the queue does not retry it either. A card
 that has already ended keeps its ending: a late job records `stage.stale` and sends nothing.
 
+Finishing a card by hand — a move to `done`, `merged` or `dropped`, or a merge, which lands through
+the same move — cancels any `card.stage` job still queued for it (`created` or `retry`, such as one
+held across a usage limit) and clears its claim, so a finished card has nothing left waiting and
+needs no `wilson card release`. An `active` job is left to finish and notice the move itself. The
+cancel is best-effort: if it fails the move still stands, a warning names the card, and the late
+job is refused as `stage.stale`.
+
 Classification is by message text, because neither the SDK nor the provider surfaces a
 stable machine-readable class. It is deliberately conservative: a miss costs a few
 retries, a false positive strands a card that would have recovered.
