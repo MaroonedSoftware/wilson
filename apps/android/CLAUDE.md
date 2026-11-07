@@ -42,6 +42,10 @@ skill, and say plainly what you did not run. Record what you find here, dated.
   answer `image/svg+xml`, which `BitmapFactory` cannot read: such an image shows as failed. Images are decoded
   at most 2048 px on a side. Answers' images are drawn under the text, as Android has no Markdown renderer to
   place the ones an answer embeds.
+- Goals are across projects, `/api/goals` publishes no feed event of its own, and a goal's cards move
+  under their project's feed. So the goals list re-reads on every resume and on pull-to-refresh, and a
+  goal's detail re-reads on start, after each status change, and on each non-`tool.*` event of the goal's
+  own project's feed. Nothing polls: web's `GOAL_REFRESH_MS` has no equivalent here, for the battery.
 
 ## Found on the emulator
 

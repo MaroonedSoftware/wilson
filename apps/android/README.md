@@ -1,7 +1,8 @@
 # Wilson for Android
 
 The operator's board in a pocket: sign in, watch the board live, act on cards, plan and chat, read a
-project's activity and its stats over 7, 30 or 90 days, and get a push notification when a card needs you. Hosts, settings, API keys, factor enrolment and stage
+project's activity and its stats over 7, 30 or 90 days, follow and pause or close goals, and get a push
+notification when a card needs you. Hosts, settings, API keys, factor enrolment and stage
 config stay on the web app and the CLI.
 
 Built the way `apps/android` in deadair is: Kotlin, Compose, Navigation 3 and Ktor, over the client

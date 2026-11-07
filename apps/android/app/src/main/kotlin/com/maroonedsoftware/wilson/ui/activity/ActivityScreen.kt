@@ -28,34 +28,24 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
-import com.maroonedsoftware.wilson.board.ActivityTone
 import com.maroonedsoftware.wilson.board.activityAge
 import com.maroonedsoftware.wilson.board.activityReason
 import com.maroonedsoftware.wilson.board.summarizeActivity
 import com.maroonedsoftware.wilson.sdk.models.ActivityEvent
 import com.maroonedsoftware.wilson.ui.Centered
 import com.maroonedsoftware.wilson.ui.Loading
+import com.maroonedsoftware.wilson.ui.colour
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlinx.coroutines.delay
 
 private const val AGE_TICK_MS = 10_000L
-
-private fun ActivityTone.colour() =
-    when (this) {
-        ActivityTone.GOOD -> Color(0xFF2F9E44)
-        ActivityTone.BAD -> Color(0xFFE03131)
-        ActivityTone.WARNING -> Color(0xFFE8590C)
-        ActivityTone.INFO -> Color(0xFF1C7ED6)
-        ActivityTone.QUIET -> Color(0xFF868E96)
-    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

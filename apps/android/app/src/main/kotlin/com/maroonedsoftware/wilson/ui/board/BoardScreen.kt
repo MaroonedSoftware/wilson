@@ -56,6 +56,7 @@ fun BoardScreen(
     onChat: () -> Unit,
     onActivity: (project: String) -> Unit,
     onStats: (project: String) -> Unit,
+    onGoals: () -> Unit,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -79,6 +80,8 @@ fun BoardScreen(
                         TextButton(onClick = { onActivity(project) }) { Text("Activity") }
                         TextButton(onClick = { onStats(project) }) { Text("Stats") }
                     }
+                    // Goals are across projects, so this needs no project selected.
+                    TextButton(onClick = onGoals) { Text("Goals") }
                     TextButton(onClick = onChat) { Text("Chat") }
                     TextButton(onClick = model::signOut) { Text("Sign out") }
                 },

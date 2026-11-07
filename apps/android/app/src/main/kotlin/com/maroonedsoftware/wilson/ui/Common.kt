@@ -12,10 +12,22 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.maroonedsoftware.wilson.R
+import com.maroonedsoftware.wilson.board.ActivityTone
 import com.maroonedsoftware.wilson.board.CardState
+
+/** The app's one set of status colours, shared by the activity feed and the goals. */
+fun ActivityTone.colour(): Color =
+    when (this) {
+        ActivityTone.GOOD -> Color(0xFF2F9E44)
+        ActivityTone.BAD -> Color(0xFFE03131)
+        ActivityTone.WARNING -> Color(0xFFE8590C)
+        ActivityTone.INFO -> Color(0xFF1C7ED6)
+        ActivityTone.QUIET -> Color(0xFF868E96)
+    }
 
 @Composable
 fun Centered(content: @Composable () -> Unit) {
