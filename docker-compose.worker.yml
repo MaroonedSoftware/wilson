@@ -10,6 +10,7 @@ services:
             target: worker
             args:
                 WORKER_PACKAGES: ${WORKER_PACKAGES:-}
+                WORKER_ANDROID: ${WORKER_ANDROID:-false}
         image: wilson-worker
         # Capped, not `unless-stopped`: status 1 is Wilson refusing this worker for good, and the worker
         # reconnects by itself through anything less.

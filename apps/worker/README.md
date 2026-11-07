@@ -98,6 +98,23 @@ so Wilson's own suite runs here with no settings. A project that needs more name
 `WORKER_PACKAGES="build-essential python3"` in the environment of that command. A project without a
 GitHub repository cannot be cloned into the volume, so it does not suit this image.
 
+A worker that runs Wilson's own testing stage needs the Android toolchain too: for a card that changes
+only `apps/android`, the verifier runs `apps/android/gradlew :app:testDebugUnitTest`. It adds about a
+gigabyte, so it is off unless the build asks for it:
+
+```bash
+WORKER_ANDROID=true docker compose -f docker-compose.worker.yml up --build -d
+```
+
+That installs Temurin 21 at `JAVA_HOME=/opt/java` and an Android SDK at `ANDROID_HOME=/opt/android-sdk`
+with the platform and build-tools `apps/android` compiles against. The SDK is read-only to the worker,
+so when the app moves to a new `compileSdk`, change `ANDROID_PLATFORM` in the `Dockerfile` and rebuild,
+and when a new AGP wants other build-tools (Gradle says it cannot install them), change
+`ANDROID_BUILD_TOOLS`. On an arm64 machine, AGP's `aapt2` is an x86-64 binary and runs through
+Docker's emulation, which Docker Desktop on a Mac provides. Gradle keeps its distribution and
+dependencies in `~/.gradle`, inside the `home` volume, so only the first run downloads them, and the
+image turns the Gradle daemon off so that no stage leaves one holding memory.
+
 Docker has no restart policy for "not after status 1", so the compose file gives up after five
 restarts. After a refused token, `docker compose logs` says why.
 
