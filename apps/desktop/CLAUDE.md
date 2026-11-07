@@ -52,7 +52,7 @@ cd apps/desktop && dotnet run --project tools/Walk -- /tmp/walk http://localhost
 
 Then Read the PNGs. Add a step for what you built, and pass `light` as a fifth argument for the other
 appearance. `admin` as a sixth walks only hosts, settings and security, which waits out the five minutes a
-session must age for a step-up, so a whole walk's end is that wait too. `plan` walks only planning, on a card of its own. `question` walks answering a stage's question, on a board that has one. `images` walks only sending an image in chat. `actions` walks only proposed changes, written to the throwaway database and read back through the API, with no agent turn. `asks` walks only the chat's questions, written to the throwaway database the same way and answered by real presses and typing, which starts a real follow-up turn it does not wait for. `lanes` walks only the lanes page, then waits out those five minutes for a save behind a step-up. `merge` walks only the merge status, and needs a card in `ready`. `pullrequest` walks only a card's pull request in Merge's place, and needs two `ready` cards in project `wilson` with `pull_request` set by hand, one open and one closed. `goals` walks only the goals list, on goals written to the throwaway database on threads of their own, archived and with wake-ups held so no agent turn runs, and draws it in both appearances whichever is passed. `dock` walks only the chat dock, and is
+session must age for a step-up, so a whole walk's end is that wait too. `plan` walks only planning, on a card of its own. `question` walks answering a stage's question, on a board that has one. `images` walks only sending an image in chat. `actions` walks only proposed changes, written to the throwaway database and read back through the API, with no agent turn. `asks` walks only the chat's questions, written to the throwaway database the same way and answered by real presses and typing, which starts a real follow-up turn it does not wait for. `lanes` walks only the lanes page, then waits out those five minutes for a save behind a step-up. `merge` walks only the merge status, and needs a card in `ready`. `pullrequest` walks only a card's pull request in Merge's place, and needs two `ready` cards in project `wilson` with `pull_request` set by hand, one open and one closed. `goals` walks only the goals list, on goals written to the throwaway database on threads of their own, archived and with wake-ups held so no agent turn runs, and draws it in both appearances whichever is passed. `attention` walks only the board's chips and its waiting rows, on cards it writes to the throwaway database and removes again, answering, acknowledging, an approval refused for an empty scope and then made. `dock` walks only the chat dock, and is
 the one walk that starts with it open, as a person does: the others close it to keep their pages whole. A planning or chat step sends a real turn to the agent, using the machine's Claude login.
 The older diff step needs a card with a branch: that API's `code_root` is its own scratch repo (see
 `wilson.projects`), so make a branch there and set `wilson.cards.branch`. `Walker.ScratchBranch` does
@@ -204,7 +204,11 @@ two writes and no transaction, so a name that registered is remembered and a ret
 The flagged page is the board narrowed by its Flagged chip, and the header's "n needs human" goes
 there. The chips are `BoardAttention`: each narrows the whole project, counted over every card and not
 what the filter box leaves, and pressing the one in use goes back to All. Needs you is a question, a
-flag, a plan in `planning` with no scope check running, or a `ready` card with no pull request. On the board the count is the board's own. Elsewhere nothing follows the feed, so it is read on
+flag, a plan in `planning` with no scope check running, or a `ready` card with no pull request.
+The same cards are the "Waiting for you" rows over the board, three until asked for all, kept by card id
+so an answer half typed survives the feed. Answer, Acknowledge and Approve act from the row and a refusal
+stays on it. Merging asks to be confirmed and runs the suite, so a `ready` row opens its card instead. A
+chip's visibility is set on its item container: set on the button inside, it never came back once hidden. On the board the count is the board's own. Elsewhere nothing follows the feed, so it is read on
 each change of page, and for the project in hand where the web app reads the server's own.
 
 `ActivityViewModel` is `routes/projects.$project.activity.tsx` and `ActivitySummary` is `lib/activity.ts`.
@@ -354,6 +358,12 @@ chat turn, chat as the home page opening the latest thread and surviving a trip 
 diff of a real branch (that diff step was not repeated after chat became the home page). The Keychain
 round trip passed on a real Keychain, and `Wilson.app` launched and opened its window. The first
 release built, signed and published from the workflow, and that download launched from `/Applications`.
+
+2026-11-07, the board's chips and waiting rows: with `tools/Walk -- ... attention`, in both appearances, five cards written
+to the throwaway database: the chips' counts, Needs you and Questions narrowing the board and a second press going back,
+three rows then all four, a likely answer filling the box and sent, a flag acknowledged, an approval refused for an empty
+"Files in scope" shown on its row and then made, and a merge problem opening its card. Not seen: a question asked by a
+real run, a merge from a real `ready` row, and the rows against Tower.
 
 2026-11-07, a card's pull request: with `tools/Walk -- ... pullrequest`, in the dark appearance, an open pull request shown in Merge's place and a closed one showing Merge again, both written to the throwaway database. A merge that opens one needs GitHub, so "Opened pull request #n" is proved in `MergeOutcomeTests` only, and pressing the button was not walked.
 

@@ -11,6 +11,17 @@
         <Style Selector="Button.tile"><Setter Property="CornerRadius" Value="8" /><Setter Property="Padding" Value="12,10" /></Style>
         <Style Selector="Border.count"><Setter Property="Background" Value="{DynamicResource Tile}" /><Setter Property="CornerRadius" Value="9" /><Setter Property="MinWidth" Value="22" /><Setter Property="Padding" Value="6,1" /></Style>
         <Style Selector="Button.chip"><Setter Property="Margin" Value="0,0,6,0" /></Style>
+        <Style Selector="TextBlock.eyebrow"><Setter Property="FontSize" Value="11" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="LetterSpacing" Value="0.8" /><Setter Property="Foreground" Value="{DynamicResource Quiet}" /></Style>
+        <Style Selector="Border.waiting"><Setter Property="Background" Value="{DynamicResource Tile}" /><Setter Property="BorderBrush" Value="{DynamicResource Line}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="12" /><Setter Property="Padding" Value="18,14" /></Style>
+        <Style Selector="Border.kind"><Setter Property="Background" Value="{DynamicResource Panel}" /><Setter Property="CornerRadius" Value="9" /><Setter Property="Padding" Value="8,1" /></Style>
+        <Style Selector="Border.kind TextBlock"><Setter Property="FontSize" Value="11" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
+        <Style Selector="Border.kind.question TextBlock"><Setter Property="Foreground" Value="{DynamicResource Caution}" /></Style>
+        <Style Selector="Border.kind.flag TextBlock, Border.kind.conflict TextBlock"><Setter Property="Foreground" Value="{DynamicResource Flag}" /></Style>
+        <Style Selector="Border.kind.plan TextBlock"><Setter Property="Foreground" Value="{DynamicResource Done}" /></Style>
+        <Style Selector="Border.kind.merge TextBlock"><Setter Property="Foreground" Value="{DynamicResource Good}" /></Style>
+        <Style Selector="Button.small"><Setter Property="FontSize" Value="13" /><Setter Property="Padding" Value="12,6" /></Style>
+        <Style Selector="Button.link"><Setter Property="FontSize" Value="12" /><Setter Property="Padding" Value="4,2" /><Setter Property="Foreground" Value="{DynamicResource Quiet}" /></Style>
+        <Style Selector="Button.link /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /></Style>
         <Style Selector="TextBox.search"><Setter Property="CornerRadius" Value="14" /><Setter Property="Padding" Value="12,5" /></Style>
         <Style Selector="Border.column.target"><Setter Property="BorderBrush" Value="{DynamicResource Ink}" /></Style>
         <Style Selector="Button.tile.dragged"><Setter Property="Opacity" Value="0.4" /></Style>
@@ -28,15 +39,74 @@
                 <TextBlock Classes="quiet" FontSize="13" Text="{Binding Count}" />
             </StackPanel>
         </DockPanel>
+        <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,22" IsVisible="{Binding HasWaiting}">
+            <DockPanel Margin="2,0">
+                <Button DockPanel.Dock="Right" Classes="link" Content="{Binding MoreWaiting}" Command="{Binding ToggleAllWaitingCommand}" IsVisible="{Binding HasMoreWaiting}" />
+                <TextBlock Classes="eyebrow" Text="WAITING FOR YOU" VerticalAlignment="Center" />
+            </DockPanel>
+            <ItemsControl ItemsSource="{Binding Waiting}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:WaitingRow">
+                        <Border Classes="waiting">
+                            <StackPanel Spacing="12">
+                                <DockPanel>
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="20,0,0,0">
+                                        <TextBlock Classes="quiet" Text="{Binding Since}" IsVisible="{Binding Since, Converter={x:Static ObjectConverters.IsNotNull}}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <Button Classes="ghost small" Content="Open" Command="{Binding OpenCommand}" IsVisible="{Binding OffersOpen}" IsEnabled="{Binding Idle}" />
+                                        <Button Classes="primary small" Content="{Binding Action}" Command="{Binding ActCommand}" IsEnabled="{Binding Idle}" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="4" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Border Classes="kind" Classes.question="{Binding IsQuestion}" Classes.flag="{Binding IsFlag}" Classes.plan="{Binding IsPlan}" Classes.merge="{Binding IsMerge}" Classes.conflict="{Binding IsConflict}" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Kind}" />
+                                            </Border>
+                                            <TextBlock Classes="quiet" FontSize="13" Text="{Binding Card.Id}" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding Card.Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                        <TextBlock Classes="quiet" FontSize="13" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DockPanel>
+                                <StackPanel Spacing="10" IsVisible="{Binding Answering}">
+                                    <ItemsControl ItemsSource="{Binding Options}" IsVisible="{Binding HasOptions}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="x:String">
+                                                <Button Classes="chip" Content="{Binding}" Command="{Binding $parent[ItemsControl].((vm:WaitingRow)DataContext).UseOptionCommand}" CommandParameter="{Binding}" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock Classes="quiet" FontSize="13" Text="{Binding Recommended}" TextWrapping="Wrap" IsVisible="{Binding Recommended, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    <DockPanel>
+                                        <Button DockPanel.Dock="Right" Classes="primary small" Content="Send answer" Command="{Binding SendAnswerCommand}" IsEnabled="{Binding Idle}" Margin="10,0,0,0" VerticalAlignment="Top" />
+                                        <TextBox Text="{Binding Answer}" PlaceholderText="Your answer" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="36" />
+                                    </DockPanel>
+                                </StackPanel>
+                                <TextBlock Classes="error" FontSize="13" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,16">
             <TextBox DockPanel.Dock="Right" Classes="search" Text="{Binding Filter}" PlaceholderText="Filter by id or title" Width="220" Margin="12,0,0,0" VerticalAlignment="Center" />
             <ItemsControl ItemsSource="{Binding Chips}" VerticalAlignment="Center">
+                <ItemsControl.Styles>
+                    <Style Selector="ContentPresenter" x:DataType="vm:BoardChip">
+                        <Setter Property="IsVisible" Value="{Binding Shown}" />
+                    </Style>
+                </ItemsControl.Styles>
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:BoardChip">
-                        <Button Classes="chip" Classes.current="{Binding Current}" IsVisible="{Binding Shown}" Command="{Binding $parent[UserControl].((vm:BoardViewModel)DataContext).NarrowCommand}" CommandParameter="{Binding}" AutomationProperties.Name="{Binding Label}">
+                        <Button Classes="chip" Classes.current="{Binding Current}" Command="{Binding $parent[UserControl].((vm:BoardViewModel)DataContext).NarrowCommand}" CommandParameter="{Binding}" AutomationProperties.Name="{Binding Label}">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <TextBlock Text="{Binding Label}" />
                                 <TextBlock Text="{Binding Count}" Opacity="0.6" />

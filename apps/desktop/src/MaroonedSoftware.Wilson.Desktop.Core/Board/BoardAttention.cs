@@ -109,6 +109,59 @@ public static class BoardAttention
             _ => $"No cards: {Label(narrowing)}.",
         };
 
+    /// <summary>A waiting card's kind, as its pill says it.</summary>
+    public static string Kind(Attention attention) =>
+        attention switch
+        {
+            Attention.Question => "Question",
+            Attention.Flag => "Flagged",
+            Attention.Plan => "Plan",
+            Attention.Merge => "Ready to merge",
+            _ => "Merge problem",
+        };
+
+    /// <summary>The one line under a waiting card's title: what it is waiting on, in the card's own words where it has some.</summary>
+    public static string Detail(CardSummary card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+
+        return Of(card) switch
+        {
+            Attention.Question => card.Blocked!.Question,
+            Attention.Flag => card.NeedsHumanReason ?? "Needs you.",
+            Attention.Plan => BoardRules.PlanCheck(card.PlanCheck, card.PlanCheckReason) ?? "The plan waits for approval.",
+            Attention.Merge => BoardRules.MergeStatusLine(card.MergeStatus) ?? "Ready to merge.",
+            Attention.Conflict => BoardRules.MergeStatusLine(card.MergeStatus)!,
+            _ => string.Empty,
+        };
+    }
+
+    /// <summary>
+    /// The press a waiting card offers first. Merging runs the suite and asks to be confirmed, so Merge
+    /// and its problems open the card rather than act from the list.
+    /// </summary>
+    public static string Action(CardSummary card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+
+        return Of(card) switch
+        {
+            Attention.Question => "Answer",
+            Attention.Flag => "Acknowledge",
+            Attention.Plan => card.PlanCheck == CardSummaryPlanCheck.Refused ? "Approve again" : "Approve plan",
+            Attention.Merge => "Review and merge",
+            _ => "Open",
+        };
+    }
+
+    /// <summary>Since when the card has waited: a question since it was asked, anything else since it entered its stage.</summary>
+    public static DateTimeOffset? Since(CardSummary card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+
+        return card.Blocked?.AskedAt ?? card.StageEnteredAt;
+    }
+
     /// <summary>
     /// The cards waiting on a person, most pressing kind first and the longest waiting first within a
     /// kind. A question has waited since it was asked, anything else since it entered its stage.
@@ -118,7 +171,7 @@ public static class BoardAttention
             .Select(card => (card, attention: Of(card)))
             .Where(pair => pair.attention is not null)
             .OrderBy(pair => pair.attention)
-            .ThenBy(pair => pair.card.Blocked?.AskedAt ?? pair.card.StageEnteredAt ?? DateTimeOffset.MaxValue)
+            .ThenBy(pair => Since(pair.card) ?? DateTimeOffset.MaxValue)
             .ThenBy(pair => pair.card.Id, StringComparer.Ordinal)
             .Select(pair => pair.card)];
 }

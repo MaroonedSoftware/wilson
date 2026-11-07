@@ -397,6 +397,40 @@ internal static class Steps
             await walk.UntilAsync("only the question", () => board.Columns.SelectMany(column => column.Cards).Select(tile => tile.Card.Id).SequenceEqual(["0101"]));
             board.NarrowCommand.Execute(questions);
             await walk.UntilAsync("a second press back to All", () => board.Narrowing == BoardNarrowing.All && board.Heading == "Board");
+
+            await walk.UntilAsync("the first three waiting, most pressing first", () => board.Waiting.Select(row => row.Card.Id).SequenceEqual(["0101", "0102", "0103"]) && board.HasMoreWaiting);
+            walk.Shot("20-attention-waiting");
+            board.ToggleAllWaitingCommand.Execute(null);
+            await walk.UntilAsync("all four once asked", () => board.Waiting.Count == 4 && board.MoreWaiting == "Show fewer");
+            Console.WriteLine($"     waiting: {string.Join(" | ", board.Waiting.Select(row => $"{row.Kind} {row.Card.Id} [{row.Action}] {row.Detail}"))}");
+            walk.Shot("20-attention-waiting-all");
+
+            var question = board.Waiting.Single(row => row.Card.Id == "0101");
+            await question.ActCommand.ExecuteAsync(null);
+            question.UseOptionCommand.Execute("60 a minute");
+            await walk.UntilAsync("the likely answer in the box", () => question.Answering && question.Answer == "60 a minute");
+            walk.Shot("20-attention-answering");
+            await question.SendAnswerCommand.ExecuteAsync(null);
+            await walk.UntilAsync("the answered question gone from the list", () => board.Waiting.All(row => row.Card.Id != "0101") && question.Error is null);
+
+            await board.Waiting.Single(row => row.Card.Id == "0102").ActCommand.ExecuteAsync(null);
+            await walk.UntilAsync("the acknowledged flag gone", () => board.Waiting.All(row => row.Card.Id != "0102"));
+
+            var plan = board.Waiting.Single(row => row.Card.Id == "0103");
+            await plan.ActCommand.ExecuteAsync(null);
+            await walk.UntilAsync("an empty scope refused on the row", () => plan.Error is not null && board.Waiting.Contains(plan));
+            Console.WriteLine($"     refused: {plan.Error}");
+            walk.Shot("20-attention-refused");
+            Walker.Sql("update wilson.cards set body = E'## Files in scope\\n\\n- apps/api/src/invoice.export.ts\\n' where project = 'wilson' and id = '0103'");
+            await plan.ActCommand.ExecuteAsync(null);
+            // Approval starts a scope check with the card still in planning, which waits on nobody.
+            await walk.UntilAsync("the approved plan gone, its scope being checked", () => board.Waiting.All(row => row.Card.Id != "0103")
+                && board.Columns.SelectMany(column => column.Cards).Any(tile => tile.Card.Id == "0103" && (tile.PlanCheck is not null || tile.Card.Stage != "planning")));
+            walk.Shot("20-attention-after");
+
+            board.Waiting.Single(row => row.Card.Id == "0104").ActCommand.Execute(null);
+            await walk.UntilAsync("a merge problem opening its card", () => walk.Shell.Page is CardViewModel { Id: "0104" });
+            walk.Shell.Back();
         }
         finally
         {

@@ -83,6 +83,31 @@ public class BoardAttentionTests
     }
 
     [Fact]
+    public void AWaitingCardSaysWhatItWaitsOnAndOffersOnePress()
+    {
+        var question = Card("1", "implementing", flagged: true) with { NeedsHumanReason = "Which?", Blocked = Asked(Noon) };
+        var flag = Card("2", "review", flagged: true) with { NeedsHumanReason = "Failed three times" };
+        var refused = Card("3", "planning") with { PlanCheck = CardSummaryPlanCheck.Refused, PlanCheckReason = "too wide" };
+
+        Assert.Equal(("Which?", "Answer"), (BoardAttention.Detail(question), BoardAttention.Action(question)));
+        Assert.Equal(("Failed three times", "Acknowledge"), (BoardAttention.Detail(flag), BoardAttention.Action(flag)));
+        Assert.Equal("Needs you.", BoardAttention.Detail(flag with { NeedsHumanReason = null }));
+        Assert.Equal(("The plan waits for approval.", "Approve plan"), (BoardAttention.Detail(Card("4", "planning")), BoardAttention.Action(Card("4", "planning"))));
+        Assert.Equal(("Scope check refused: too wide", "Approve again"), (BoardAttention.Detail(refused), BoardAttention.Action(refused)));
+        Assert.Equal(("Ready to merge.", "Review and merge"), (BoardAttention.Detail(Card("5", "ready")), BoardAttention.Action(Card("5", "ready"))));
+        Assert.Equal("Open", BoardAttention.Action(Card("6", "ready") with { MergeStatus = Merging(MergeStatusState.Conflict) with { Target = "main" } }));
+        Assert.Equal("Conflicts with main.", BoardAttention.Detail(Card("6", "ready") with { MergeStatus = Merging(MergeStatusState.Conflict) with { Target = "main" } }));
+    }
+
+    [Fact]
+    public void AQuestionHasWaitedSinceItWasAsked()
+    {
+        Assert.Equal(Noon, BoardAttention.Since(Card("1", "implementing", flagged: true) with { Blocked = Asked(Noon), StageEnteredAt = Noon.AddDays(-3) }));
+        Assert.Equal(Noon.AddDays(-3), BoardAttention.Since(Card("2", "planning") with { StageEnteredAt = Noon.AddDays(-3) }));
+        Assert.Null(BoardAttention.Since(Card("3", "planning")));
+    }
+
+    [Fact]
     public void EveryChipHasWordsAndOnlyAllSaysNothingWhenEmpty()
     {
         Assert.All(BoardAttention.Narrowings, narrowing => Assert.False(string.IsNullOrEmpty(BoardAttention.Label(narrowing))));
