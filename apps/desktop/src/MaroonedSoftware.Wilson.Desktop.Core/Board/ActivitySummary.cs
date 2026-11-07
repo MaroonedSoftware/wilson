@@ -51,6 +51,8 @@ public static class ActivitySummary
         ["rule.proposed"] = new("Looked for a rule to propose", ActivityTone.Going),
         ["card.auto-split"] = new("Split automatically", ActivityTone.Going),
         ["card.plan-drafted"] = new("Drafted a plan", ActivityTone.Good),
+        ["card.pull-request-opened"] = new("Opened a pull request", ActivityTone.Going),
+        ["card.pull-request-closed"] = new("Pull request closed without merging", ActivityTone.Caution),
         ["job.orphaned"] = new("Recovered an orphaned job", ActivityTone.Caution),
     };
 

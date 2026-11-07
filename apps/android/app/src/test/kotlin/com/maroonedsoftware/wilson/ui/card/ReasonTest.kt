@@ -1,5 +1,8 @@
 package com.maroonedsoftware.wilson.ui.card
 
+import com.maroonedsoftware.wilson.sdk.models.CardPullRequest
+import com.maroonedsoftware.wilson.sdk.models.CardPullRequestState
+import com.maroonedsoftware.wilson.sdk.models.MergeResult
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -38,4 +41,37 @@ class MergeMessageTest {
 
     @Test
     fun aLostAnswerNeverClaimsEitherWay() = assertEquals(true, "may still have landed" in mergeMessage(MergeOutcome.Unknown))
+
+    @Test
+    fun anOpenedPullRequestSaysSo() =
+        assertEquals(true, mergeMessage(MergeOutcome.OpenedPullRequest(42)).startsWith("Opened pull request #42."))
+}
+
+class MergeOutcomeTest {
+    private fun result(merged: Boolean, commit: String? = null, reason: String? = null, pullRequest: CardPullRequest? = null) =
+        MergeResult(
+            id = "0001", title = "t", stage = "ready", dependsOn = emptyList(), needsHuman = false, body = "", sections = emptyMap(),
+            merged = merged, commit = commit, reason = reason, pullRequest = pullRequest,
+        )
+
+    private fun pullRequest(state: CardPullRequestState) = CardPullRequest(number = 42, url = "https://github.com/o/r/pull/42", state = state)
+
+    @Test
+    fun aMergeThatLandedIsLanded() = assertEquals(MergeOutcome.Landed("abc"), mergeOutcomeOf(result(true, commit = "abc")))
+
+    @Test
+    fun openingAPullRequestIsNotARefusal() =
+        assertEquals(MergeOutcome.OpenedPullRequest(42), mergeOutcomeOf(result(false, reason = "opened pull request #42", pullRequest = pullRequest(CardPullRequestState.OPEN))))
+
+    @Test
+    fun aClosedPullRequestLeavesTheRefusalStanding() =
+        assertEquals(MergeOutcome.Refused("No."), mergeOutcomeOf(result(false, reason = "No.", pullRequest = pullRequest(CardPullRequestState.CLOSED))))
+
+    @Test
+    fun aPullRequestTakesMergesPlaceUntilItIsClosed() {
+        assertEquals("PR #42 open", pullRequestLabel(pullRequest(CardPullRequestState.OPEN)))
+        assertEquals("PR #42 merged", pullRequestLabel(pullRequest(CardPullRequestState.MERGED)))
+        assertNull(pullRequestLabel(pullRequest(CardPullRequestState.CLOSED)))
+        assertNull(pullRequestLabel(null))
+    }
 }

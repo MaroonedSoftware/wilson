@@ -19,6 +19,12 @@ private fun event(id: String, title: String? = "A card") =
 
 class ActivityTest {
     @Test
+    fun aPullRequestsEventsRead() {
+        assertEquals(ActivitySummary("Opened a pull request", ActivityTone.INFO), summarizeActivity("card.pull-request-opened", null, JsonNull))
+        assertEquals(ActivitySummary("Pull request closed without merging", ActivityTone.WARNING), summarizeActivity("card.pull-request-closed", null, JsonNull))
+    }
+
+    @Test
     fun theEventsStageIsNamed() {
         assertEquals(ActivitySummary("Failed testing", ActivityTone.BAD), summarizeActivity("stage.failed", "testing", JsonNull))
         assertEquals("Passed a stage", summarizeActivity("stage.passed", null, JsonNull).label)

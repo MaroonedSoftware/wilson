@@ -82,6 +82,14 @@ skill, and say plainly what you did not run. Record what you find here, dated.
   turn spends real usage, though what it proposes only runs if confirmed.
 - 2026-11-04: `verify.sh ui` leaves out any text containing a double quote, because the dump writes that attribute
   in single quotes. A screenshot showed the failed action's error while `ui` did not list it.
+- 2026-11-07: a card's pull request (open or merged) shows in Merge's place and opens in the browser; a closed one
+  shows Merge again. Seen on screen by setting `pull_request` on `ready` cards in `wilson_android`, with the two
+  pull request events inserted by hand. Give such rows a `stage`: the API leaves a null `stage` out of the JSON,
+  which the desktop SDK cannot decode. "Opened pull request #n" needs GitHub, so it is proved in `MergeOutcomeTest`
+  only. Changing the server address on the sign-in screen left projects reading the old address until the app was
+  restarted. `verify.sh seed` fails with `KeyError: 'accessToken'` when the throwaway account has an active
+  authenticator left over from a desktop security walk; set `active = false` on it. With a second emulator
+  attached, `export ANDROID_SERIAL=<wilson's serial>` before `verify.sh`.
 - 2026-11-06, not run on a screen: chat questions (`ask_user`) are stored mid-turn like proposed actions, so a
   question card follows the answer of the turn that asked it, by the same rule. A refused answer is the chat's
   first snackbar; a refused Confirm or Decline still shows as the red line above the composer. Android is not a

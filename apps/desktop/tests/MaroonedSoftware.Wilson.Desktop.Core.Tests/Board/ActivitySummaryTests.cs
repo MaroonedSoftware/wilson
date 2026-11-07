@@ -25,6 +25,12 @@ public class ActivitySummaryTests
     public void AWriteThatStaysPutOnlyUpdated(string payload) =>
         Assert.Equal("Updated the card", ActivitySummary.Summarize("transition.written", null, Json(payload)).Label);
 
+    [Theory]
+    [InlineData("card.pull-request-opened", "Opened a pull request")]
+    [InlineData("card.pull-request-closed", "Pull request closed without merging")]
+    public void APullRequestsEventsRead(string type, string label) =>
+        Assert.Equal(label, ActivitySummary.Summarize(type, null, Json("{}")).Label);
+
     [Fact]
     public void AnUnknownTypeShowsAsRecorded() =>
         Assert.Equal(new ActivityLine("card.future", ActivityTone.Quiet), ActivitySummary.Summarize("card.future", null, Json("null")));

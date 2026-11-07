@@ -16,6 +16,12 @@ public abstract record MergeOutcome
         public override string Message => Commit is null ? "Landed on main." : $"Landed on main as {Commit[..Math.Min(8, Commit.Length)]}.";
     }
 
+    /// <summary>The merge opened a GitHub pull request instead of landing: the card follows it when it merges there.</summary>
+    public sealed record OpenedPullRequest(long Number) : MergeOutcome
+    {
+        public override string Message => $"Opened pull request #{Number}. The card moves to merged when it merges on GitHub.";
+    }
+
     public sealed record Refused(string Reason) : MergeOutcome
     {
         public override string Message => Reason;
@@ -37,7 +43,14 @@ public abstract record MergeOutcome
         try
         {
             var result = await merge().ConfigureAwait(false);
-            return result.Merged ? new Landed(result.Commit) : new Refused(result.Reason ?? "The merge was refused.");
+            if (result.Merged)
+            {
+                return new Landed(result.Commit);
+            }
+
+            return result.PullRequest is { State: CardPullRequestState.Open } pullRequest
+                ? new OpenedPullRequest(pullRequest.Number)
+                : new Refused(result.Reason ?? "The merge was refused.");
         }
         catch (SdkException failure)
         {
