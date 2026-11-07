@@ -5,23 +5,30 @@ import type { EventLog } from '#modules/events/event.log.js';
 import { PlanDraftJob, type PlanDraftTrigger } from '#modules/jobs/plan.draft.job.js';
 import { registerNotificationChannel } from '#modules/notify/notifier.js';
 import type { PlanService } from '#modules/plan/plan.service.js';
-import { AUTO_PLAN_ENABLED } from '#modules/settings/auto.plan.setting.js';
 import { AUTO_SPLIT_ENABLED } from '#modules/settings/auto.split.setting.js';
 import type { SettingsStore } from '#modules/settings/settings.store.js';
 
 const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), trace: vi.fn() };
 
+/**
+ * Card 0036: the deprecated `auto-plan-enabled` row, by its stored key — named as a literal because
+ * nothing outside the settings module reads that definition any more.
+ */
+const AUTO_PLAN_KEY = 'auto-plan-enabled';
+
 describe('PlanDraftJob', () => {
     let plans: { autoDraft: ReturnType<typeof vi.fn> };
     let events: { append: ReturnType<typeof vi.fn>; outputTokensSince: ReturnType<typeof vi.fn> };
     let enabled: boolean;
-    let autoPlan: boolean;
+    /** `undefined` is the row absent. */
+    let autoPlan: boolean | undefined;
     let ceiling: number;
+    let settings: { get: ReturnType<typeof vi.fn> };
 
     const run = (trigger?: PlanDraftTrigger) => {
-        const settings = {
+        settings = {
             get: vi.fn(async (setting: { key: string }) =>
-                setting.key === AUTO_SPLIT_ENABLED.key ? enabled : setting.key === AUTO_PLAN_ENABLED.key ? autoPlan : ceiling,
+                setting.key === AUTO_SPLIT_ENABLED.key ? enabled : setting.key === AUTO_PLAN_KEY ? autoPlan : ceiling,
             ),
         };
         return new PlanDraftJob(
@@ -40,7 +47,7 @@ describe('PlanDraftJob', () => {
         plans = { autoDraft: vi.fn(async () => undefined) };
         events = { append: vi.fn(async () => {}), outputTokensSince: vi.fn(async () => 0) };
         enabled = true;
-        autoPlan = false;
+        autoPlan = undefined;
         ceiling = 0;
     });
 
@@ -88,21 +95,37 @@ describe('PlanDraftJob', () => {
         expect(recorded()[0]?.reason).toBe('auto-split was turned off');
     });
 
-    it('gates an unplanned card on auto-plan, not auto-split', async () => {
+    const keysRead = () => (settings.get.mock.calls as Array<[{ key: string }]>).map(([setting]) => setting.key);
+
+    it('drafts an unplanned card with the auto-plan row absent, reading no switch for it', async () => {
         enabled = false;
-        autoPlan = true;
 
         await run('unplanned');
 
         expect(plans.autoDraft).toHaveBeenCalledWith('0002');
         expect(recorded()).toEqual([{ type: 'card.plan-drafted', reason: undefined }]);
+        expect(keysRead()).not.toContain(AUTO_PLAN_KEY);
+        expect(keysRead()).not.toContain(AUTO_SPLIT_ENABLED.key);
     });
 
-    it('does not draft an unplanned card once auto-plan has been turned off', async () => {
+    it('drafts an unplanned card with the deprecated auto-plan row stored as false', async () => {
+        autoPlan = false;
+
         await run('unplanned');
 
+        expect(plans.autoDraft).toHaveBeenCalledWith('0002');
+        expect(recorded()).toEqual([{ type: 'card.plan-drafted', reason: undefined }]);
+        expect(keysRead()).not.toContain(AUTO_PLAN_KEY);
+    });
+
+    it('still gates a split draft on auto-split', async () => {
+        enabled = false;
+        autoPlan = true;
+
+        await run('split');
+
         expect(plans.autoDraft).not.toHaveBeenCalled();
-        expect(recorded()[0]?.reason).toBe('auto-plan was turned off');
+        expect(recorded()[0]?.reason).toBe('auto-split was turned off');
     });
 
     it('does not draft at the daily ceiling', async () => {
@@ -110,6 +133,16 @@ describe('PlanDraftJob', () => {
         events.outputTokensSince.mockResolvedValue(100);
 
         await run();
+
+        expect(plans.autoDraft).not.toHaveBeenCalled();
+        expect(recorded()[0]?.reason).toContain('daily ceiling of 100');
+    });
+
+    it('does not draft an unplanned card at the daily ceiling either', async () => {
+        ceiling = 100;
+        events.outputTokensSince.mockResolvedValue(100);
+
+        await run('unplanned');
 
         expect(plans.autoDraft).not.toHaveBeenCalled();
         expect(recorded()[0]?.reason).toContain('daily ceiling of 100');

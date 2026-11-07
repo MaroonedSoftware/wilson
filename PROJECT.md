@@ -15,8 +15,10 @@ A web app sits on top: a Kanban board per project, live stage progress, and an
 interactive planning surface where the human converses with the planning agent,
 highlights passages of the draft plan to comment on them, and approves the result.
 
-The human writes plans conversationally, approves them, and reviews diffs.
-Everything between those two points runs unattended.
+The human decides what gets worked on by promoting a card out of the parking lot.
+Everything after that — drafting the plan, approving it behind the scope check, the
+stages, and merging behind the suite — runs unattended. A person can still plan a card
+conversationally and review its diff; nothing waits for them to (see "Before the work").
 
 ## Decisions already made
 
@@ -84,7 +86,8 @@ These are settled. Challenge them only if you find a concrete blocker.
 11. **An orchestrator supervises the pipeline and never replaces it.** A chat thread can own a goal,
     break it into cards, watch them and act on a short list of delegated operations. Lanes still do
     the work, verifiers still decide what passes, the poller still dispatches, and the board keeps
-    running if the orchestrator stops. Approving a plan and merging stay a person's act. See
+    running if the orchestrator stops. An agent may not approve a plan or merge; since card 0036
+    the runner does both itself, as part of the pipeline, which is not delegation. See
     Orchestration.
 
 12. **An operator app holds no credential.** An app is one HTML file the operator installs (`wilson.apps`),
@@ -475,12 +478,12 @@ card's scope is written for the stage that implements it; the testing stage's wh
 job is to add files nobody could have declared in advance.
 
 | parking lot | — | none | never dispatched | promote (human only) |
-| planning | manual | none | a person approves, then the `scope-check` step passes | backlog |
+| planning | manual | none | the plan is complete and the runner approves it, then the `scope-check` step passes | backlog |
 | backlog | manual | none | picked up by the poller | implementing |
 | implementing | agent | rw | build passes, diff non-empty, diff within scope, no credential added | testing |
 | testing | agent | rw | suite green, test count non-decreasing, no new skips, no weakened tests, new tests fail against the pre-change tree, no credential added | review |
 | review | agent | readonly | findings schema valid, every finding cites a file:line in the card's diff, severity in enum; rule judges' failures are merged in; a `revise` then has to survive the `challenge` step | ready |
-| ready | manual | none | human approval | merge, then `done` |
+| ready | manual | none | the runner merges and the suite passes on the merge commit | merge, then `done` |
 | done | — | — | never dispatched | — |
 
 "No weakened tests" reads the AST of the card's changed TS/JS test files on both sides, and fails on
@@ -814,8 +817,8 @@ started by hand and never by CI. `apps/api/evals/review/README.md` has the metho
 
 ### Before the work: parking lot, planning, backlog
 
-Three lanes sit ahead of `implementing`, and none of them is dispatched. Together they
-are where a thought becomes a contract, with a human gate at each end.
+Three lanes sit ahead of `implementing`, and none of them is dispatched as a stage.
+Together they are where a thought becomes a contract. Only the first is a human gate.
 
 **Parking lot** — ideas to remember and plan later, and a place to point at. Not a
 stage; a column the dispatch query excludes. Cards there are stubs: a title and a
@@ -832,17 +835,45 @@ of the board can refer to.
 because the queue must never dispatch it: the stage is a conversation, and there is
 nothing for pg-boss to carry. `wilson card plan` drives it, reading this stage's model
 and instructions from config, and it ends when a plan filling the six contract
-headings is written as a new card version. With Auto-plan on (`auto-plan-enabled`, per
-project, off by default), the poller has an agent draft that plan once for a card that
-arrives without one, so the person starts from a draft. Approval stays theirs either way.
+headings is written as a new card version. A person may still plan a card this way, but
+nobody has to: the poller has an agent draft the plan of any card that arrives in
+`planning` without one, once per card, in every project and with no setting to turn it
+off. When a card's plan is complete, the runner approves it into `backlog` itself. That
+pins `planVersionId` and runs the scope check against that same version. A scope-check
+refusal leaves the card in `planning` with `planCheck: 'refused'` and its reason, for a
+person to rewrite the plan; the runner does not approve it again until a new plan version
+clears the refusal. Plan lint reports, as it always has, and never blocks an approval.
 
 **Backlog** — plans approved, checked and waiting to be worked. Also `mode: manual`.
-Approving pins `planVersionId`, so the version every downstream stage reads is the one a
-person actually approved, and the scope check has judged that same version by the time a
-card lands here. The poller then moves it on, as capacity allows and Auto-mode permits.
+The version every downstream stage reads is the one pinned on approval, and the scope
+check has judged that same version by the time a card lands here. The poller then moves
+it on, as capacity allows and Auto-mode permits. At `ready` the runner merges the card
+the way `merge_card` does: the branch merged into `main` without a checkout, proved
+against the project's suite and landed only if the suite passes. A red suite or a
+conflict leaves the card in `ready`, flagged for a person. Approvals and merges the
+runner makes are recorded with `by: 'runner'`, so the activity log tells them from a
+person's.
 
-The human gates are therefore three: promoting out of the parking lot, approving a plan,
-and merging at `ready`. Everything between the second and third runs unattended.
+There is therefore one human gate: promoting a card out of the parking lot. Everything
+after that runs to `done` unattended. Until card 0036 there were three — promoting,
+approving a plan and merging at `ready` — and the auto-plan setting was a per-project
+opt-in for drafting only. Both later gates were removed because the checks a person was
+standing in for are now machine-enforced, and each remains load-bearing:
+
+- `nextCard` only ever offers a card that is outside the parking lot, unflagged and has
+  every dependency merged, so nothing is approved, dispatched or merged ahead of its
+  dependencies or past a `needsHuman` flag.
+- `daily-output-token-ceiling` stops every kind of autopilot work for a project once it is
+  reached.
+- `DRAIN_ENABLED` and `POLLER_ENABLED` stop the poller, and with it all of the above.
+- Per-stage retry limits still apply, and exhausting one flags the card.
+- The scope check judges the exact plan version that was approved.
+- `BoardWriteService.merge` always runs the full suite against the merge commit before it
+  lands. Autopilot never skips or weakens that proof, and dry run still rehearses onto the
+  integration branch.
+
+The `auto-plan-enabled` setting and its route remain only for existing clients and are
+deprecated; nothing reads them. There is deliberately no switch for autopilot itself.
 
 ### Per-stage model routing
 
@@ -958,6 +989,11 @@ poller and `decideChain` are still the only things that move work along.
 - **These are never delegated:** `approve_card_plan`, `repin_card_plan`, `merge_card`, `move_card`,
   editing a card, settings, lanes, and answering a stage's question. Grants and the orchestrator's
   own settings are `mcp: exclude`, so the agent cannot widen its own authority (decision 8).
+  This list is about what an agent may call. It is a different question from what the runner
+  does on its own. Since card 0036 the runner approves every complete plan and merges every
+  `ready` card itself, as part of the pipeline (see "Before the work"). That is not delegation
+  to an agent, and an agent still may not call any of these. There is deliberately no switch
+  for that autopilot, so there is no switch for an agent to reach either.
 - **Text it reads is untrusted.** Cards, files and imported tickets can ask for anything. What bounds
   that is the session scope, the fixed list and the membership check, never the prompt.
 - **Its spend is bounded on its own.** Wake-ups draw on the same engine accounts as stages, so every
@@ -1366,12 +1402,14 @@ executes. Treat it as data, always:
 
 - Context snapshots are delimited as quoted material in the prompt, never
   concatenated as instructions.
-- A plan is still gated by explicit human approval before anything runs:
-  `wilson card approve`, or the app's own diff-and-confirm, pins the plan version
-  and moves the card from `planning` into `backlog`. Not by `plan-review`, which
-  the stage model above describes and which was never built (see Build order); the
-  gate here is a person reading the plan, which is the stronger of the two anyway
-  for input the operator did not write.
+- Since card 0036 a plan is no longer gated by a person's approval: the runner
+  approves a complete plan into `backlog` and the `scope-check` step judges that
+  pinned version. The human gate for outside text is earlier: an imported card
+  always lands in the parking lot (a source may never promote), and nothing in the
+  parking lot is drafted, approved or run until a person promotes it. A person
+  can still read and approve a plan by hand (`wilson card approve`, or the app's
+  diff-and-confirm) before the runner gets to it. `plan-review`, which the stage
+  model above describes, was never built (see Build order).
 - The write tool's scope enforcement is the actual backstop. A plan steered somewhere
   it should not go still cannot write outside its globs without `request_scope`, and
   that request is logged and visible.

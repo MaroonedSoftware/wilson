@@ -339,6 +339,26 @@ describe('BoardWriteService', () => {
             );
         });
 
+        it('records by: runner when the runner makes the move (card 0036), and nothing else about the move changes', async () => {
+            const { board, events, service } = freshBoard();
+            await board.create(card('0003', { stage: 'implementing', needsHuman: true, needsHumanReason: 'x', retries: { implementing: 2 } }), 'seed');
+
+            const detail = await service.move('0003', { stage: 'testing' }, { by: 'runner' });
+
+            expect(detail.stage).toBe('testing');
+            const stored = await board.read('0003');
+            expect(stored.frontmatter.needsHuman).toBeFalsy();
+            expect(stored.frontmatter.retries.implementing).toBeUndefined();
+            expect(events.append).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    cardId: '0003',
+                    type: 'transition.written',
+                    payload: { from: 'implementing', to: 'testing', by: 'runner' },
+                }),
+                expect.anything(),
+            );
+        });
+
         // Card 0178: `stageEnteredAt` is populated only in the read path `BoardService.list`/
         // `getById` serve — a write response built through this service's shared `toCardDetail`
         // leaves it absent even right after writing the very transition that would answer it,
@@ -478,6 +498,25 @@ describe('BoardWriteService', () => {
                         stage: 'backlog',
                         type: 'transition.written',
                         payload: { from: 'planning', to: 'backlog', by: 'human', planVersionId: planVersion },
+                    }),
+                    expect.anything(),
+                );
+            });
+
+            it('pins the same way when the runner approves (card 0036), recording by: runner', async () => {
+                const { board, events, service } = freshBoard();
+                const planVersion = await board.create(withScope('0190', 'planning'), 'seed');
+
+                const detail = await service.move('0190', { stage: 'backlog' }, { by: 'runner' });
+
+                expect(detail.stage).toBe('backlog');
+                const stored = await board.read('0190');
+                expect(stored.frontmatter.planVersionId).toBe(planVersion);
+                expect(events.append).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        cardId: '0190',
+                        type: 'transition.written',
+                        payload: { from: 'planning', to: 'backlog', by: 'runner', planVersionId: planVersion },
                     }),
                     expect.anything(),
                 );
@@ -2681,6 +2720,58 @@ describe('BoardWriteService', () => {
             expect(stored.frontmatter.stage).toBe('ready');
             expect(stored.frontmatter.needsHuman).toBe(true);
             expect(stored.frontmatter.needsHumanReason).toBe('main did not move: update-ref refused the compare-and-swap');
+        });
+
+        /**
+         * Card 0036. A merge the `card.merge` job runs on its own is the runner's, so every event it
+         * writes says so; a merge over HTTP still says `human`.
+         */
+        describe('attribution — card 0036', () => {
+            const transitions = (events: { append: ReturnType<typeof vi.fn> }) =>
+                (events.append.mock.calls as unknown as Array<[{ type: string; payload: Record<string, unknown> }]>)
+                    .map(([event]) => event)
+                    .filter(event => event.type === 'transition.written');
+
+            it("records a runner merge's flagMergeFailure event with by: runner, and leaves the card flagged in ready", async () => {
+                const failing = await scriptExiting(1);
+                const worktrees = mergeWorktrees();
+                const { board, events, service } = freshMergeBoard(worktrees, mergeStageConfigs(`node ${failing}`));
+                await board.create(card('0301', { stage: 'ready' }), 'seed');
+
+                const result = await service.merge('0301', { by: 'runner' });
+
+                expect(result.merged).toBe(false);
+                const stored = await board.read('0301');
+                expect(stored.frontmatter.stage).toBe('ready');
+                expect(stored.frontmatter.needsHuman).toBe(true);
+                expect(stored.frontmatter.needsHumanReason).toContain('fails the suite');
+                expect(transitions(events)).toEqual([
+                    expect.objectContaining({ payload: expect.objectContaining({ from: 'ready', to: 'ready', by: 'runner', needsHuman: true }) }),
+                ]);
+            });
+
+            it('still records a merge failure with by: human by default', async () => {
+                const worktrees = mergeWorktrees({ landMerge: vi.fn(async () => ({ ok: false, reason: 'main did not move' })) });
+                const passing = await scriptExiting(0);
+                const { board, events, service } = freshMergeBoard(worktrees, mergeStageConfigs(`node ${passing}`));
+                await board.create(card('0302', { stage: 'ready' }), 'seed');
+
+                await service.merge('0302');
+
+                expect(transitions(events)).toEqual([expect.objectContaining({ payload: expect.objectContaining({ by: 'human', needsHuman: true }) })]);
+            });
+
+            it("records a runner merge's landing move with by: runner", async () => {
+                const passing = await scriptExiting(0);
+                const worktrees = mergeWorktrees();
+                const { board, events, service } = freshMergeBoard(worktrees, mergeStageConfigs(`node ${passing}`));
+                await board.create(card('0303', { stage: 'ready' }), 'seed');
+
+                const result = await service.merge('0303', { by: 'runner' });
+
+                expect(result.merged).toBe(true);
+                expect(transitions(events)).toEqual([expect.objectContaining({ payload: expect.objectContaining({ from: 'ready', by: 'runner' }) })]);
+            });
         });
 
         /**
