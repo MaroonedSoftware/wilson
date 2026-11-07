@@ -80,6 +80,25 @@ public sealed partial class BoardColumn(string name, IReadOnlyList<BoardTile> ca
     private bool _target;
 }
 
+/// <summary>One of the board's chips: a narrowing and how many cards it keeps. Changed in place, so a press is never lost to a redraw.</summary>
+public sealed partial class BoardChip(BoardNarrowing narrowing) : ObservableObject
+{
+    public BoardNarrowing Narrowing => narrowing;
+
+    public string Label { get; } = BoardAttention.Label(narrowing);
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Shown))]
+    private int _count;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Shown))]
+    private bool _current;
+
+    /// <summary>All and Needs you always show, as does the chip in use. Another with nothing in it is left out.</summary>
+    public bool Shown => Count > 0 || Current || narrowing is BoardNarrowing.All or BoardNarrowing.NeedsYou;
+}
+
 /// <summary>A project's cards, kept live from the feed for as long as the board is in front.</summary>
 public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel, IFollowsFeed
 {
@@ -101,16 +120,18 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
 
     public ObservableCollection<BoardColumn> Columns { get; } = [];
 
+    public IReadOnlyList<BoardChip> Chips { get; } = [.. BoardAttention.Narrowings.Select(narrowing => new BoardChip(narrowing) { Current = narrowing == BoardNarrowing.All })];
+
     [ObservableProperty]
     private string? _project;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Heading))]
-    private bool _flaggedOnly;
+    private BoardNarrowing _narrowing;
 
-    /// <summary>Only once a read has said so.</summary>
+    /// <summary>What the chip in use says when it keeps no card. Only once a read has said so.</summary>
     [ObservableProperty]
-    private bool _nothingFlagged;
+    private string? _empty;
 
     [ObservableProperty]
     private string? _filter;
@@ -124,7 +145,7 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
     [ObservableProperty]
     private string? _error;
 
-    public string Heading => FlaggedOnly ? "Cards needing a human" : "Board";
+    public string Heading => BoardAttention.Heading(Narrowing);
 
     public string Server => shell.Connection?.Origin ?? string.Empty;
 
@@ -137,6 +158,15 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
         {
             shell.Push(new CardViewModel(shell, project, card.Id));
         }
+    }
+
+    /// <summary>A chip's press: its narrowing, or back to All when it is the one in use.</summary>
+    [RelayCommand]
+    public void Narrow(BoardChip chip)
+    {
+        ArgumentNullException.ThrowIfNull(chip);
+
+        Narrowing = chip.Current ? BoardNarrowing.All : chip.Narrowing;
     }
 
     [RelayCommand]
@@ -295,7 +325,7 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
         Shown();
     }
 
-    partial void OnFlaggedOnlyChanged(bool value) => Draw();
+    partial void OnNarrowingChanged(BoardNarrowing value) => Draw();
 
     partial void OnFilterChanged(string? value) => Draw();
 
@@ -475,19 +505,26 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
 
         _drawOwed = false;
         Columns.Clear();
-        var cards = _cards.Where(card => (!FlaggedOnly || card.NeedsHuman) && BoardRules.Matches(card, Filter)).ToList();
+        var narrowed = Narrowing != BoardNarrowing.All;
+        var cards = _cards.Where(card => BoardAttention.Shows(Narrowing, card) && BoardRules.Matches(card, Filter)).ToList();
         _shown = cards;
         var collapsed = Project is { } project ? Collapsed(project) : [];
         foreach (var stage in _order)
         {
             var inStage = BoardRules.Sorted(stage, cards.Where(card => card.Stage == stage));
-            if (!FlaggedOnly || inStage.Count > 0)
+            if (!narrowed || inStage.Count > 0)
             {
                 Columns.Add(new BoardColumn(stage, [.. inStage.Select(Tile)]) { Collapsed = collapsed.Contains(stage) });
             }
         }
 
-        NothingFlagged = FlaggedOnly && _order.Count > 0 && !_cards.Any(card => card.NeedsHuman);
+        foreach (var chip in Chips)
+        {
+            chip.Count = _cards.Count(card => BoardAttention.Shows(chip.Narrowing, card));
+            chip.Current = chip.Narrowing == Narrowing;
+        }
+
+        Empty = _order.Count > 0 && !_cards.Any(card => BoardAttention.Shows(Narrowing, card)) ? BoardAttention.Empty(Narrowing) : null;
         Count = BoardRules.CountLabel(cards.Count, _cards.Count, cards.Count != _cards.Count);
         Tick();
     }

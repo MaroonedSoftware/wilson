@@ -201,8 +201,10 @@ keeps it across a change of server, and `ShellViewModel.StartAsync` applies it b
 `NewProjectViewModel` is `NewProjectControl.tsx` and `DirectoryPicker.tsx`, a page and not a modal:
 two writes and no transaction, so a name that registered is remembered and a retry only initialises.
 
-The flagged page is the board narrowed by its Flagged toggle, and the header's "n needs human" goes
-there. On the board the count is the board's own. Elsewhere nothing follows the feed, so it is read on
+The flagged page is the board narrowed by its Flagged chip, and the header's "n needs human" goes
+there. The chips are `BoardAttention`: each narrows the whole project, counted over every card and not
+what the filter box leaves, and pressing the one in use goes back to All. Needs you is a question, a
+flag, a plan in `planning` with no scope check running, or a `ready` card with no pull request. On the board the count is the board's own. Elsewhere nothing follows the feed, so it is read on
 each change of page, and for the project in hand where the web app reads the server's own.
 
 `ActivityViewModel` is `routes/projects.$project.activity.tsx` and `ActivitySummary` is `lib/activity.ts`.

@@ -176,6 +176,12 @@ internal static class Steps
             return;
         }
 
+        if (only == "attention")
+        {
+            await AttentionAsync(walk);
+            return;
+        }
+
         if (only == "merge")
         {
             await MergeStatusAsync(walk);
@@ -349,6 +355,53 @@ internal static class Steps
         var card = walk.Page<CardViewModel>();
         await walk.UntilAsync("the card's merge status", () => card.MergeStatus is not null);
         walk.Shot("03-merge-status-card");
+    }
+
+    private const string AttentionCards = "'0101', '0102', '0103', '0104', '0105'";
+
+    /// <summary>
+    /// Cards waiting on a person, written to the throwaway database as nothing there asks a question or
+    /// flags one: a question, a flag, a plan and a ready card, beside one that waits on nobody. Walks the
+    /// chips over them and takes the rows away again.
+    /// </summary>
+    private static async Task AttentionAsync(Walker walk)
+    {
+        var asked = DateTimeOffset.UtcNow.AddMinutes(-42).ToString("o");
+        Walker.Sql($$"""
+            insert into wilson.cards (project, id, title, stage, body, needs_human, needs_human_reason, blocked) values
+              ('wilson', '0101', 'Walked: rate limit the public search endpoint', 'implementing', '', true, 'Which limit should anonymous callers get?',
+               '{"category":"decision","tried":"Read the gateway config","question":"Which limit should anonymous callers get?","options":["60 a minute","600 an hour"],"recommended":"60 a minute, as the docs say","stage":"implementing","askedAt":"{{asked}}"}'),
+              ('wilson', '0102', 'Walked: cache the product catalogue for five minutes', 'implementing', '', true, 'Failed three times: the suite times out', null),
+              ('wilson', '0103', 'Walked: move the invoice export to streaming CSV', 'planning', '', false, null, null),
+              ('wilson', '0104', 'Walked: return 404, not 500, for an unknown order', 'ready', '', false, null, null),
+              ('wilson', '0105', 'Walked: retry with backoff on the payment webhook', 'implementing', '', false, null, null)
+            on conflict (project, id) do update set title = excluded.title, stage = excluded.stage, needs_human = excluded.needs_human,
+              needs_human_reason = excluded.needs_human_reason, blocked = excluded.blocked, plan_check = null, pull_request = null
+            """);
+        try
+        {
+            walk.Shell.ShowProject("wilson");
+            var board = walk.Page<BoardViewModel>();
+            var needsYou = board.Chips.Single(chip => chip.Narrowing == BoardNarrowing.NeedsYou);
+            await walk.UntilAsync("the chips counted", () => needsYou.Count >= 4);
+            Console.WriteLine($"     chips: {string.Join(", ", board.Chips.Where(chip => chip.Shown).Select(chip => $"{chip.Label} {chip.Count}"))}");
+            walk.Shot("20-attention-board");
+
+            board.NarrowCommand.Execute(needsYou);
+            await walk.UntilAsync("the board narrowed to what needs you", () => board.Narrowing == BoardNarrowing.NeedsYou
+                && board.Columns.Count > 0 && board.Columns.All(column => column.Cards.All(tile => BoardAttention.Of(tile.Card) is not null)));
+            walk.Shot("20-attention-needs-you");
+
+            var questions = board.Chips.Single(chip => chip.Narrowing == BoardNarrowing.Questions);
+            board.NarrowCommand.Execute(questions);
+            await walk.UntilAsync("only the question", () => board.Columns.SelectMany(column => column.Cards).Select(tile => tile.Card.Id).SequenceEqual(["0101"]));
+            board.NarrowCommand.Execute(questions);
+            await walk.UntilAsync("a second press back to All", () => board.Narrowing == BoardNarrowing.All && board.Heading == "Board");
+        }
+        finally
+        {
+            Walker.Sql($"delete from wilson.cards where project = 'wilson' and id in ({AttentionCards})");
+        }
     }
 
     /// <summary>
@@ -1206,14 +1259,14 @@ internal static class Steps
         walk.Shell.ShowChatCommand.Execute(null);
         await walk.UntilAsync("the count in the header away from the board", () => walk.Shell.Flagged is not null);
         walk.Shell.ShowFlaggedCommand.Execute(null);
-        await walk.UntilAsync("the board narrowed to it", () => walk.Shell.Page == board && board.FlaggedOnly && board.Columns.Count > 0 && board.Columns.All(column => column.Cards.All(tile => tile.Card.NeedsHuman)));
+        await walk.UntilAsync("the board narrowed to it", () => walk.Shell.Page == board && board.Narrowing == BoardNarrowing.Flagged && board.Columns.Count > 0 && board.Columns.All(column => column.Cards.All(tile => tile.Card.NeedsHuman)));
         walk.Shot("03-flagged");
 
         Walker.Sql("update wilson.cards set needs_human = false, needs_human_reason = null where id = '0003'; update wilson.cards set needs_human = false where needs_human");
         await board.RefreshCommand.ExecuteAsync(null);
-        await walk.UntilAsync("nothing flagged said, and the count gone", () => board.NothingFlagged && walk.Shell.Flagged is null);
+        await walk.UntilAsync("nothing flagged said, and the count gone", () => board.Empty == "Nothing is flagged right now." && walk.Shell.Flagged is null);
         walk.Shot("03-flagged-none");
-        board.FlaggedOnly = false;
+        board.Narrowing = BoardNarrowing.All;
         await Task.Delay(TimeSpan.FromSeconds(1));
     }
 
