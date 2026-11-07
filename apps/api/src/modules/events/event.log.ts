@@ -203,7 +203,9 @@ export class EventLog {
 
         return rows.reverse().map(row => ({
             id: String(row.id),
-            stage: row.stage,
+            // The default plugins turn a null column into `undefined`, which JSON drops, and the
+            // contract's `stage` is `string | null`: always there, null for an event no stage wrote.
+            stage: row.stage ?? null,
             type: row.type as CardEventType,
             payload: (row.payload ?? {}) as Record<string, unknown>,
             createdAt: row.createdAt,
@@ -231,7 +233,7 @@ export class EventLog {
             id: String(row.id),
             cardId: row.cardId,
             cardTitle: row.cardTitle ?? undefined,
-            stage: row.stage,
+            stage: row.stage ?? null,
             type: row.type as CardEventType,
             payload: (row.payload ?? {}) as Record<string, unknown>,
             createdAt: row.createdAt,
