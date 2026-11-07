@@ -167,6 +167,51 @@ describe('fetchGithub', () => {
         expect(seen.map(s => s.host)).toEqual(['github.com', 'raw.githubusercontent.com']);
     });
 
+    it('resolves a relative redirect against the URL it came from', async () => {
+        routes.set('api.github.com/repos/o/old', redirect('/repos/o/new', 301));
+        routes.set('api.github.com/repos/o/new', text('{"name":"new"}', 'application/json'));
+
+        const outcome = await fetchGithub('https://api.github.com/repos/o/old', options());
+
+        expect(outcome.ok).toBe(true);
+        expect(outcome.url).toBe('https://api.github.com/repos/o/new');
+        expect(outcome.text).toBe('https://api.github.com/repos/o/new\nHTTP 200\n\n{"name":"new"}');
+    });
+
+    it('stops a redirect loop on the allowed hosts after a few hops, with a reason', async () => {
+        routes.set('github.com/a', redirect('https://github.com/b'));
+        routes.set('github.com/b', redirect('https://github.com/a'));
+
+        const outcome = await fetchGithub('https://github.com/a', options());
+
+        expect(outcome.ok).toBe(false);
+        expect(outcome.text).toMatch(/^error: more than \d+ redirects/);
+        expect(seen.length).toBeLessThanOrEqual(5);
+    });
+
+    it('refuses a redirect with no Location, with a reason', async () => {
+        routes.set('github.com/o/r', res => {
+            res.writeHead(302).end();
+        });
+
+        const outcome = await fetchGithub('https://github.com/o/r', options());
+
+        expect(outcome.ok).toBe(false);
+        expect(outcome.status).toBe(302);
+        expect(outcome.text).toMatch(/nowhere to go/);
+    });
+
+    it('AC12: a 403 with no reset header still says the limit was reached, after one request', async () => {
+        routes.set('api.github.com/x', text('forbidden', 'text/plain', 403));
+
+        const outcome = await fetchGithub('https://api.github.com/x', options());
+
+        expect(outcome.status).toBe(403);
+        expect(outcome.text).toMatch(/rate limit .* was reached/);
+        expect(outcome.text).not.toMatch(/It resets/);
+        expect(seen).toHaveLength(1);
+    });
+
     it('AC5: cuts a response over the size cap, and says so', async () => {
         routes.set('raw.githubusercontent.com/o/r/main/big.txt', text('a'.repeat(5000)));
 

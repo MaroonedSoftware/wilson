@@ -17,7 +17,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
     tool: toolMock,
 }));
 
-const { CliStageAgent } = await import('#modules/agent/cli.stage.agent.js');
+const { CliStageAgent, qualifiedGithubTool } = await import('#modules/agent/cli.stage.agent.js');
 const { GITHUB_TOOL } = await import('#modules/agent/tools/github.tool.js');
 const { z } = await import('zod');
 
@@ -127,6 +127,10 @@ describe('CliStageAgent and webAccess', () => {
             content: [{ type: 'text', text: 'https://raw.githubusercontent.com/o/r/main/README.md\nHTTP 200\n\n# readme' }],
         });
         expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(fetchMock.mock.calls[0]).toEqual([
+            'https://raw.githubusercontent.com/o/r/main/README.md',
+            expect.objectContaining({ method: 'GET', redirect: 'manual' }),
+        ]);
         expect(events.filter(e => e.type === 'tool.executed')).toEqual([
             {
                 project: 'p',
@@ -135,6 +139,89 @@ describe('CliStageAgent and webAccess', () => {
                 type: 'tool.executed',
                 payload: { tool: GITHUB_TOOL, url: 'https://raw.githubusercontent.com/o/r/main/README.md', status: 200 },
             },
+        ]);
+    });
+
+    /**
+     * The guard the adapter hands `query()`, reached both ways the engine consults it: the
+     * `PreToolUse` hook first and `canUseTool` as the backstop. Both must carry the stage's
+     * `webAccess`, not the guard's own `none` default.
+     */
+    type Decision = { behavior: 'allow' | 'deny'; message?: string };
+    const decidersOf = (options: Record<string, unknown>) => {
+        const canUseTool = options.canUseTool as (name: string, input: Record<string, unknown>, o: unknown) => Promise<Decision>;
+        const hooks = options.hooks as { PreToolUse: { hooks: ((input: unknown, id: unknown, o: unknown) => Promise<unknown>)[] }[] };
+        const hook = hooks.PreToolUse[0]!.hooks[0]!;
+        let n = 0;
+        const viaHook = async (name: string, input: Record<string, unknown>): Promise<Decision> => {
+            const id = `toolu_${++n}`;
+            const out = (await hook(
+                { hook_event_name: 'PreToolUse', tool_name: name, tool_input: input, tool_use_id: id },
+                id,
+                { signal: new AbortController().signal },
+            )) as { hookSpecificOutput: { permissionDecision: 'allow' | 'deny'; permissionDecisionReason?: string } };
+            const { permissionDecision, permissionDecisionReason } = out.hookSpecificOutput;
+            return permissionDecision === 'allow' ? { behavior: 'allow' } : { behavior: 'deny', message: permissionDecisionReason };
+        };
+        const viaCanUseTool = async (name: string, input: Record<string, unknown>): Promise<Decision> => {
+            const id = `toolu_c${++n}`;
+            const out = await canUseTool(name, input, { signal: new AbortController().signal, toolUseID: id, requestId: id });
+            return out.behavior === 'allow' ? { behavior: 'allow' } : { behavior: 'deny', message: out.message };
+        };
+        return { viaHook, viaCanUseTool };
+    };
+    const qualified = 'mcp__wilson__read_github';
+    const url = 'https://raw.githubusercontent.com/o/r/main/README.md';
+
+    it.each([{}, { webAccess: 'none' }])('AC1, AC10: the hook and canUseTool both refuse the GitHub tool at %j', async overrides => {
+        const { options } = await run(overrides);
+        const { viaHook, viaCanUseTool } = decidersOf(options);
+        const name = qualifiedGithubTool();
+
+        for (const decide of [viaHook, viaCanUseTool]) {
+            // One guard instance serves both paths, so the second refusal carries a repeat note first.
+            expect(await decide(name, { url })).toEqual({ behavior: 'deny', message: expect.stringMatching(new RegExp(`${name} is not available to this stage$`)) });
+            expect((await decide('WebFetch', { url, prompt: 'x' })).behavior).toBe('deny');
+        }
+        expect(events.filter(e => e.type === 'tool.denied').map(e => e.payload?.url)).toContain(url);
+    });
+
+    it.each(['github', 'web'])('AC2, AC3, AC4, AC10: at %s the hook and canUseTool allow GitHub and refuse anything else', async webAccess => {
+        const { options } = await run({ webAccess });
+        const { viaHook, viaCanUseTool } = decidersOf(options);
+        const name = qualifiedGithubTool();
+        expect(name).toBe(qualified);
+
+        for (const decide of [viaHook, viaCanUseTool]) {
+            expect(await decide(name, { url })).toEqual({ behavior: 'allow' });
+            expect(await decide(name, { url: 'https://api.github.com/repos/o/r/contents/' })).toEqual({ behavior: 'allow' });
+
+            const offHost = await decide(name, { url: 'https://example.com/x' });
+            expect(offHost.behavior).toBe('deny');
+            expect(offHost.message).toMatch(/example\.com is not a GitHub host/);
+
+            const plain = await decide(name, { url: 'http://raw.githubusercontent.com/o/r/main/x' });
+            expect(plain.behavior).toBe('deny');
+            expect(plain.message).toMatch(/only https/);
+
+            expect(await decide('WebFetch', { url, prompt: 'x' })).toEqual({ behavior: 'deny', message: expect.stringMatching(/WebFetch is not available to this stage$/) });
+            expect(await decide('WebSearch', { query: 'x' })).toEqual({ behavior: 'deny', message: expect.stringMatching(/WebSearch is not available to this stage$/) });
+        }
+        expect(events.filter(e => e.type === 'tool.denied').map(e => e.payload?.url)).toContain('https://example.com/x');
+    });
+
+    it('AC3: at github, the handler refuses a redirect off GitHub without following it, and records it as denied', async () => {
+        const fetchMock = vi.fn(async () => new Response(null, { status: 302, headers: { location: 'https://evil.example/steal' } }));
+        vi.stubGlobal('fetch', fetchMock);
+        const { tools } = await run({ webAccess: 'github' });
+        const github = tools.find(t => t.name === GITHUB_TOOL)!;
+
+        const reply = (await github.handler({ url: 'https://github.com/o/r/raw/main/x' })) as { content: { text: string }[] };
+
+        expect(reply.content[0]!.text).toMatch(/^error: it redirects to https:\/\/evil\.example\/steal, which was not followed/);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(events.filter(e => e.type === 'tool.denied')).toEqual([
+            expect.objectContaining({ payload: expect.objectContaining({ tool: GITHUB_TOOL, url: 'https://github.com/o/r/raw/main/x', status: 302 }) }),
         ]);
     });
 });

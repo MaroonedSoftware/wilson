@@ -131,6 +131,38 @@ describe('CodexStageAgent and webAccess', () => {
         expect(eventsOf('tool.denied')).toEqual([expect.objectContaining({ url: 'https://example.com/x' })]);
     });
 
+    it('AC3, AC10: at github, refuses an http URL on a GitHub host without fetching', async () => {
+        const fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock);
+        let reply: { text?: string; success?: boolean } | undefined;
+        const server = new SimulatedCodexServer(async s => {
+            reply = await s.callTool(GITHUB_TOOL, { url: 'http://raw.githubusercontent.com/o/r/main/x' });
+            await report(s);
+        });
+
+        await run(server, { webAccess: 'github' });
+
+        expect(reply?.success).toBe(false);
+        expect(reply?.text).toMatch(/only https/);
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('AC3, AC8, AC10: at github, refuses a redirect off GitHub without following it', async () => {
+        const fetchMock = vi.fn(async () => new Response(null, { status: 302, headers: { location: 'https://evil.example/steal' } }));
+        vi.stubGlobal('fetch', fetchMock);
+        let reply: { text?: string; success?: boolean } | undefined;
+        const server = new SimulatedCodexServer(async s => {
+            reply = await s.callTool(GITHUB_TOOL, { url: 'https://github.com/o/r/raw/main/x' });
+            await report(s);
+        });
+
+        await run(server, { webAccess: 'github' });
+
+        expect(reply?.text).toMatch(/redirects to https:\/\/evil\.example\/steal, which was not followed/);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(eventsOf('tool.denied')).toEqual([expect.objectContaining({ tool: GITHUB_TOOL, url: 'https://github.com/o/r/raw/main/x', status: 302 })]);
+    });
+
     it('AC4, AC10: at github, offers no web tool of its own and refuses one called by name', async () => {
         let reply: { text?: string; success?: boolean } | undefined;
         const server = new SimulatedCodexServer(async s => {
