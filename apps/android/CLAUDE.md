@@ -35,6 +35,13 @@ skill, and say plainly what you did not run. Record what you find here, dated.
   like `proposed`, only says a question was stored, so it reads the thread again too.
 - A merge runs the suite before answering, so it takes the long client, and a lost answer is unknown.
 - `POST /api/devices` needs `wilson.manage`, as every write does.
+- 2026-11-07: a chat image (`GET /api/chat/threads/{id}/attachments/{attachmentId}`) needs the bearer like any
+  route, so the chat fetches it through `SessionManager.call` (`fetchChatImage`) and never with an image
+  library's own HTTP stack, which would miss the single-flight refresh. The bytes never change for an id, so
+  `ChatImages` keeps each image, or its failure, for the life of the chat screen, as web does. The route may
+  answer `image/svg+xml`, which `BitmapFactory` cannot read: such an image shows as failed. Images are decoded
+  at most 2048 px on a side. Answers' images are drawn under the text, as Android has no Markdown renderer to
+  place the ones an answer embeds.
 
 ## Found on the emulator
 

@@ -1,5 +1,8 @@
 package com.maroonedsoftware.wilson.ui.chat
 
+import android.graphics.BitmapFactory
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.maroonedsoftware.wilson.WilsonApp
@@ -23,11 +26,14 @@ import com.maroonedsoftware.wilson.sdk.models.SendChatMessageRequest
 import com.maroonedsoftware.wilson.ui.card.reasonFor
 import kotlin.time.Clock
 import kotlin.time.Instant
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val SUGGESTIONS_OPEN = "<suggestions>"
 
@@ -42,13 +48,6 @@ internal fun draftWithoutSuggestions(draft: String): String {
     val lt = draft.lastIndexOf('<')
     if (lt != -1 && SUGGESTIONS_OPEN.startsWith(draft.substring(lt).lowercase())) return draft.substring(0, lt).trimEnd()
     return draft
-}
-
-/** What a message says about the images it carries, since only the desktop app draws them. Null when it carries none. */
-internal fun imagesCaption(count: Int): String? = when (count) {
-    0 -> null
-    1 -> "1 image"
-    else -> "$count images"
 }
 
 /** Whether a proposed action can still be answered. An expired one stays on record as it was. */
@@ -216,6 +215,16 @@ class ChatModel(private val app: WilsonApp, private val id: String) : ViewModel(
     /** One-off sentences for this screen's own snackbar. */
     val notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
 
+    /** This thread's images, held while the screen is. Decoding runs off the main thread. */
+    private val images =
+        ChatImages<ImageBitmap>(
+            viewModelScope,
+            fetch = { thread, attachment -> fetchChatImage(app.session, thread, attachment) },
+            decode = { bytes -> withContext(Dispatchers.Default) { decodeImage(bytes) } },
+        )
+
+    fun image(attachmentId: String): StateFlow<ImageLoad<ImageBitmap>> = images.load(id, attachmentId)
+
     init {
         viewModelScope.launch { load() }
     }
@@ -302,4 +311,16 @@ class ChatModel(private val app: WilsonApp, private val id: String) : ViewModel(
     }
 
     internal fun now(): Instant = Clock.System.now()
+}
+
+/** The longest side an image is decoded at: enough to fill a phone's screen when opened, and no more. */
+private const val LONGEST_SIDE = 2048
+
+/** Null when the bytes are not something `BitmapFactory` reads, which an SVG is not. */
+private fun decodeImage(bytes: ByteArray): ImageBitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    val options = BitmapFactory.Options().apply { inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, LONGEST_SIDE) }
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
 }
