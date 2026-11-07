@@ -261,6 +261,18 @@ describe('EventLog.recent', () => {
         expect((await log.recent(project)).map(row => row.type)).toEqual(['work.committed']);
     });
 
+    it('gives an event no stage wrote a null stage, not a missing one', async () => {
+        const project = uniqueProject();
+        await log.append({ project, cardId: '0001', type: 'card.pull-request-closed' });
+
+        const [recent] = await log.recent(project);
+        const [tail] = await log.tail(project, '0001', 10);
+
+        expect(recent).toHaveProperty('stage', null);
+        expect(tail).toHaveProperty('stage', null);
+        expect(JSON.parse(JSON.stringify(tail))).toHaveProperty('stage', null);
+    });
+
     it('pages back from an id', async () => {
         const project = uniqueProject();
         await log.append({ project, cardId: '0001', type: 'stage.dispatched' });
