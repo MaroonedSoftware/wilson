@@ -159,4 +159,74 @@ describe('Android goal screens are wired in', () => {
         expect(model).toContain('it.goals.listGoals()');
         expect(model).not.toContain('ListGoalsQuery');
     });
+
+    it('puts the Goals button outside the project guard, between Activity and Chat', () => {
+        const board = read(join(ANDROID_MAIN, 'ui/board/BoardScreen.kt'));
+        const activity = board.indexOf('Text("Activity")');
+        const goals = board.indexOf('Text("Goals")');
+        const chat = board.indexOf('Text("Chat")');
+        expect(activity).toBeGreaterThanOrEqual(0);
+        expect(goals).toBeGreaterThan(activity);
+        expect(chat).toBeGreaterThan(goals);
+        // The `state.project?.let { ... }` block that holds Activity closes before Goals is drawn.
+        const guard = board.lastIndexOf('state.project?.let', goals);
+        let depth = 0;
+        let closed = -1;
+        for (let i = board.indexOf('{', guard); i < board.length; i++) {
+            if (board[i] === '{') depth++;
+            else if (board[i] === '}' && --depth === 0) {
+                closed = i;
+                break;
+            }
+        }
+        expect(closed).toBeGreaterThan(activity);
+        expect(closed).toBeLessThan(goals);
+    });
+
+    it('opens a goal with its own keyed model, its cards in the goal project, and its thread in chat', () => {
+        const main = read(join(ANDROID_MAIN, 'MainActivity.kt'));
+        expect(main).toContain('entry<Destination.Goals>');
+        expect(main).toContain('onGoal = { id -> backStack.add(Destination.Goal(id)) }');
+        expect(main).toContain('entry<Destination.Goal>');
+        expect(main).toContain('key = "goal:${key.id}"');
+        expect(main).toContain('GoalModel(app, key.id)');
+        expect(main).toContain('onCard = { project, id -> backStack.add(Destination.Card(project, id)) }');
+        expect(main).toContain('onConversation = { threadId -> backStack.add(Destination.Chat(threadId)) }');
+
+        const screens = read(join(GOAL_DIR, 'GoalScreens.kt'));
+        expect(screens).toContain('onCard(goal.project, card.id)');
+        expect(screens).toContain('onConversation(it.threadId)');
+    });
+
+    it("uses web's copy and draws Finished only when something is finished", () => {
+        const screens = read(join(GOAL_DIR, 'GoalScreens.kt'));
+        expect(screens).toContain('"No goals yet. Ask the chat to start one for work that will take several cards."');
+        expect(screens).toContain('"No cards yet. Ask in the conversation to add some."');
+        expect(screens).toContain('"What done looks like"');
+        expect(screens).toContain('"needs you"');
+        const heading = screens.indexOf('Text("Finished"');
+        expect(heading).toBeGreaterThanOrEqual(0);
+        expect(screens.lastIndexOf('if (finished.isNotEmpty())', heading)).toBeGreaterThanOrEqual(0);
+    });
+
+    it('re-reads the goal on start and after a change, holds the snackbar long, and disables buttons while acting', () => {
+        const screens = read(join(GOAL_DIR, 'GoalScreens.kt'));
+        expect(screens).toMatch(/repeatOnLifecycle\(Lifecycle\.State\.STARTED\)\s*\{\s*model\.reload\(\)\s*model\.follow\(\)/);
+        expect(screens).toContain('LifecycleResumeEffect');
+        expect(screens).toContain('SnackbarDuration.Long');
+        expect(screens).toContain('enabled = !state.acting');
+
+        const change = functionBody(read(GOAL_MODEL), 'change');
+        expect(change).toContain('UpdateGoalRequest(status = action.to)');
+        expect(change.indexOf('reload()')).toBeGreaterThan(change.indexOf('updateAGoal'));
+        expect(change.indexOf('notices.emit(note)')).toBeGreaterThan(change.indexOf('reload()'));
+    });
+
+    it("follows the goal's own project feed and skips tool events", () => {
+        const follow = read(GOAL_MODEL).slice(read(GOAL_MODEL).indexOf('suspend fun follow()'));
+        expect(follow).toContain('it.detail?.goal?.project');
+        expect(follow).toContain('"/api/feed", project');
+        expect(follow).toContain('!isToolEvent(');
+        expect(follow).not.toContain('correlationId');
+    });
 });
