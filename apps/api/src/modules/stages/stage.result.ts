@@ -3,6 +3,30 @@ import type { TreeSnapshot } from '#modules/worktree/worktree.manager.js';
 import { z } from 'zod';
 import type { RunTrace } from '#modules/agent/run.trace.js';
 
+/** The longest difficulty note an event keeps. Longer ones are trimmed, never refused. */
+export const DIFFICULTY_LIMIT = 300;
+
+/**
+ * One line on what slowed a stage down, said by the stage itself. Information only: no verifier reads
+ * it, so leaving it out or filling it in never changes whether the stage passes. It lands on the
+ * stage's event and in the gate stats, where a pattern across cards (the same missing seam, the same
+ * flaky command, the same unclear plan heading) shows what to fix in a lane, a prompt or the code.
+ */
+const DifficultyNote = z
+    .string()
+    .optional()
+    .describe(
+        'Optional. One line on what slowed you down, if anything did: a missing seam, a flaky or slow command, a plan section you had to guess at. Leave it out when nothing did. It never affects whether this stage passes.',
+    );
+
+/** A stage's difficulty note, trimmed to one line of {@link DIFFICULTY_LIMIT}, or undefined when it gave none. */
+export const difficultyOf = (result: unknown): string | undefined => {
+    const note = (result as { difficulty?: unknown } | undefined)?.difficulty;
+    if (typeof note !== 'string') return undefined;
+    const line = note.replace(/\s+/g, ' ').trim();
+    return line.length === 0 ? undefined : line.slice(0, DIFFICULTY_LIMIT);
+};
+
 /**
  * What a stage returns.
  *
@@ -15,6 +39,7 @@ export const ImplementingResultSchema = z.object({
     filesTouched: z.array(z.string()).describe('Worktree-relative paths that were created or modified.'),
     /** Where the agent knows it fell short. Recorded for the review stage rather than acted on here. */
     caveats: z.array(z.string()).default([]),
+    difficulty: DifficultyNote,
 });
 
 export type ImplementingResult = z.infer<typeof ImplementingResultSchema>;
@@ -35,6 +60,12 @@ export const FindingSeverity = z.enum(['blocker', 'concern']);
  */
 export const ReviewFindingKind = z.enum(['defect', 'omission']);
 
+/**
+ * Why a blocker may still block from a card's second review on (`withFrozenScope`). The first review
+ * sets the scope; after it, only these four reasons can send the card back again.
+ */
+export const ReviewFindingBasis = z.enum(['unfixed', 'regression', 'criterion', 'safety']);
+
 export const ReviewFindingSchema = z
     .object({
         severity: z.enum(['blocker', 'concern']),
@@ -43,6 +74,12 @@ export const ReviewFindingSchema = z
         line: z.number().int().min(1).optional().describe('A line number in that file. Required for a defect, omitted for an omission.'),
         problem: z.string().describe('What is wrong, in one sentence.'),
         suggestion: z.string().describe('What would fix it, in one sentence.'),
+        basis: ReviewFindingBasis.optional().describe(
+            'Only on a blocker, and only when the plan already carries "## Review findings" from an earlier review. Why it may still block: ' +
+                'unfixed (an earlier blocker is still not fixed; cite the same file it did), regression (the repair broke something that worked), ' +
+                'criterion (an acceptance criterion is still unmet), safety (a security hole, data loss or a leaked secret). ' +
+                'A later blocker without one of these is kept as a concern and does not send the card back.',
+        ),
     })
     .refine(finding => finding.kind !== 'defect' || finding.line !== undefined, {
         message: 'a defect must cite a line; use kind "omission" for work that was not done',
@@ -84,6 +121,7 @@ export const ReviewResultSchema = z.object({
      * empty plan-side list, matching what a review verified before this field existed.
      */
     criteria: z.array(ReviewCriterionSchema).default([]),
+    difficulty: DifficultyNote,
 });
 
 export type ReviewResult = z.infer<typeof ReviewResultSchema>;

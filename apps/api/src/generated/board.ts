@@ -64,6 +64,7 @@ export const CardBlocked = z.strictObject({
     tried: z.string().describe('What the stage already tried or checked before asking.'),
     question: z.string(),
     options: z.array(z.string()).optional().describe('Answers the stage thinks are likely. An operator may answer something else.'),
+    recommended: z.string().optional().describe('The answer the stage would pick, with its reason. Offered first so a person can accept it.'),
     stage: z.string().describe('The stage that asked, so the answer goes back to the run it was meant for.'),
     askedAt: _ZodDatetime,
     patchPath: z.string().optional().describe("Where the stopped run's uncommitted work is preserved. Absent when it left none."),
@@ -357,6 +358,25 @@ export const ProjectGateTouchpoint = z.strictObject({
 export type ProjectGateTouchpoint = z.infer<typeof ProjectGateTouchpoint>;
 
 /**
+ * `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
+ * person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
+ * with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
+ * re-review keep. `matched` is every older event in these figures placed by matching its text, since
+ * those events do not say why they failed.
+ * One stage's own note on what slowed it down (`difficulty` on its report). Information only: nothing
+ * routes on it. `step` names the step that wrote it, absent for the lane's own run.
+ * generated from [ProjectGateDifficulty](../../data/contracts/board.ck)
+ */
+export const ProjectGateDifficulty = z.strictObject({
+    cardId: z.string(),
+    stage: z.string(),
+    step: z.string().optional(),
+    note: z.string(),
+    at: _ZodDatetime,
+});
+export type ProjectGateDifficulty = z.infer<typeof ProjectGateDifficulty>;
+
+/**
  * Card 0265. One file changed in a card's branch since it forked from `main` —
  * `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
  * `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
@@ -579,6 +599,39 @@ export const AnswerCardRequest = z.strictObject({
 export type AnswerCardRequest = z.infer<typeof AnswerCardRequest>;
 
 /**
+ * Card 0263. Read-only, like `division`/`lint` above: nothing here recomputes or stores anything,
+ * it only sums what `EventLog` already has. A card with no `stage.passed`/`stage.failed` events on
+ * record gets zeros and an empty `stages` list, in a 200 — that is an ordinary card that has not
+ * run yet, not the same fact as "no such card", which stays the 404 every other operation on this
+ * surface gives.
+ * Where a card's time went: one stretch at a time, queued for the runner, running a stage (or a step
+ * of one), or waiting on a person (a flag, a question, or a lane a person moves: planning, ready).
+ * generated from [CardTimelineSpan](../../data/contracts/board.ck)
+ */
+export const CardTimelineSpan = z.strictObject({
+    kind: z.enum(['queued', 'running', 'waitingOnPerson']),
+    stage: z.string(),
+    step: z.string().optional(),
+    startedAt: _ZodDatetime,
+    endedAt: _ZodDatetime,
+    durationMs: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    outcome: z.enum(['passed', 'failed', 'blocked', 'interrupted']).optional().describe('How a running span ended. Absent on the others.'),
+});
+export type CardTimelineSpan = z.infer<typeof CardTimelineSpan>;
+
+/**
+ * A stage dispatched again on code it had already judged: no commit since its last finished run, and
+ * the same base. Each could have reused the earlier result, so the count bounds what caching would save.
+ * generated from [CardRepeatedRun](../../data/contracts/board.ck)
+ */
+export const CardRepeatedRun = z.strictObject({
+    stage: z.string(),
+    step: z.string().optional(),
+    count: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+});
+export type CardRepeatedRun = z.infer<typeof CardRepeatedRun>;
+
+/**
  * generated from [CardSummary](../../data/contracts/board.ck)
  */
 export const CardSummary = z.strictObject({
@@ -741,11 +794,6 @@ export const ProjectStatsTotal = ProjectStatsCounts.extend({
 export type ProjectStatsTotal = z.infer<typeof ProjectStatsTotal>;
 
 /**
- * `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
- * person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
- * with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
- * re-review keep. `matched` is every older event in these figures placed by matching its text, since
- * those events do not say why they failed.
  * generated from [ProjectGateStats](../../data/contracts/board.ck)
  */
 export const ProjectGateStats = z.strictObject({
@@ -771,6 +819,7 @@ export const ProjectGateStats = z.strictObject({
         firstPass: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
     }),
     matched: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    difficulties: z.array(ProjectGateDifficulty).describe('The newest difficulty notes in the window, newest first, at most 20.'),
 });
 export type ProjectGateStats = z.infer<typeof ProjectGateStats>;
 
@@ -843,6 +892,28 @@ export const RecordFindingsRequest = z.strictObject({
     findings: z.array(HumanFinding),
 });
 export type RecordFindingsRequest = z.infer<typeof RecordFindingsRequest>;
+
+/**
+ * `GET /api/cards/{id}/timeline`'s response, folded from the card's own events. The spans cover every
+ * moment from its first event to now, or to reaching `done`, so the totals add up to `wallClockMs`.
+ * `reviewRounds` counts the lane's own review runs that judged the work, and `kickbacks` the runner's
+ * transitions that sent the card back.
+ * generated from [CardTimeline](../../data/contracts/board.ck)
+ */
+export const CardTimeline = z.strictObject({
+    spans: z.array(CardTimelineSpan),
+    totals: z.strictObject({
+        queuedMs: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+        runningMs: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+        waitingOnPersonMs: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+        wallClockMs: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    }),
+    reviewRounds: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    kickbacks: z.preprocess(v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v), z.number().int()),
+    repeatedRuns: z.array(CardRepeatedRun),
+    ended: z.preprocess(v => (v === 'true' ? true : v === 'false' ? false : v), z.boolean()),
+});
+export type CardTimeline = z.infer<typeof CardTimeline>;
 
 /**
  * generated from [CardDetail](../../data/contracts/board.ck)

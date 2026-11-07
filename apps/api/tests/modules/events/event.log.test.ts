@@ -777,6 +777,7 @@ describe('EventLog.gateStats', () => {
             touchpoints: [],
             loopStops: 0,
             firstPass: { reached: 0, firstPass: 0 },
+            difficulties: [],
         });
     });
 });

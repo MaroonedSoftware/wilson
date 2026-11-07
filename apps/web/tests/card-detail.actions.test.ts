@@ -953,6 +953,25 @@ describe('the question panel', () => {
         await waitFor(() => expect(screen.queryByText('Red or blue?')).toBeNull());
     });
 
+    it('offers the stage’s recommendation first, filling the box with it on one click', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(asked({ recommended: 'Blue: every other button is blue' }));
+
+        renderApp(CARD_PATH);
+
+        expect(await screen.findByText('Recommended: Blue: every other button is blue')).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: 'Use recommendation' }));
+        expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe('Blue: every other button is blue');
+    });
+
+    it('shows no recommendation when the stage gave none', async () => {
+        vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(asked());
+
+        renderApp(CARD_PATH);
+
+        expect(await screen.findByText('Red or blue?')).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Use recommendation' })).toBeNull();
+    });
+
     it('names a refusal and keeps the answer for another try', async () => {
         vi.spyOn(BoardClient.prototype, 'getCard').mockResolvedValue(asked());
         vi.spyOn(BoardClient.prototype, 'answerABlockedCard').mockRejectedValue(

@@ -59,6 +59,8 @@ contract CardBlocked: {
     question: string
     # Answers the stage thinks are likely. An operator may answer something else.
     options?: array(string)
+    # The answer the stage would pick, with its reason. Offered first so a person can accept it.
+    recommended?: string
     # The stage that asked, so the answer goes back to the run it was meant for.
     stage: string
     askedAt: datetime
@@ -424,6 +426,16 @@ contract ProjectGateTouchpoint: {
 # with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
 # re-review keep. `matched` is every older event in these figures placed by matching its text, since
 # those events do not say why they failed.
+# One stage's own note on what slowed it down (`difficulty` on its report). Information only: nothing
+# routes on it. `step` names the step that wrote it, absent for the lane's own run.
+contract ProjectGateDifficulty: {
+    cardId: string
+    stage: string
+    step?: string
+    note: string
+    at: datetime
+}
+
 contract ProjectGateStats: {
     since: datetime
     until: datetime
@@ -447,6 +459,8 @@ contract ProjectGateStats: {
         firstPass: int
     }
     matched: int
+    # The newest difficulty notes in the window, newest first, at most 20.
+    difficulties: array(ProjectGateDifficulty)
 }
 
 # Card 0265. One file changed in a card's branch since it forked from `main` —
@@ -1411,6 +1425,66 @@ operation /api/stats/gates: {
 # record gets zeros and an empty `stages` list, in a 200 — that is an ordinary card that has not
 # run yet, not the same fact as "no such card", which stays the 404 every other operation on this
 # surface gives.
+# Where a card's time went: one stretch at a time, queued for the runner, running a stage (or a step
+# of one), or waiting on a person (a flag, a question, or a lane a person moves: planning, ready).
+contract CardTimelineSpan: {
+    kind: enum(queued, running, waitingOnPerson)
+    stage: string
+    step?: string
+    startedAt: datetime
+    endedAt: datetime
+    durationMs: int
+    # How a running span ended. Absent on the others.
+    outcome?: enum(passed, failed, blocked, interrupted)
+}
+
+# A stage dispatched again on code it had already judged: no commit since its last finished run, and
+# the same base. Each could have reused the earlier result, so the count bounds what caching would save.
+contract CardRepeatedRun: {
+    stage: string
+    step?: string
+    count: int
+}
+
+# `GET /api/cards/{id}/timeline`'s response, folded from the card's own events. The spans cover every
+# moment from its first event to now, or to reaching `done`, so the totals add up to `wallClockMs`.
+# `reviewRounds` counts the lane's own review runs that judged the work, and `kickbacks` the runner's
+# transitions that sent the card back.
+contract CardTimeline: {
+    spans: array(CardTimelineSpan)
+    totals: {
+        queuedMs: int
+        runningMs: int
+        waitingOnPersonMs: int
+        wallClockMs: int
+    }
+    reviewRounds: int
+    kickbacks: int
+    repeatedRuns: array(CardRepeatedRun)
+    ended: boolean
+}
+
+# Read-only, like `usage` below: a projection of the card's events, never stored.
+operation /api/cards/{id}/timeline: {
+    params: {
+        id: string
+    }
+    get: {
+        security: {
+            policy: wilson.view
+        }
+        name: Get card timeline
+        service: BoardService.timeline
+        response: {
+            200: {
+                application/json: CardTimeline
+            }
+            # No card with that id.
+            404:
+        }
+    }
+}
+
 operation /api/cards/{id}/usage: {
     params: {
         id: string

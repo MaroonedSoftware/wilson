@@ -17,6 +17,12 @@ export interface ScopeGuardOptions {
     /** Extra deny globs from project config. The built-in denies below are always applied. */
     deny?: string[];
     /**
+     * Worktree-relative paths this run may read and must not write: a card's acceptance checks, written
+     * before the code and locked so the code is made to pass them rather than they to pass the code.
+     * Unlike `deny`, a read is fine, and unlike scope, no `request_scope` can unlock one.
+     */
+    locked?: string[];
+    /**
      * Worktree-relative paths a scoped file structurally depends on, derived by {@link collateralPaths}.
      * Allowed for a write without a `request_scope` round trip, but always reported — see `check`.
      */
@@ -116,6 +122,10 @@ export const SCRATCH_PREFIX = '.wilson-scratch/';
 /** Refusal for a `request_scope` call naming a path under {@link SCRATCH_PREFIX}. */
 const SCRATCH_GRANT_REASON = 'path is under the runner’s scratch directory, not the plan’s to request — it is already writable without a grant';
 
+/** Why a write to a locked acceptance check is refused, naming what to do instead. */
+export const LOCKED_REASON =
+    'this is one of the card’s acceptance checks, written before the code and locked: change the code until it passes, and if you believe the check itself is wrong, say why in your result’s caveats';
+
 /**
  * Decides whether an agent may write a path.
  *
@@ -134,6 +144,7 @@ const SCRATCH_GRANT_REASON = 'path is under the runner’s scratch directory, no
 export class ScopeGuard {
     private readonly matchAllow: (path: string) => boolean;
     private readonly matchDeny: (path: string) => boolean;
+    private readonly locked: ReadonlySet<string>;
     private readonly granted = new Set<string>();
     private readonly readableExtras: Set<string>;
     private readonly collateral: Set<string>;
@@ -151,6 +162,7 @@ export class ScopeGuard {
         this.matchAllow = allow.length > 0 ? picomatch(allow, { dot: true }) : () => false;
         this.matchDeny = picomatch([...ALWAYS_DENIED, ...(options.deny ?? [])], { dot: true });
         this.collateral = new Set(options.collateral ?? []);
+        this.locked = new Set(options.locked ?? []);
     }
 
     /**
@@ -171,6 +183,9 @@ export class ScopeGuard {
         }
         if (this.matchDeny(contained.path)) {
             return { allowed: false, path: contained.path, reason: DENY_LIST_REASON };
+        }
+        if (this.locked.has(contained.path)) {
+            return { allowed: false, path: contained.path, reason: LOCKED_REASON };
         }
         this.granted.add(contained.path);
         return contained;
@@ -267,6 +282,9 @@ export class ScopeGuard {
 
         if (this.matchDeny(key)) {
             return { allowed: false, path: key, reason: DENY_LIST_REASON };
+        }
+        if (this.locked.has(key)) {
+            return { allowed: false, path: key, reason: LOCKED_REASON };
         }
         if (this.granted.has(key)) {
             return { allowed: true, path: key, via: 'grant' };

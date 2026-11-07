@@ -1,6 +1,7 @@
+import { DateTime } from 'luxon';
 import { describe, expect, it } from 'vitest';
 import { contextBudgetExceeded, engineSilent, overBudget, stepsExceeded, wallClockExceeded } from '#modules/agent/budget.js';
-import { foldGateStats, matchOlderFailure, type GateEventRow } from '#modules/events/gate.stats.js';
+import { foldGateStats, matchOlderFailure, MAX_DIFFICULTIES, type GateEventRow } from '#modules/events/gate.stats.js';
 
 const row = (type: string, fields: Partial<GateEventRow> = {}): GateEventRow => ({
     cardId: '0001',
@@ -213,5 +214,37 @@ describe('foldGateStats firstPass', () => {
         ]);
 
         expect(figures.firstPass).toEqual({ reached: 3, firstPass: 1 });
+    });
+});
+
+describe('foldGateStats difficulties', () => {
+    const at = (minute: number) => DateTime.utc(2026, 11, 7, 12, minute);
+
+    it('lists the notes stages left on their runs, newest first, with the step that wrote one', () => {
+        const figures = foldGateStats([
+            row('stage.passed', { stage: 'implementing', difficulty: 'no fake clock', createdAt: at(1) }),
+            row('stage.failed', { stage: 'testing', difficulty: 'suite takes 9 minutes', createdAt: at(2) }),
+            row('stage.passed', { step: 'challenge', difficulty: 'plan unclear on retries', createdAt: at(3) }),
+        ]);
+
+        expect(figures.difficulties).toEqual([
+            { cardId: '0001', stage: 'review', step: 'challenge', note: 'plan unclear on retries', at: at(3) },
+            { cardId: '0001', stage: 'testing', note: 'suite takes 9 minutes', at: at(2) },
+            { cardId: '0001', stage: 'implementing', note: 'no fake clock', at: at(1) },
+        ]);
+    });
+
+    it('ignores runs without a note and other events, and keeps only the newest', () => {
+        const rows = Array.from({ length: MAX_DIFFICULTIES + 5 }, (_, minute) =>
+            row('stage.passed', { difficulty: `note ${minute}`, createdAt: at(minute) }),
+        );
+        const figures = foldGateStats([
+            row('stage.passed', { createdAt: at(0) }),
+            row('stage.blocked', { difficulty: 'x', createdAt: at(0) }),
+            ...rows,
+        ]);
+
+        expect(figures.difficulties).toHaveLength(MAX_DIFFICULTIES);
+        expect(figures.difficulties[0]?.note).toBe(`note ${MAX_DIFFICULTIES + 4}`);
     });
 });

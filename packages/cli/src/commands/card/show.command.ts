@@ -114,6 +114,7 @@ const command: CommandModule<ShowOpts> = {
         if (card.blocked) {
             ctx.logger.info(`question from ${card.blocked.stage}: ${card.blocked.question}`);
             ctx.logger.info(`  tried: ${card.blocked.tried}`);
+            if (card.blocked.recommended) ctx.logger.info(`  recommended: ${card.blocked.recommended}`);
             for (const option of card.blocked.options ?? []) ctx.logger.info(`  option: ${option}`);
             ctx.logger.info(`  answer it with: wilson card answer ${cardId} "<answer>"`);
         } else if (card.needsHuman) {

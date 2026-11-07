@@ -2,7 +2,9 @@ import { Registry } from 'injectkit';
 import { AppConfig } from '@maroonedsoftware/appconfig';
 import { ServerKitModule } from '@maroonedsoftware/koa';
 import { AutoSplitter } from '#modules/board/auto.splitter.js';
+import { AcceptanceResultSchema, AcceptanceVerifier } from './acceptance.checks.js';
 import { ChallengeVerifier } from './challenge.verifier.js';
+import { WalkResultSchema, WalkVerifier } from './walk.verifier.js';
 import { ImplementingVerifier } from './implementing.verifier.js';
 import { ReviewVerifier } from './review.verifier.js';
 import { ScopeCheckVerifier } from './scope.check.verifier.js';
@@ -26,6 +28,8 @@ export const StagesModule: ServerKitModule = {
         registry.register(ReviewVerifier).useClass(ReviewVerifier).asTransient();
         registry.register(ChallengeVerifier).useClass(ChallengeVerifier).asTransient();
         registry.register(ScopeCheckVerifier).useClass(ScopeCheckVerifier).asTransient();
+        registry.register(AcceptanceVerifier).useClass(AcceptanceVerifier).asTransient();
+        registry.register(WalkVerifier).useClass(WalkVerifier).asTransient();
         registry
             .register(StageVerifierMap)
             .useFactory(container => {
@@ -35,6 +39,8 @@ export const StagesModule: ServerKitModule = {
                 map.set('review', container.get(ReviewVerifier));
                 map.set('challenge', container.get(ChallengeVerifier));
                 map.set('scope-check', container.get(ScopeCheckVerifier));
+                map.set('acceptance', container.get(AcceptanceVerifier));
+                map.set('walk', container.get(WalkVerifier));
                 return map;
             })
             .asSingleton();
@@ -47,6 +53,8 @@ export const StagesModule: ServerKitModule = {
                 map.set('review', ReviewResultSchema);
                 map.set('challenge', ChallengeResultSchema);
                 map.set('scope-check', ScopeCheckResultSchema);
+                map.set('acceptance', AcceptanceResultSchema);
+                map.set('walk', WalkResultSchema);
                 return map;
             })
             .asSingleton();

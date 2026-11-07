@@ -23,6 +23,7 @@ import {
     CardPlan,
     CardPlanQuery,
     CardSummary,
+    CardTimeline,
     CardUsage,
     CardVersion,
     CreateCardRequest,
@@ -83,6 +84,7 @@ const ListCardEventsArgs = z.object({ id: z.string(), query: ListQuery.optional(
 const ListProjectActivityArgs = z.object({ query: ActivityQuery.optional() });
 const GetProjectStatsArgs = z.object({ query: ProjectStatsQuery.optional() });
 const GetProjectGateStatsArgs = z.object({ query: ProjectStatsQuery.optional() });
+const GetCardTimelineArgs = z.object({ id: z.string() });
 const GetCardUsageArgs = z.object({ id: z.string() });
 const GetCardDiffArgs = z.object({ id: z.string() });
 const ListCardVersionsArgs = z.object({ id: z.string(), query: ListQuery.optional() });
@@ -756,14 +758,35 @@ export class GetProjectGateStatsMcpTool implements McpToolHandler {
 }
 
 /**
+ * from [board.ck](../../../../data/contracts/board.ck) `GET /api/cards/{id}/timeline`
+ */
+@Injectable()
+export class GetCardTimelineMcpTool implements McpToolHandler {
+    readonly definition: Tool = {
+        name: 'get_card_timeline',
+        description: "Read-only, like `usage` below: a projection of the card's events, never stored.",
+        inputSchema: z.toJSONSchema(GetCardTimelineArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
+        outputSchema: z.toJSONSchema(CardTimeline, { unrepresentable: 'any' }) as Tool['outputSchema'],
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        _meta: { 'contractkit/security': { policy: 'wilson.view' } },
+    };
+
+    async handle(args: Record<string, unknown>, context: McpToolContext): Promise<CallToolResult> {
+        const container = requireMcpContainer(context);
+        await requireMcpPolicy(context, container.get(PolicyService), { policy: 'wilson.view' });
+        const { id } = await parseAndValidate(args, GetCardTimelineArgs);
+        const result = await container.get(BoardService).timeline(id);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    }
+}
+
+/**
  * from [board.ck](../../../../data/contracts/board.ck) `GET /api/cards/{id}/usage`
  */
 @Injectable()
 export class GetCardUsageMcpTool implements McpToolHandler {
     readonly definition: Tool = {
         name: 'get_card_usage',
-        description:
-            'Card 0263. Read-only, like `division`/`lint` above: nothing here recomputes or stores anything,\nit only sums what `EventLog` already has. A card with no `stage.passed`/`stage.failed` events on\nrecord gets zeros and an empty `stages` list, in a 200 — that is an ordinary card that has not\nrun yet, not the same fact as "no such card", which stays the 404 every other operation on this\nsurface gives.',
         inputSchema: z.toJSONSchema(GetCardUsageArgs, { unrepresentable: 'any', io: 'input' }) as Tool['inputSchema'],
         outputSchema: z.toJSONSchema(CardUsage, { unrepresentable: 'any' }) as Tool['outputSchema'],
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -903,6 +926,7 @@ export function registerBoardMcpCatalog(map: McpToolHandlerMap, container: Conta
     map.set('list_project_activity', container.get(ListProjectActivityMcpTool));
     map.set('get_project_stats', container.get(GetProjectStatsMcpTool));
     map.set('get_project_gate_stats', container.get(GetProjectGateStatsMcpTool));
+    map.set('get_card_timeline', container.get(GetCardTimelineMcpTool));
     map.set('get_card_usage', container.get(GetCardUsageMcpTool));
     map.set('get_card_diff', container.get(GetCardDiffMcpTool));
     map.set('list_card_versions', container.get(ListCardVersionsMcpTool));
@@ -940,6 +964,7 @@ export function registerBoardMcpToolClasses(registry: Registry): void {
     registry.register(ListProjectActivityMcpTool).useClass(ListProjectActivityMcpTool).asSingleton();
     registry.register(GetProjectStatsMcpTool).useClass(GetProjectStatsMcpTool).asSingleton();
     registry.register(GetProjectGateStatsMcpTool).useClass(GetProjectGateStatsMcpTool).asSingleton();
+    registry.register(GetCardTimelineMcpTool).useClass(GetCardTimelineMcpTool).asSingleton();
     registry.register(GetCardUsageMcpTool).useClass(GetCardUsageMcpTool).asSingleton();
     registry.register(GetCardDiffMcpTool).useClass(GetCardDiffMcpTool).asSingleton();
     registry.register(ListCardVersionsMcpTool).useClass(ListCardVersionsMcpTool).asSingleton();

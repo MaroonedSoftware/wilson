@@ -35,6 +35,7 @@ import cardRenameCommand from './commands/card/rename.command.js';
 import cardShowCommand from './commands/card/show.command.js';
 import cardSplitCommand from './commands/card/split.command.js';
 import cardStartCommand from './commands/card/start.command.js';
+import cardTimelineCommand from './commands/card/timeline.command.js';
 import cardVersionsCommand from './commands/card/versions.command.js';
 import engineTokenListCommand from './commands/engine-token/list.command.js';
 import engineTokenRemoveCommand from './commands/engine-token/remove.command.js';
@@ -139,6 +140,7 @@ const app = await createCliApp({
         reg(['card', 'release'], cardReleaseCommand),
         reg(['card', 'split'], cardSplitCommand),
         reg(['card', 'start'], cardStartCommand),
+        reg(['card', 'timeline'], cardTimelineCommand),
         reg(['card', 'versions'], cardVersionsCommand),
         reg(['project', 'create'], projectCreateCommand),
         reg(['host', 'add'], hostAddCommand),

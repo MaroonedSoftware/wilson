@@ -18,6 +18,8 @@ import type { RuleJudge, RuleVerdict } from '#modules/rules/rule.judge.js';
 import type { RuleStore } from '#modules/rules/rule.store.js';
 import { worktreeHost, type Worktree, type WorktreeManager } from '#modules/worktree/worktree.manager.js';
 import { incomingReview } from './challenge.verifier.js';
+import { acceptanceCheckPaths, isEnterStep } from './acceptance.checks.js';
+import { isLaterReview } from './frozen.scope.js';
 import { computeReviewEvidence, REVIEW_PREPARATION_DEADLINE_MS, reviewEvidenceApplies } from './review.evidence.js';
 import { pnpmStoreLock, runConfiguredCommand } from './run.command.js';
 import type { ProjectStages, StageConfig } from './stage.config.js';
@@ -155,10 +157,36 @@ const criteriaIdsNote = (card: Card): string => {
     ].join('\n');
 };
 
+/**
+ * For a lane's own review of a card an earlier review already sent back: the scope that review set is
+ * the scope now, and `withFrozenScope` turns any other blocker into a concern. Said here so the reviewer
+ * gives each blocker its reason rather than finding out from the plan afterwards. Empty otherwise.
+ */
+const laterReviewNote = (card: Card, stage: StageConfig): string => {
+    if (stage.step || (stage.verifier ?? stage.name) !== 'review' || !isLaterReview(card)) return '';
+    return [
+        '## This is a later review',
+        '',
+        'An earlier review already sent this card back, and its findings are under "## Review findings" above. Its scope holds:',
+        'from here a blocker may send the card back only for one of these reasons, given as its `basis`:',
+        '',
+        '- `unfixed`: an earlier blocker is still not fixed. Cite the same file it did.',
+        '- `regression`: the repair broke something that worked.',
+        '- `criterion`: an acceptance criterion is still unmet.',
+        '- `safety`: a security hole, data loss or a leaked secret.',
+        '',
+        'Anything else you find is welcome as a concern. A blocker with no basis is kept as a concern and does not send the card back.',
+    ].join('\n');
+};
+
 export const planMaterial = (card: Card, stages: ProjectStages, stage: StageConfig, evidence?: string): string => {
-    const notes = [criteriaIdsNote(card), ownScopeNote(stage), otherStagesScopeNote(stages, stage.name), evidence ?? ''].filter(
-        note => note.length > 0,
-    );
+    const notes = [
+        criteriaIdsNote(card),
+        laterReviewNote(card, stage),
+        ownScopeNote(stage),
+        otherStagesScopeNote(stages, stage.name),
+        evidence ?? '',
+    ].filter(note => note.length > 0);
     return notes.length > 0 ? `${serializeCard(card).trimEnd()}\n\n${notes.join('\n\n')}\n` : serializeCard(card);
 };
 
@@ -473,6 +501,8 @@ export const prepareStage = async (deps: StagePreparationDeps, input: StagePrepa
         // same object as everything else it may touch. Empty means every fetch is refused.
         webAllow: stages.webAllow,
         deny: stages.deny,
+        // Written before the code by the lane's enter step: every other run may read them and none may change them.
+        locked: isEnterStep(stage) ? [] : acceptanceCheckPaths(card.body),
         collateral,
         // The plan and every card's preserved patch live outside the worktree so neither can be
         // committed to the card's branch. Without this both are also unreadable, and the agent

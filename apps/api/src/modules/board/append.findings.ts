@@ -64,3 +64,27 @@ export const withFindings = (body: string, findings: ReviewFinding[], criteria: 
 
     return [...before, ...(needsLeadingBlank ? [''] : []), ...section, ...(needsTrailingBlank ? [''] : []), ...after].join('\n');
 };
+
+/** One finding as an earlier review left it on the plan: its severity and the file it named. */
+export interface EarlierFinding {
+    severity: 'blocker' | 'concern';
+    file: string;
+}
+
+/**
+ * The findings an earlier review left under `## Review findings`, read back from the bullets
+ * {@link withFindings} writes. Empty when the body has no such section, which is how a card's first
+ * review looks. A bullet in any other shape is skipped rather than guessed at.
+ */
+export const earlierFindings = (body: string): EarlierFinding[] => {
+    const lines = body.split('\n');
+    const start = lines.findIndex(line => line.trim() === HEADING);
+    if (start === -1) return [];
+    const found: EarlierFinding[] = [];
+    for (const line of lines.slice(start + 1)) {
+        if (/^##\s+/.test(line)) break;
+        const match = /^- \*\*(blocker|concern)\*\* `([^`]+?)(?::\d+)?`:/.exec(line);
+        if (match) found.push({ severity: match[1] as EarlierFinding['severity'], file: match[2]! });
+    }
+    return found;
+};

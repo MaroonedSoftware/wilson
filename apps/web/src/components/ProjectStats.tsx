@@ -383,6 +383,21 @@ function GatesPanel({ gates }: { gates: ProjectGateStats }) {
                     />
                 )}
             </SimpleGrid>
+            {gates.difficulties.length > 0 && (
+                <GateTable
+                    head={['What slowed a stage down', 'Card', 'Stage']}
+                    rows={gates.difficulties.map((row, index) => ({
+                        key: `${row.cardId}:${row.stage}:${index}`,
+                        cells: [
+                            row.note,
+                            row.cardId,
+                            <Badge key="stage" size="sm" color={TONE[row.stage] ?? 'gray'} variant="light">
+                                {row.step ? `${row.stage} / ${row.step}` : row.stage}
+                            </Badge>,
+                        ],
+                    }))}
+                />
+            )}
             {gates.matched > 0 && (
                 <Text size="xs" c="dimmed">
                     {gates.matched} older failed attempts do not say why they failed, so they are placed by matching their text. Those that match

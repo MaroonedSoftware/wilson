@@ -66,6 +66,7 @@ public sealed class MenuBarStatsTests
             Touchpoints = [],
             FirstPass = new ProjectGateStatsFirstPass { Reached = 0, FirstPass = 0 },
             Matched = 0,
+            Difficulties = [],
         },
         [.. Enumerable.Range(0, flagged).Select(index => new CardSummary { Id = $"{index}", Title = "card", Stage = "review", DependsOn = [], NeedsHuman = true })]);
 

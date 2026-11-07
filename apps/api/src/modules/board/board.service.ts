@@ -14,6 +14,7 @@ import type {
     CardPlan,
     CardPlanQuery,
     CardSummary,
+    CardTimeline,
     CardUsage,
     CardVersion,
     ListQuery,
@@ -244,6 +245,16 @@ export class BoardService {
             payload: row.payload as unknown as ActivityEvent['payload'],
             createdAt: row.createdAt,
         }));
+    }
+
+    async timeline(id: string): Promise<CardTimeline> {
+        try {
+            await this.boardRepository.read(id);
+        } catch (err) {
+            if (err instanceof CardNotFoundError) throw httpError(404);
+            throw err;
+        }
+        return this.eventLog.timeline(this.boardConfig.project, id, DateTime.utc());
     }
 
     async usage(id: string): Promise<CardUsage> {

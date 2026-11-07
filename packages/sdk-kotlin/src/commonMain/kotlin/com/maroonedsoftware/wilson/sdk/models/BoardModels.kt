@@ -64,6 +64,8 @@ data class CardBlocked(
     val question: String,
     /** Answers the stage thinks are likely. An operator may answer something else. */
     val options: List<String>? = null,
+    /** The answer the stage would pick, with its reason. Offered first so a person can accept it. */
+    val recommended: String? = null,
     /** The stage that asked, so the answer goes back to the run it was meant for. */
     val stage: String,
     val askedAt: Instant,
@@ -329,6 +331,24 @@ data class ProjectGateTouchpoint(
 )
 
 /**
+ * `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
+ * person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
+ * with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
+ * re-review keep. `matched` is every older event in these figures placed by matching its text, since
+ * those events do not say why they failed.
+ * One stage's own note on what slowed it down (`difficulty` on its report). Information only: nothing
+ * routes on it. `step` names the step that wrote it, absent for the lane's own run.
+ */
+@Serializable
+data class ProjectGateDifficulty(
+    val cardId: String,
+    val stage: String,
+    val step: String? = null,
+    val note: String,
+    val at: Instant,
+)
+
+/**
  * Card 0265. One file changed in a card's branch since it forked from `main` —
  * `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
  * `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
@@ -552,6 +572,38 @@ data class AnswerCardRequest(
     val answer: String,
 )
 
+/**
+ * Card 0263. Read-only, like `division`/`lint` above: nothing here recomputes or stores anything,
+ * it only sums what `EventLog` already has. A card with no `stage.passed`/`stage.failed` events on
+ * record gets zeros and an empty `stages` list, in a 200 — that is an ordinary card that has not
+ * run yet, not the same fact as "no such card", which stays the 404 every other operation on this
+ * surface gives.
+ * Where a card's time went: one stretch at a time, queued for the runner, running a stage (or a step
+ * of one), or waiting on a person (a flag, a question, or a lane a person moves: planning, ready).
+ */
+@Serializable
+data class CardTimelineSpan(
+    val kind: CardTimelineSpanKind,
+    val stage: String,
+    val step: String? = null,
+    val startedAt: Instant,
+    val endedAt: Instant,
+    val durationMs: Long,
+    /** How a running span ended. Absent on the others. */
+    val outcome: CardTimelineSpanOutcome? = null,
+)
+
+/**
+ * A stage dispatched again on code it had already judged: no commit since its last finished run, and
+ * the same base. Each could have reused the earlier result, so the count bounds what caching would save.
+ */
+@Serializable
+data class CardRepeatedRun(
+    val stage: String,
+    val step: String? = null,
+    val count: Long,
+)
+
 @Serializable
 data class CardSummary(
     val id: String,
@@ -735,13 +787,6 @@ data class ProjectStatsTotal(
     val cards: Long,
 )
 
-/**
- * `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
- * person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
- * with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
- * re-review keep. `matched` is every older event in these figures placed by matching its text, since
- * those events do not say why they failed.
- */
 @Serializable
 data class ProjectGateStats(
     val since: Instant,
@@ -757,6 +802,8 @@ data class ProjectGateStats(
     val touchpoints: List<ProjectGateTouchpoint>,
     val firstPass: ProjectGateStatsFirstPass,
     val matched: Long,
+    /** The newest difficulty notes in the window, newest first, at most 20. */
+    val difficulties: List<ProjectGateDifficulty>,
 )
 
 /**
@@ -822,6 +869,22 @@ data class SplitCardsRequest(
 @Serializable
 data class RecordFindingsRequest(
     val findings: List<HumanFinding>,
+)
+
+/**
+ * `GET /api/cards/{id}/timeline`'s response, folded from the card's own events. The spans cover every
+ * moment from its first event to now, or to reaching `done`, so the totals add up to `wallClockMs`.
+ * `reviewRounds` counts the lane's own review runs that judged the work, and `kickbacks` the runner's
+ * transitions that sent the card back.
+ */
+@Serializable
+data class CardTimeline(
+    val spans: List<CardTimelineSpan>,
+    val totals: CardTimelineTotals,
+    val reviewRounds: Long,
+    val kickbacks: Long,
+    val repeatedRuns: List<CardRepeatedRun>,
+    val ended: Boolean,
 )
 
 @Serializable
@@ -1523,4 +1586,59 @@ object HumanFindingSeveritySerializer : SdkEnumSerializer<HumanFindingSeverity>(
     HumanFindingSeverity.UNKNOWN,
     HumanFindingSeverity.BLOCKER to "blocker",
     HumanFindingSeverity.CONCERN to "concern",
+)
+
+@Serializable(with = CardTimelineSpanKindSerializer::class)
+enum class CardTimelineSpanKind {
+    QUEUED,
+    RUNNING,
+    WAITING_ON_PERSON,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [CardTimelineSpanKind] by its wire spelling. A spelling it does not know reads as [CardTimelineSpanKind.UNKNOWN]. */
+object CardTimelineSpanKindSerializer : SdkEnumSerializer<CardTimelineSpanKind>(
+    "CardTimelineSpanKind",
+    CardTimelineSpanKind.UNKNOWN,
+    CardTimelineSpanKind.QUEUED to "queued",
+    CardTimelineSpanKind.RUNNING to "running",
+    CardTimelineSpanKind.WAITING_ON_PERSON to "waitingOnPerson",
+)
+
+/** How a running span ended. Absent on the others. */
+@Serializable(with = CardTimelineSpanOutcomeSerializer::class)
+enum class CardTimelineSpanOutcome {
+    PASSED,
+    FAILED,
+    BLOCKED,
+    INTERRUPTED,
+
+    /**
+     * A value this SDK does not know, such as a member the service added after it was generated.
+     * Never sent: encoding it throws a [kotlinx.serialization.SerializationException].
+     */
+    UNKNOWN,
+}
+
+/** Reads and writes [CardTimelineSpanOutcome] by its wire spelling. A spelling it does not know reads as [CardTimelineSpanOutcome.UNKNOWN]. */
+object CardTimelineSpanOutcomeSerializer : SdkEnumSerializer<CardTimelineSpanOutcome>(
+    "CardTimelineSpanOutcome",
+    CardTimelineSpanOutcome.UNKNOWN,
+    CardTimelineSpanOutcome.PASSED to "passed",
+    CardTimelineSpanOutcome.FAILED to "failed",
+    CardTimelineSpanOutcome.BLOCKED to "blocked",
+    CardTimelineSpanOutcome.INTERRUPTED to "interrupted",
+)
+
+@Serializable
+data class CardTimelineTotals(
+    val queuedMs: Long,
+    val runningMs: Long,
+    val waitingOnPersonMs: Long,
+    val wallClockMs: Long,
 )

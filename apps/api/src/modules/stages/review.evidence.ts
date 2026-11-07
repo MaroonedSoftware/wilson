@@ -7,6 +7,7 @@ import { snapshotDrift, worktreeHost, type TreeSnapshot, type Worktree, type Wor
 import { withBaselineWorktree } from './baseline.worktree.js';
 import { runConfiguredCommandForOutput, type CommandOutput } from './run.command.js';
 import type { StageConfig } from './stage.config.js';
+import { computeRevertProof, type RevertProof } from './revert.proof.js';
 import { findUnwiredSymbols, type UnwiredSymbol } from './unwired.symbols.js';
 import { netNewTypeErrors, parseTypeErrors, type NetNewTypeError, type TypeErrorEntry } from './type.errors.js';
 
@@ -47,7 +48,17 @@ export interface ReviewEvidence {
     /** The section to append to the plan, when there is anything to say. */
     markdown?: string;
     /** The same facts, for the event trail. */
-    summary: { durationMs: number; netNewTypeErrors?: number; typeErrorsFailed?: string; unwiredSymbols?: number; unwiredSymbolsFailed?: string };
+    summary: {
+        durationMs: number;
+        netNewTypeErrors?: number;
+        typeErrorsFailed?: string;
+        unwiredSymbols?: number;
+        unwiredSymbolsFailed?: string;
+        /** How many changed files no check noticed, and how many were put back at all. */
+        revertProofUnnoticed?: number;
+        revertProofTried?: number;
+        revertProofFailed?: string;
+    };
 }
 
 type TypeEvidence =
@@ -114,7 +125,7 @@ const writeBaseCache = async (path: string, errors: TypeErrorEntry[], logger: Re
  * and would blame the reviewer. A path that was already dirty before the command ran is left alone:
  * what it held is not known, and it is not this command's to discard.
  */
-const revertWrites = async (worktree: Worktree, before: TreeSnapshot, drifted: string[]): Promise<void> => {
+export const revertWrites = async (worktree: Worktree, before: TreeSnapshot, drifted: string[]): Promise<void> => {
     const host = worktreeHost(worktree);
     for (const path of drifted) {
         if (path in before) continue;
@@ -244,6 +255,21 @@ const unwiredSection = (evidence: UnwiredEvidence): string | undefined => {
     ].join('\n\n');
 };
 
+/** Nothing when every changed file was noticed or there were none to try: there is nothing to weigh. */
+const revertProofSection = (proof: RevertProof): string | undefined => {
+    if (proof.status === 'failed') {
+        return `### Files no check notices\n\nCould not compute. This says nothing either way about what the checks cover.\n\n\`\`\`text\n${fenceSafe(proof.reason)}\n\`\`\``;
+    }
+    if (proof.unnoticed.length === 0 && proof.skipped.length === 0) return undefined;
+    const lines = [
+        '### Files no check notices',
+        `Each file below was put back to its version before this card, alone, and \`${fenceSafe(proof.command)}\` still passed, so no check would catch a mistake in the change to it. That is evidence, not a verdict: a refactor or a type-only change can rightly go unnoticed. Weigh whether the card's tests should cover it.`,
+    ];
+    if (proof.unnoticed.length > 0) lines.push(`\`\`\`text\n${proof.unnoticed.map(fenceSafe).join('\n')}\n\`\`\``);
+    if (proof.skipped.length > 0) lines.push(`Not tried, for time or the cap: ${proof.skipped.map(path => `\`${fenceSafe(path)}\``).join(', ')}.`);
+    return lines.join('\n\n');
+};
+
 const computeUnwiredEvidence = async ({ worktree }: ReviewEvidenceInput): Promise<UnwiredEvidence> => {
     try {
         return { status: 'computed', symbols: await findUnwiredSymbols(worktreeHost(worktree), worktree.path, worktree.baseSha) };
@@ -299,7 +325,19 @@ export const computeReviewEvidence = async (deps: ReviewEvidenceDeps, input: Rev
         : undefined;
     if (types?.status === 'failed') deps.logger.warn(`${input.cardId} type evidence could not be computed: ${types.reason}`);
 
-    const sections = [types && typeSection(types), unwiredSection(unwired)].filter((section): section is string => section !== undefined);
+    // Last, because it runs the check once per file and so is the likeliest to be cut short.
+    const revertCommand = input.stage.revertProofCommand;
+    const revert = revertCommand
+        ? await withinDeadline<RevertProof>(computeRevertProof(deps, input.worktree, revertCommand, remaining, revertWrites), left(), () => ({
+              status: 'failed',
+              reason: outOfTime,
+          }))
+        : undefined;
+    if (revert?.status === 'failed') deps.logger.warn(`${input.cardId} revert proof could not be computed: ${revert.reason}`);
+
+    const sections = [types && typeSection(types), unwiredSection(unwired), revert && revertProofSection(revert)].filter(
+        (section): section is string => section !== undefined,
+    );
     const summary = {
         durationMs: Date.now() - startedAt,
         ...(types?.status === 'computed' ? { netNewTypeErrors: types.added } : {}),
@@ -307,6 +345,10 @@ export const computeReviewEvidence = async (deps: ReviewEvidenceDeps, input: Rev
         ...(unwired.status === 'computed'
             ? { unwiredSymbols: unwired.symbols.length }
             : { unwiredSymbolsFailed: unwired.reason.slice(0, FAILURE_TAIL_LENGTH) }),
+        ...(revert?.status === 'computed'
+            ? { revertProofUnnoticed: revert.unnoticed.length, revertProofTried: revert.unnoticed.length + revert.noticed.length }
+            : {}),
+        ...(revert?.status === 'failed' ? { revertProofFailed: revert.reason.slice(0, FAILURE_TAIL_LENGTH) } : {}),
     };
     if (sections.length === 0) return { summary };
 

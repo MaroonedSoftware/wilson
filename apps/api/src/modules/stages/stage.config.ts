@@ -43,7 +43,9 @@ const contextGuardBeatsCompaction = (autoCompactWindow: number, maxContextWindow
 /**
  * A run inside a lane that is not the lane's own: its own prompt, verifier and budgets, on the lane's
  * provider, model and routes, with the card staying in the lane throughout. `on` says when it runs:
- * `revise` when the lane's run reports `verdict: revise`, `approve` when a person approves a plan.
+ * `revise` when the lane's run reports `verdict: revise`, `approve` when a person approves a plan,
+ * `enter` before the lane's own first run on a card that has no `## Acceptance checks` yet, `pass` when
+ * the lane's own run passes without a `revise`, before the card moves on.
  *
  * Anything it does not name is the lane's. There are no defaults here, on purpose: a default would
  * silently replace the value the lane chose. The lane's `depths` do not reach a step: it runs on the
@@ -51,7 +53,7 @@ const contextGuardBeatsCompaction = (autoCompactWindow: number, maxContextWindow
  */
 export const LaneStepSchema = z.object({
     name: z.string(),
-    on: z.enum(['approve', 'revise']),
+    on: z.enum(['approve', 'revise', 'enter', 'pass']),
     instructions: z.string(),
     /** Defaults to the step's name. */
     verifier: z.string().optional(),
@@ -242,6 +244,14 @@ export const StageConfigSchema = z
          * lists stop being comparable; without it the evidence reads "could not compute".
          */
         typecheckCommand: z.string().optional(),
+        /**
+         * On a lane that reviews: a fast check (usually the tests the card touches, or the whole suite
+         * when it is quick) that the runner runs once per changed file with only that file put back to its
+         * pre-card version, so the reviewer's plan names the files no check notices. Evidence only, it
+         * fails nothing, and it shares the evidence deadline: files it has no time for are listed as not
+         * tried. Like `typecheckCommand`, it must not write outside ignored files.
+         */
+        revertProofCommand: z.string().optional(),
         /**
          * The command whose exit code the exit condition checks for formatting.
          *

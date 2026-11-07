@@ -512,6 +512,39 @@ context trying to refute each blocker before anything is kicked back. The card h
 `revise` yet, so the step's plan, and only its plan, carries the review's result under `## Review
 findings`.
 
+A lane can also hold an `enter` step, run in place of the lane's own run on a card whose plan has no
+`## Acceptance checks` yet. Put on `implementing` (`wilson stages set implementing steps`, verifier
+`acceptance`, an `extraScope` for test files, routed apart from implementing's model if possible), it
+writes tests from the plan's acceptance criteria before any code exists. Its verifier (`AcceptanceVerifier`)
+needs every criterion covered by a labelled check or a reason no test can settle it, only test files
+written, and every check failing on the code as it is (its test among the report's failures, or its file
+failing to load), using the lane's `testCommand` and `testReportPath`. On a pass the runner writes the
+`## Acceptance checks` section, the card stays in its lane, and the lane's own run follows. From then on
+every run may read those files and none may write them (`ScopeGuard`'s `locked`, which no `request_scope`
+widens and `checkFinishedTree` enforces against a write made by a command). An implementer who thinks a
+check is wrong says so in its caveats; changing one is a person's edit. A failing enter step spends the
+lane's retries and runs again. Off unless a lane has the step.
+
+A lane can hold a `pass` step too, run when the lane's own run passes outright, before the card moves on
+(as a `revise` step holds a `revise`). On `review`, a step with verifier `walk` starts the app from the
+card's branch on its own port and walks the user's path through it, step by step, reporting what it did,
+what the plan says should happen and what it saw. `WalkVerifier` judges the report, not the app: no files
+changed; a `pass` has every step ok and no blocker; a `revise` has a failed step and a blocker naming a
+file that exists, and sends the card back like a review's; a `not-tested` (no screen, no way to start the
+app there) is never a pass, says what nobody ran and why, and leaves a finding for the person at `ready`.
+A walk with nothing to report leaves the review's findings on the plan. The step needs commands to start
+the app and drive a browser in its `allowedCommands`, so it is off unless a lane has it.
+
+A card's first review sets the scope of every review after it. From the second on (the plan already
+carries a blocker under `## Review findings`), a blocker may send the card back only with a `basis`:
+`unfixed` (an earlier blocker still not fixed, citing a file an earlier blocker named), `regression`
+(the repair broke something), `criterion` (an acceptance criterion still unmet) or `safety`. Any other
+blocker is kept as a concern prefixed `[not blocking after the first review]`, and a `revise` left with
+no blocker and no unmet criterion becomes a `pass` (`withFrozenScope`, before `ReviewVerifier` reads the
+report). A rule's own blocker always blocks. The plan of a later review says so, so the reviewer gives
+each blocker its reason. Without this a card could be sent back for something new every round until its
+kickbacks ran out.
+
 A card in `ready` also reports a `mergeStatus` on every board read: what Merge would do right now,
 `clean`, `conflict`, `rereview` (it would go back to review, because the target moved under files the
 card changed), `capped` (the same, on a card out of re-reviews, so Merge would flag a human) or
@@ -697,6 +730,14 @@ failing to work it out writes "could not compute" and leaves the stage to run.
   file uses, a move between changed files, and files found without an import (entry points, routes,
   migrations, configs) are never listed, and a match is written up as evidence, not a verdict.
 
+- **Files no check notices.** A lane with a `revertProofCommand` (a fast check, such as the tests the
+  card touches) has it run once per changed source file, with only that file put back to its version at
+  `baseSha` (an added file removed). A file whose old version still passes is listed: nothing would catch
+  a mistake in its change. Tests, docs and lockfiles are left alone, at most eight files are tried, and
+  the rest are named as not tried. A check that already fails on the branch reads "could not compute",
+  since then every file would look noticed. It runs in the review's own tree and restores each file and
+  anything the command wrote.
+
 All of it fits in `REVIEW_EVIDENCE_DEADLINE_MS` (4 minutes). That time is outside the stage's own wall
 clock and comes out of the ten minutes `CARD_STAGE_EXPIRES_IN` leaves around it. Steps of a review lane
 inherit its settings but get no evidence. `review.evidence` records the counts on the event log.
@@ -743,6 +784,15 @@ A blocker that survives `challenge` and sends a card back can also become a **pr
 gets one look however many kickbacks it takes, and most looks should find nothing. A proposal is
 `wilson.rule_proposals`, and is nothing until a person names and accepts it (`wilson rules accept`, or the
 rules page), behind step-up. It stops being offered after 45 days. Rule failures are never proposed from.
+
+### Where a card's time went
+
+`GET /api/cards/{id}/timeline` (`wilson card timeline`) folds a card's events into stretches: queued for
+the runner, running a stage or step, or waiting on a person (a flag, a question, or `planning`/`ready`).
+They cover every moment from its first event to now or to `done`, so the totals add up to the wall clock.
+It also counts review rounds, kickbacks, and runs repeated on unchanged code: a stage dispatched again
+with no commit since its last finished run and the same base. That last count bounds what reusing a
+stage's result by tree would save, before anyone builds it. Nothing is stored; it is read from the log.
 
 ### Measuring the reviewer
 

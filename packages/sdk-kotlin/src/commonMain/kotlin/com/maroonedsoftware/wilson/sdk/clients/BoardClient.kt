@@ -12,6 +12,7 @@ import com.maroonedsoftware.wilson.sdk.models.CardEvent
 import com.maroonedsoftware.wilson.sdk.models.CardPlan
 import com.maroonedsoftware.wilson.sdk.models.CardPlanQuery
 import com.maroonedsoftware.wilson.sdk.models.CardSummary
+import com.maroonedsoftware.wilson.sdk.models.CardTimeline
 import com.maroonedsoftware.wilson.sdk.models.CardUsage
 import com.maroonedsoftware.wilson.sdk.models.CardVersion
 import com.maroonedsoftware.wilson.sdk.models.CreateCardRequest
@@ -517,12 +518,19 @@ class BoardClient(private val http: SdkHttp) {
     }
 
     /**
+     * Get card timeline
+     * Read-only, like `usage` below: a projection of the card's events, never stored.
+     * @throws SdkError on 404
+     */
+    suspend fun getCardTimeline(id: String): CardTimeline {
+        val response = http.execute(HttpMethod.Get) {
+            path("api", "cards", segment(id), "timeline")
+        }
+        return http.decodeJson(response)
+    }
+
+    /**
      * Get card usage
-     * Card 0263. Read-only, like `division`/`lint` above: nothing here recomputes or stores anything,
-     * it only sums what `EventLog` already has. A card with no `stage.passed`/`stage.failed` events on
-     * record gets zeros and an empty `stages` list, in a 200 — that is an ordinary card that has not
-     * run yet, not the same fact as "no such card", which stays the 404 every other operation on this
-     * surface gives.
      * @throws SdkError on 404
      */
     suspend fun getCardUsage(id: String): CardUsage {

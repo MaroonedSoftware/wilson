@@ -49,6 +49,7 @@ const REPORT: BlockedReport = {
     tried: 'read the callers',
     question: 'Should the old endpoint keep working?',
     options: ['keep it', 'remove it'],
+    recommended: 'keep it: two callers still read it',
 };
 
 const PLAN = '## Goal\n\nDo it.\n\n## Files in scope\n\n- src/kept.ts\n';

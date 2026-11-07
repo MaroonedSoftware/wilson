@@ -29,10 +29,11 @@ import { SettingsStore } from '#modules/settings/settings.store.js';
 import { WorktreeManager, type Worktree } from '#modules/worktree/worktree.manager.js';
 import { cardOverBudget } from './card.budget.js';
 import { kickback, shouldAdvance, type KickbackDecision } from './kickback.js';
+import { AcceptanceResultSchema, enterStep, isEnterStep, withAcceptanceChecks } from './acceptance.checks.js';
 import { atDepth, scalesWithDiff, withDepth } from './lane.depth.js';
 import { findStage, isPlanCheck, type ProjectStages, type StageConfig } from './stage.config.js';
 import { StageConfigStore } from './stage.config.store.js';
-import { REASON_LIMIT, StageResultSchemaMap, type ReviewCriterion, type ReviewFinding, type StageOutcome } from './stage.result.js';
+import { difficultyOf, REASON_LIMIT, StageResultSchemaMap, type ReviewCriterion, type ReviewFinding, type StageOutcome } from './stage.result.js';
 import { checkFinishedTree, executeStage, type StageExecutionInput } from './stage.execution.js';
 import { prepareStage } from './stage.preparation.js';
 import { StageVerifierMap } from './stage.verifier.js';
@@ -147,6 +148,10 @@ const findingsFrom = (result: unknown): ReviewFinding[] | undefined => {
     return Array.isArray(findings) ? (findings as ReviewFinding[]) : undefined;
 };
 
+/** Whether `stage` is a lane's `pass` step, the run after the lane's own one passed outright. */
+const isPassStep = (stage: StageConfig): boolean =>
+    Boolean(stage.step) && stage.steps?.some(step => step.name === stage.step && step.on === 'pass') === true;
+
 /** The criteria statuses a review carries, when its result carries any. Other stages report none. */
 const criteriaFrom = (result: unknown): ReviewCriterion[] | undefined => {
     const criteria = (result as { criteria?: unknown } | undefined)?.criteria;
@@ -258,9 +263,13 @@ export class StageDispatcher {
             );
         }
 
-        const lane = findStage(stages, stageName, stepName);
         const pinnedSha = head.frontmatter.planVersionId;
         const card = pinnedSha ? await this.board.readAt(cardId, pinnedSha) : head;
+        // A lane with an `enter` step runs it first on a card that has no acceptance checks yet, in
+        // place of its own run: the checks are written before any code, and its own run follows.
+        const ownLane = findStage(stages, stageName, stepName);
+        const entering = interrupted ? undefined : enterStep(ownLane, card);
+        const lane = entering ? findStage(stages, stageName, entering) : ownLane;
         if (!pinnedSha) {
             this.logger.warn(`card ${cardId} has no approved plan version; running against current state`);
         }
@@ -605,6 +614,8 @@ export class StageDispatcher {
                     // The result itself, not just its shape. A review's findings *are* the output of
                     // the stage; recording only that it passed throws away the thing it produced.
                     result: outcome.result ?? null,
+                    // Lifted out of `result` so the gate stats can read it without the whole payload.
+                    ...(difficultyOf(outcome.result) ? { difficulty: difficultyOf(outcome.result) } : {}),
                     ...(outcome.trace ? { trace: outcome.trace } : {}),
                     ...(outcome.passed
                         ? {}
@@ -737,11 +748,19 @@ export class StageDispatcher {
         // mid-run, which the halt below deals with.
         const revised = !stage.step && outcome.passed && !shouldAdvance(outcome.passed, outcome.result);
         const reviseStep = revised && !head.frontmatter.sourceClosed ? stage.steps?.find(step => step.on === 'revise') : undefined;
-        let decision: KickbackDecision = reviseStep
+        // A lane's own run that passes outright goes through its `pass` step first, if it has one: the
+        // card stays in the lane until that step has spoken, as it does for a `revise` step.
+        const approved = !stage.step && shouldAdvance(outcome.passed, outcome.result);
+        const passStep = approved && !head.frontmatter.sourceClosed ? stage.steps?.find(step => step.on === 'pass') : undefined;
+        const heldStep = reviseStep ?? passStep;
+        let decision: KickbackDecision = heldStep
             ? { target: stageName, retries: head.frontmatter.retries }
             : shouldAdvance(outcome.passed, outcome.result)
               ? { target: stage.onPass, retries: head.frontmatter.retries }
               : kickback(stage, head.frontmatter.retries, Boolean(outcome.unjudged), Boolean(outcome.resultDropped));
+        // An enter step that passed hands the card to its own lane's run, not on to the next lane.
+        const enteredWithChecks = isEnterStep(stage) && outcome.passed;
+        if (enteredWithChecks) decision = { target: stageName, retries: head.frontmatter.retries };
         decision = { ...decision, target: endingOf(decision.target) };
 
         // A plan check that says no leaves the card in planning, wherever the lane's own failures go:
@@ -782,7 +801,9 @@ export class StageDispatcher {
         // still carry findings, and writing those into the body would hand the next retry a rejected
         // review's claims as if they were trustworthy. Only a passed outcome's findings are folded in.
         // Nor a `revise` still waiting on its step: the step's report is the one that counts.
-        const findings = outcome.passed && !reviseStep ? findingsFrom(outcome.result) : undefined;
+        // A `pass` step with nothing to say leaves the lane's findings where they are rather than clearing them.
+        const reported = outcome.passed && !reviseStep ? findingsFrom(outcome.result) : undefined;
+        const findings = isPassStep(stage) && reported?.length === 0 ? undefined : reported;
         // Same "only a passed outcome's data is trustworthy" reasoning as `findings` above: criteria
         // from a result the verifier rejected are not evidence either.
         const criteria = outcome.passed && !reviseStep ? criteriaFrom(outcome.result) : undefined;
@@ -795,7 +816,10 @@ export class StageDispatcher {
         // A step sent round again (a report it could not stand behind, an engine cut off) is that step
         // again, not the lane's own run.
         const nextStep =
-            needsHuman || refused ? undefined : (reviseStep?.name ?? (stage.step && decision.target === stageName ? stage.step : undefined));
+            needsHuman || refused || enteredWithChecks
+                ? undefined
+                : (heldStep?.name ?? (stage.step && decision.target === stageName ? stage.step : undefined));
+        const checks = enteredWithChecks ? AcceptanceResultSchema.safeParse(outcome.result) : undefined;
 
         // Only a judgment about the work earns a bullet. `unjudged` (a step/wall-clock/token cutoff,
         // an engine that stopped responding, a missing or unparseable result) and `resultDropped` (the
@@ -857,7 +881,8 @@ export class StageDispatcher {
                         : attempt
                           ? withAttempt(current.body, attempt)
                           : current.body;
-                    const nextBody = findings ? withFindings(body, findings, criteria) : body;
+                    const reviewed = findings ? withFindings(body, findings, criteria) : body;
+                    const nextBody = checks?.success ? withAcceptanceChecks(reviewed, checks.data) : reviewed;
                     advancesPin = nextBody !== current.body && Boolean(head.frontmatter.planVersionId && current.frontmatter.planVersionId);
                     const { planCheck: _planCheck, planCheckReason: _planCheckReason, ...unchecked } = current.frontmatter;
                     const check = planCheck

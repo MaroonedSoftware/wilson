@@ -18,6 +18,7 @@ import {
     CardPlan,
     CardPlanQuery,
     CardSummary,
+    CardTimeline,
     CardUsage,
     CardVersion,
     CreateCardRequest,
@@ -787,11 +788,26 @@ BoardRouter.get('/api/stats/gates', requirePolicy({ policy: 'wilson.view' }), as
 });
 
 /**
- * Card 0263. Read-only, like `division`/`lint` above: nothing here recomputes or stores anything,
- * it only sums what `EventLog` already has. A card with no `stage.passed`/`stage.failed` events on
- * record gets zeros and an empty `stages` list, in a 200 — that is an ordinary card that has not
- * run yet, not the same fact as "no such card", which stays the 404 every other operation on this
- * surface gives.
+ * Read-only, like `usage` below: a projection of the card's events, never stored.
+ * from [board.ck](../../data/contracts/board.ck) `GET /api/cards/{id}/timeline`
+ */
+BoardRouter.get('/api/cards/:id/timeline', requirePolicy({ policy: 'wilson.view' }), async ctx => {
+    const { id } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            id: z.string(),
+        }),
+    );
+
+    const service = ctx.container.get(BoardService);
+    const result: CardTimeline = await service.timeline(id);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
+});
+
+/**
  * from [board.ck](../../data/contracts/board.ck) `GET /api/cards/{id}/usage`
  */
 BoardRouter.get('/api/cards/:id/usage', requirePolicy({ policy: 'wilson.view' }), async ctx => {

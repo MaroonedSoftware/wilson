@@ -68,6 +68,8 @@ export interface CardBlocked {
     question: string;
     /** Answers the stage thinks are likely. An operator may answer something else. */
     options?: string[];
+    /** The answer the stage would pick, with its reason. Offered first so a person can accept it. */
+    recommended?: string;
     /** The stage that asked, so the answer goes back to the run it was meant for. */
     stage: string;
     askedAt: DateTime;
@@ -359,6 +361,31 @@ export interface ProjectGateTouchpoint {
 }
 
 /**
+ * `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
+ * person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
+ * with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
+ * re-review keep. `matched` is every older event in these figures placed by matching its text, since
+ * those events do not say why they failed.
+ * One stage's own note on what slowed it down (`difficulty` on its report). Information only: nothing
+ * routes on it. `step` names the step that wrote it, absent for the lane's own run.
+ * generated from [ProjectGateDifficulty](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface ProjectGateDifficulty {
+    cardId: string;
+    stage: string;
+    step?: string;
+    note: string;
+    at: DateTime;
+}
+
+/** Rehydrates every wire-encoded scalar in a ProjectGateDifficulty into its runtime type. Mutates and returns `raw`. */
+export function reviveProjectGateDifficulty(raw: ProjectGateDifficulty): ProjectGateDifficulty {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['at'] = __dt(__o0['at'], 'ProjectGateDifficulty.at');
+    return raw;
+}
+
+/**
  * Card 0265. One file changed in a card's branch since it forked from `main` —
  * `WorktreeManager.patchSinceFork`'s per-file entry, carried onto the wire. `status` comes from
  * `git diff --name-status --no-renames`, so a rename always reads as a delete and an add, matching
@@ -599,6 +626,46 @@ export interface AnswerCardRequest {
 }
 
 /**
+ * Card 0263. Read-only, like `division`/`lint` above: nothing here recomputes or stores anything,
+ * it only sums what `EventLog` already has. A card with no `stage.passed`/`stage.failed` events on
+ * record gets zeros and an empty `stages` list, in a 200 — that is an ordinary card that has not
+ * run yet, not the same fact as "no such card", which stays the 404 every other operation on this
+ * surface gives.
+ * Where a card's time went: one stretch at a time, queued for the runner, running a stage (or a step
+ * of one), or waiting on a person (a flag, a question, or a lane a person moves: planning, ready).
+ * generated from [CardTimelineSpan](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface CardTimelineSpan {
+    kind: 'queued' | 'running' | 'waitingOnPerson';
+    stage: string;
+    step?: string;
+    startedAt: DateTime;
+    endedAt: DateTime;
+    durationMs: number;
+    /** How a running span ended. Absent on the others. */
+    outcome?: 'passed' | 'failed' | 'blocked' | 'interrupted';
+}
+
+/** Rehydrates every wire-encoded scalar in a CardTimelineSpan into its runtime type. Mutates and returns `raw`. */
+export function reviveCardTimelineSpan(raw: CardTimelineSpan): CardTimelineSpan {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    __o0['startedAt'] = __dt(__o0['startedAt'], 'CardTimelineSpan.startedAt');
+    __o0['endedAt'] = __dt(__o0['endedAt'], 'CardTimelineSpan.endedAt');
+    return raw;
+}
+
+/**
+ * A stage dispatched again on code it had already judged: no commit since its last finished run, and
+ * the same base. Each could have reused the earlier result, so the count bounds what caching would save.
+ * generated from [CardRepeatedRun](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface CardRepeatedRun {
+    stage: string;
+    step?: string;
+    count: number;
+}
+
+/**
  * generated from [CardSummary](../../../../apps/api/data/contracts/board.ck)
  */
 export interface CardSummary {
@@ -777,11 +844,6 @@ export interface ProjectStatsTotal extends ProjectStatsCounts {
 }
 
 /**
- * `GET /api/stats/gates`'s response: what the gates caught from `since` up to `until`, and how often a
- * person was pulled in mid-run. `firstPass` is how many of the `reached` cards got to `ready` or merged
- * with no retry of any stage spent, leaving out the free counters a dropped result, a question or a
- * re-review keep. `matched` is every older event in these figures placed by matching its text, since
- * those events do not say why they failed.
  * generated from [ProjectGateStats](../../../../apps/api/data/contracts/board.ck)
  */
 export interface ProjectGateStats {
@@ -798,6 +860,8 @@ export interface ProjectGateStats {
     touchpoints: ProjectGateTouchpoint[];
     firstPass: { reached: number; firstPass: number };
     matched: number;
+    /** The newest difficulty notes in the window, newest first, at most 20. */
+    difficulties: ProjectGateDifficulty[];
 }
 
 /** Rehydrates every wire-encoded scalar in a ProjectGateStats into its runtime type. Mutates and returns `raw`. */
@@ -805,6 +869,12 @@ export function reviveProjectGateStats(raw: ProjectGateStats): ProjectGateStats 
     const __o0 = raw as unknown as Record<string, unknown>;
     __o0['since'] = __dt(__o0['since'], 'ProjectGateStats.since');
     __o0['until'] = __dt(__o0['until'], 'ProjectGateStats.until');
+    {
+        const __a1 = __o0['difficulties'] as unknown[];
+        for (let __i2 = 0; __i2 < __a1.length; __i2++) {
+            reviveProjectGateDifficulty(__a1[__i2] as never);
+        }
+    }
     return raw;
 }
 
@@ -872,6 +942,34 @@ export interface SplitCardsRequest {
  */
 export interface RecordFindingsRequest {
     findings: HumanFinding[];
+}
+
+/**
+ * `GET /api/cards/{id}/timeline`'s response, folded from the card's own events. The spans cover every
+ * moment from its first event to now, or to reaching `done`, so the totals add up to `wallClockMs`.
+ * `reviewRounds` counts the lane's own review runs that judged the work, and `kickbacks` the runner's
+ * transitions that sent the card back.
+ * generated from [CardTimeline](../../../../apps/api/data/contracts/board.ck)
+ */
+export interface CardTimeline {
+    spans: CardTimelineSpan[];
+    totals: { queuedMs: number; runningMs: number; waitingOnPersonMs: number; wallClockMs: number };
+    reviewRounds: number;
+    kickbacks: number;
+    repeatedRuns: CardRepeatedRun[];
+    ended: boolean;
+}
+
+/** Rehydrates every wire-encoded scalar in a CardTimeline into its runtime type. Mutates and returns `raw`. */
+export function reviveCardTimeline(raw: CardTimeline): CardTimeline {
+    const __o0 = raw as unknown as Record<string, unknown>;
+    {
+        const __a1 = __o0['spans'] as unknown[];
+        for (let __i2 = 0; __i2 < __a1.length; __i2++) {
+            reviveCardTimelineSpan(__a1[__i2] as never);
+        }
+    }
+    return raw;
 }
 
 /**

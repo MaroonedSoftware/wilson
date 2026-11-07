@@ -14,6 +14,13 @@ export const BlockedReportSchema = z.object({
     tried: z.string().min(1).describe('What you already tried or checked, so nobody suggests it back to you.'),
     question: z.string().min(1).describe('The one question to answer. A person reads it with no other context, so make it stand alone.'),
     options: z.array(z.string().min(1)).optional().describe('Likely answers, when you can name them.'),
+    recommended: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'The answer you would pick if it were up to you, with the reason in a few words. A person sees it first and can accept it in one click, so give one whenever you have a view.',
+        ),
 });
 
 export type BlockedReport = z.infer<typeof BlockedReportSchema>;
