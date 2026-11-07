@@ -112,5 +112,10 @@ skill, and say plainly what you did not run. Record what you find here, dated.
   first snackbar; a refused Confirm or Decline still shows as the red line above the composer. Android is not a
   changesets package, so its changesets carry no package and release nothing. To check the card, insert a row
   into `wilson.chat_questions` in `wilson_android` as for actions.
+- 2026-11-07, not run on a screen: a question card's half-made answer used to sit in the card's `remember`, so a
+  rotation lost it. It now lives in `ChatModel.questionDrafts` by question id, which a configuration change keeps;
+  the model rather than `rememberSaveable` so the rules stay off `android.*` and are JVM-tested. Every thread read
+  keeps a draft only while its question is pending and unexpired, so an answered, dismissed or expired one loses
+  it, and a reconnect's reload does not. A draft does not outlive the process, as the composer's text does not.
 - 2026-11-04: the notification prompt comes back each time the activity is recreated, rotation included, until it
   is refused twice, because `AskForPush` asks from a `LaunchedEffect`. It covers the screen, so dismiss it first.

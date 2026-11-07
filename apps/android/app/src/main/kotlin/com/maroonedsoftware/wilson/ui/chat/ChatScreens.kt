@@ -279,7 +279,9 @@ private fun Proposed(action: ChatPendingAction, model: ChatModel) {
  */
 @Composable
 private fun QuestionCard(question: ChatPendingQuestion, sending: Boolean, model: ChatModel) {
-    var draft by remember(question.id) { mutableStateOf(QuestionDraft.empty(question.questions)) }
+    // The draft lives in the model, so a rotation or other configuration change keeps it.
+    val drafts by model.questionDrafts.collectAsStateWithLifecycle()
+    val draft = drafts.draftFor(question)
     val outcome = questionOutcome(question, model.now())
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -296,7 +298,7 @@ private fun QuestionCard(question: ChatPendingQuestion, sending: Boolean, model:
                     } else {
                         q.options.forEachIndexed { index, option ->
                             val picked = index in draft.chosen[i]
-                            val pick = { draft = draft.choose(question.questions, i, index) }
+                            val pick = { model.edit(question.id, draft.choose(question.questions, i, index)) }
                             Row(
                                 Modifier.fillMaxWidth().selectable(selected = picked, enabled = !sending, onClick = pick),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -313,7 +315,7 @@ private fun QuestionCard(question: ChatPendingQuestion, sending: Boolean, model:
                         }
                         OutlinedTextField(
                             draft.other[i],
-                            { draft = draft.type(question.questions, i, it) },
+                            { model.edit(question.id, draft.type(question.questions, i, it)) },
                             label = { Text("Other") },
                             placeholder = { Text("Something else…") },
                             enabled = !sending,

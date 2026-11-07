@@ -187,6 +187,43 @@ class ChatTest {
     }
 
     @Test
+    fun aCardWithNoDraftStartsWithNothingPicked() {
+        assertEquals(QuestionDraft.empty(TWO), emptyMap<String, QuestionDraft>().draftFor(asked(ChatPendingQuestionStatus.PENDING, LATER)))
+    }
+
+    @Test
+    fun aCardShowsTheDraftHeldForItsQuestion() {
+        val draft = QuestionDraft.empty(TWO).choose(TWO, 0, 1).type(TWO, 1, "half typed")
+        assertEquals(draft, mapOf("q" to draft).draftFor(asked(ChatPendingQuestionStatus.PENDING, LATER)))
+    }
+
+    @Test
+    fun aReloadKeepsTheDraftOfAQuestionStillPending() {
+        val draft = QuestionDraft.empty(TWO).choose(TWO, 1, 2).type(TWO, 1, "and this")
+        val drafts = mapOf("q" to draft)
+        val reloaded = drafts.keptFor(listOf(asked(ChatPendingQuestionStatus.PENDING, LATER)), NOW)
+        assertEquals(drafts, reloaded)
+        assertEquals(drafts, reloaded.keptFor(listOf(asked(ChatPendingQuestionStatus.PENDING, LATER)), NOW))
+    }
+
+    @Test
+    fun aDraftIsDroppedOnceItsQuestionIsAnsweredDismissedOrExpired() {
+        val drafts = mapOf("q" to QuestionDraft.empty(TWO).choose(TWO, 0, 0))
+        assertEquals(emptyMap<String, QuestionDraft>(), drafts.keptFor(listOf(asked(ChatPendingQuestionStatus.ANSWERED, LATER)), NOW))
+        assertEquals(emptyMap<String, QuestionDraft>(), drafts.keptFor(listOf(asked(ChatPendingQuestionStatus.DISMISSED, LATER)), NOW))
+        assertEquals(emptyMap<String, QuestionDraft>(), drafts.keptFor(listOf(asked(ChatPendingQuestionStatus.PENDING, EARLIER)), NOW))
+        assertEquals(emptyMap<String, QuestionDraft>(), drafts.keptFor(emptyList(), NOW))
+    }
+
+    @Test
+    fun droppingOneQuestionsDraftKeepsAnotherStillPending() {
+        val first = QuestionDraft.empty(TWO).choose(TWO, 0, 0)
+        val second = QuestionDraft.empty(TWO).type(TWO, 0, "mine")
+        val questions = listOf(asked(ChatPendingQuestionStatus.ANSWERED, LATER, "q1"), asked(ChatPendingQuestionStatus.PENDING, LATER, "q2"))
+        assertEquals(mapOf("q2" to second), mapOf("q1" to first, "q2" to second).keptFor(questions, NOW))
+    }
+
+    @Test
     fun anAnsweredQuestionReadsAsWhatWasChosen() {
         assertEquals("Postgres", answerText(TWO[0], ChatQuestionAnswer(listOf(1))))
         assertEquals("A, C, mine", answerText(TWO[1], ChatQuestionAnswer(listOf(0, 2), "mine")))
