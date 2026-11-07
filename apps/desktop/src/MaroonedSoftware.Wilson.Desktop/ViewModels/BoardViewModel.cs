@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
 using MaroonedSoftware.Wilson.Desktop.Core.Board;
 using MaroonedSoftware.Wilson.Desktop.Core.Net;
+using MaroonedSoftware.Wilson.Sdk;
 using MaroonedSoftware.Wilson.Sdk.Models;
 
 namespace MaroonedSoftware.Wilson.Desktop.ViewModels;
@@ -80,6 +81,98 @@ public sealed partial class BoardColumn(string name, IReadOnlyList<BoardTile> ca
     private bool _target;
 }
 
+/// <summary>One of the board's chips: a narrowing and how many cards it keeps. Changed in place, so a press is never lost to a redraw.</summary>
+public sealed partial class BoardChip(BoardNarrowing narrowing) : ObservableObject
+{
+    public BoardNarrowing Narrowing => narrowing;
+
+    public string Label { get; } = BoardAttention.Label(narrowing);
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Shown))]
+    private int _count;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Shown))]
+    private bool _current;
+
+    /// <summary>All and Needs you always show, as does the chip in use. Another with nothing in it is left out.</summary>
+    public bool Shown => Count > 0 || Current || narrowing is BoardNarrowing.All or BoardNarrowing.NeedsYou;
+}
+
+/// <summary>
+/// A card waiting on a person, over the board. Kept by card id across a read, so an answer half typed
+/// survives the feed, and its words follow the card in place.
+/// </summary>
+public sealed partial class WaitingRow(BoardViewModel board, CardSummary card) : ObservableObject
+{
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Attention), nameof(Kind), nameof(Detail), nameof(Action), nameof(Options), nameof(HasOptions), nameof(Recommended), nameof(OffersOpen))]
+    [NotifyPropertyChangedFor(nameof(IsQuestion), nameof(IsFlag), nameof(IsPlan), nameof(IsMerge), nameof(IsConflict))]
+    private CardSummary _card = card;
+
+    [ObservableProperty]
+    private string? _since;
+
+    /// <summary>The answer box is open under the row.</summary>
+    [ObservableProperty]
+    private bool _answering;
+
+    [ObservableProperty]
+    private string _answer = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Idle))]
+    private bool _busy;
+
+    [ObservableProperty]
+    private string? _error;
+
+    public Attention Attention => BoardAttention.Of(Card) ?? Attention.Flag;
+
+    public string Kind => BoardAttention.Kind(Attention);
+
+    public string Detail => BoardAttention.Detail(Card);
+
+    public string Action => BoardAttention.Action(Card);
+
+    /// <summary>Open beside the main press, where the main press does not already open the card.</summary>
+    public bool OffersOpen => Attention is Attention.Question or Attention.Flag or Attention.Plan;
+
+    public IReadOnlyList<string> Options => Card.Blocked?.Options ?? [];
+
+    public bool HasOptions => Options.Count > 0;
+
+    public string? Recommended => Card.Blocked?.Recommended is { } recommended ? $"Recommended: {recommended}" : null;
+
+    public bool Idle => !Busy;
+
+    public bool IsQuestion => Attention == Attention.Question;
+
+    public bool IsFlag => Attention == Attention.Flag;
+
+    public bool IsPlan => Attention == Attention.Plan;
+
+    public bool IsMerge => Attention == Attention.Merge;
+
+    public bool IsConflict => Attention == Attention.Conflict;
+
+    [RelayCommand]
+    private Task ActAsync() => board.ActAsync(this);
+
+    [RelayCommand]
+    private void Open() => board.OpenCard(Card);
+
+    /// <summary>A likely answer fills the box rather than sends, so it can be reworded first, as on the card.</summary>
+    [RelayCommand]
+    private void UseOption(string option) => Answer = option;
+
+    [RelayCommand]
+    private Task SendAnswerAsync() => board.AnswerAsync(this);
+
+    public void Tick(DateTimeOffset now) => Since = BoardAttention.Since(Card) is { } since ? BoardRules.EventAge(since, now) : null;
+}
+
 /// <summary>A project's cards, kept live from the feed for as long as the board is in front.</summary>
 public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel, IFollowsFeed
 {
@@ -101,19 +194,40 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
 
     public ObservableCollection<BoardColumn> Columns { get; } = [];
 
+    /// <summary>The cards waiting on a person, as many as show: the first few, or all of them once asked.</summary>
+    public ObservableCollection<WaitingRow> Waiting { get; } = [];
+
+    public IReadOnlyList<BoardChip> Chips { get; } = [.. BoardAttention.Narrowings.Select(narrowing => new BoardChip(narrowing) { Current = narrowing == BoardNarrowing.All })];
+
     [ObservableProperty]
     private string? _project;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Heading))]
-    private bool _flaggedOnly;
+    private BoardNarrowing _narrowing;
 
-    /// <summary>Only once a read has said so.</summary>
+    /// <summary>What the chip in use says when it keeps no card. Only once a read has said so.</summary>
     [ObservableProperty]
-    private bool _nothingFlagged;
+    private string? _empty;
 
     [ObservableProperty]
     private string? _filter;
+
+    /// <summary>Every waiting card shows, not only the first few.</summary>
+    [ObservableProperty]
+    private bool _allWaiting;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasWaiting), nameof(HasMoreWaiting), nameof(MoreWaiting))]
+    private int _waitingCount;
+
+    public const int WaitingShown = 3;
+
+    public bool HasWaiting => WaitingCount > 0;
+
+    public bool HasMoreWaiting => WaitingCount > WaitingShown;
+
+    public string MoreWaiting => AllWaiting ? "Show fewer" : $"Show all {WaitingCount}";
 
     [ObservableProperty]
     private string? _count;
@@ -124,7 +238,7 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
     [ObservableProperty]
     private string? _error;
 
-    public string Heading => FlaggedOnly ? "Cards needing a human" : "Board";
+    public string Heading => BoardAttention.Heading(Narrowing);
 
     public string Server => shell.Connection?.Origin ?? string.Empty;
 
@@ -137,6 +251,54 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
         {
             shell.Push(new CardViewModel(shell, project, card.Id));
         }
+    }
+
+    [RelayCommand]
+    public void ToggleAllWaiting()
+    {
+        AllWaiting = !AllWaiting;
+        OnPropertyChanged(nameof(MoreWaiting));
+        Draw();
+    }
+
+    /// <summary>A waiting card's main press. Merging asks to be confirmed and runs the suite, so it opens the card instead.</summary>
+    public Task ActAsync(WaitingRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        switch (row.Attention)
+        {
+            case Attention.Question:
+                row.Answering = !row.Answering;
+                return Task.CompletedTask;
+            case Attention.Flag:
+                return WriteAsync(row, "acknowledge it", (sdk, id) => sdk.Board.AcknowledgeAFlaggedCardAsync(id));
+            case Attention.Plan:
+                return WriteAsync(row, "approve the plan", (sdk, id) => sdk.Board.ApproveCardPlanAsync(id));
+            default:
+                OpenCard(row.Card);
+                return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>The stage runs again in a fresh session, with the answer in its plan, when next dispatched.</summary>
+    public Task AnswerAsync(WaitingRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        var answer = row.Answer.Trim();
+        return answer.Length == 0
+            ? Task.CompletedTask
+            : WriteAsync(row, "send the answer", (sdk, id) => sdk.Board.AnswerABlockedCardAsync(id, new AnswerCardRequest { Answer = answer }));
+    }
+
+    /// <summary>A chip's press: its narrowing, or back to All when it is the one in use.</summary>
+    [RelayCommand]
+    public void Narrow(BoardChip chip)
+    {
+        ArgumentNullException.ThrowIfNull(chip);
+
+        Narrowing = chip.Current ? BoardNarrowing.All : chip.Narrowing;
     }
 
     [RelayCommand]
@@ -295,7 +457,7 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
         Shown();
     }
 
-    partial void OnFlaggedOnlyChanged(bool value) => Draw();
+    partial void OnNarrowingChanged(BoardNarrowing value) => Draw();
 
     partial void OnFilterChanged(string? value) => Draw();
 
@@ -353,6 +515,32 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
         }
     }
 
+    /// <summary>One write from a waiting row, then a re-read, which takes the row away once the card waits no longer. A refusal stays on the row.</summary>
+    private async Task WriteAsync(WaitingRow row, string what, Func<WilsonSdk, string, Task> write)
+    {
+        if (Project is not { } project || shell.Connection is not { } connection)
+        {
+            return;
+        }
+
+        row.Busy = true;
+        try
+        {
+            using var sdk = connection.ForProject(project);
+            await write(sdk, row.Card.Id);
+            row.Error = null;
+            await LoadAsync(CancellationToken.None);
+        }
+        catch (HttpRequestException failure)
+        {
+            row.Error = $"Could not {what}: {ApiError.Reason(failure)}";
+        }
+        finally
+        {
+            row.Busy = false;
+        }
+    }
+
     private async Task MoveAsync(string card, string stage)
     {
         if (Project is not { } project || shell.Connection is not { } connection)
@@ -405,6 +593,11 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
         foreach (var tile in Columns.SelectMany(column => column.Cards))
         {
             tile.Tick(_log.Activity(tile.Card.Id), now);
+        }
+
+        foreach (var row in Waiting)
+        {
+            row.Tick(now);
         }
     }
 
@@ -475,21 +668,57 @@ public sealed partial class BoardViewModel(ShellViewModel shell) : PageViewModel
 
         _drawOwed = false;
         Columns.Clear();
-        var cards = _cards.Where(card => (!FlaggedOnly || card.NeedsHuman) && BoardRules.Matches(card, Filter)).ToList();
+        var narrowed = Narrowing != BoardNarrowing.All;
+        var cards = _cards.Where(card => BoardAttention.Shows(Narrowing, card) && BoardRules.Matches(card, Filter)).ToList();
         _shown = cards;
         var collapsed = Project is { } project ? Collapsed(project) : [];
         foreach (var stage in _order)
         {
             var inStage = BoardRules.Sorted(stage, cards.Where(card => card.Stage == stage));
-            if (!FlaggedOnly || inStage.Count > 0)
+            if (!narrowed || inStage.Count > 0)
             {
                 Columns.Add(new BoardColumn(stage, [.. inStage.Select(Tile)]) { Collapsed = collapsed.Contains(stage) });
             }
         }
 
-        NothingFlagged = FlaggedOnly && _order.Count > 0 && !_cards.Any(card => card.NeedsHuman);
+        foreach (var chip in Chips)
+        {
+            chip.Count = _cards.Count(card => BoardAttention.Shows(chip.Narrowing, card));
+            chip.Current = chip.Narrowing == Narrowing;
+        }
+
+        DrawWaiting();
+        Empty = _order.Count > 0 && !_cards.Any(card => BoardAttention.Shows(Narrowing, card)) ? BoardAttention.Empty(Narrowing) : null;
         Count = BoardRules.CountLabel(cards.Count, _cards.Count, cards.Count != _cards.Count);
         Tick();
+    }
+
+    /// <summary>
+    /// The waiting rows, over the whole project as the chips are. Rows are reused by card id and the list
+    /// is only rebuilt when which cards show changes, as replacing a row would lose a press or an answer.
+    /// </summary>
+    private void DrawWaiting()
+    {
+        var waiting = BoardAttention.Waiting(_cards);
+        WaitingCount = waiting.Count;
+        var shown = AllWaiting ? waiting : [.. waiting.Take(WaitingShown)];
+        var rows = Waiting.ToDictionary(row => row.Card.Id);
+        foreach (var card in shown)
+        {
+            if (rows.TryGetValue(card.Id, out var row))
+            {
+                row.Card = card;
+            }
+        }
+
+        if (!Waiting.Select(row => row.Card.Id).SequenceEqual(shown.Select(card => card.Id)))
+        {
+            Waiting.Clear();
+            foreach (var card in shown)
+            {
+                Waiting.Add(rows.GetValueOrDefault(card.Id) ?? new WaitingRow(this, card));
+            }
+        }
     }
 
     private IReadOnlyList<string> Collapsed(string project) => shell.Settings.Collapsed.GetValueOrDefault(project) ?? [];

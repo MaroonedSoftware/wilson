@@ -5,6 +5,7 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MaroonedSoftware.Wilson.Desktop.Core.Auth;
+using MaroonedSoftware.Wilson.Desktop.Core.Board;
 using MaroonedSoftware.Wilson.Desktop.Core.Net;
 using MaroonedSoftware.Wilson.Desktop.Core.Runner;
 using MaroonedSoftware.Wilson.Desktop.Core.Settings;
@@ -181,7 +182,7 @@ public sealed partial class ShellViewModel(ISecretStore store, string settingsPa
     public void ShowFlagged()
     {
         ShowBoard();
-        _board!.FlaggedOnly = true;
+        _board!.Narrowing = BoardNarrowing.Flagged;
     }
 
     /// <summary>The board's own count, which is the freshest there is.</summary>
