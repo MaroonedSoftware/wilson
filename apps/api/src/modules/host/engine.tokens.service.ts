@@ -4,7 +4,7 @@ import { httpError } from '@maroonedsoftware/errors';
 import { ENGINE_TOKEN_VARIABLE, type EngineCredentialVariable } from '@wilson/worker-protocol';
 import { requireEngineToken } from '#modules/settings/engine.token.setting.service.js';
 import { WorkerConnections } from '#modules/worker/worker.connections.js';
-import type { EngineLimit, EngineTokenSummary, PutEngineTokenRequest, UpdateEngineTokenRequest } from '../../generated/engine.tokens.js';
+import type { EngineLimit, EngineTokenSummary, PutEngineTokenRequest, RenameEngineTokenRequest, UpdateEngineTokenRequest } from '../../generated/engine.tokens.js';
 import type { Host, PutHostEngineTokenRequest } from '../../generated/hosts.js';
 import type { EngineAccount } from './execution.host.js';
 import { EngineLimitRepository } from './engine.limit.repository.js';
@@ -78,6 +78,35 @@ export class EngineTokensService {
             throw httpError(404).withDetails({ reason: `no engine token is saved as "${name}"` });
         }
         return (await this.find(name))!;
+    }
+
+    /**
+     * Hold the token saved as `name` under `request.name` instead. The row moves, and the worker hosts
+     * assigned it follow by the foreign key; the token, `provider`, `kind`, `priority`, `pooled`,
+     * `createdAt` and `updatedAt` are kept, since a rename is not a re-save. Renaming to the current name
+     * is a no-op, and an unknown name is refused with 404. Recorded spend and a usage limit in force stay
+     * under the old name.
+     *
+     * The requested name is trimmed and otherwise taken as given: the name-shape and already-taken
+     * refusals behind the contract's declared 400 are not enforced here yet, so a name another token
+     * holds fails on the primary key, writing nothing.
+     *
+     * A rename does not reach a running engine: it was started with the account name resolved then and
+     * handed the token's value, never its name, so it carries on untouched and the next engine started
+     * gets the new name. A limit a running engine reports after the rename lands under the old name, as
+     * a stray account until it resets — just as {@link put} never reaches a running engine either.
+     */
+    async rename(name: string, request: RenameEngineTokenRequest): Promise<EngineTokenSummary> {
+        const target = request.name.trim();
+        if (target === name) {
+            const saved = await this.find(name);
+            if (saved) return saved;
+            throw httpError(404).withDetails({ reason: `no engine token is saved as "${name}"` });
+        }
+        if (!(await this.tokens.rename(name, target))) {
+            throw httpError(404).withDetails({ reason: `no engine token is saved as "${name}"` });
+        }
+        return (await this.find(target))!;
     }
 
     /** Every usage limit in force, for any account, soonest reset first. */

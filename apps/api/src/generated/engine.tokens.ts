@@ -21,6 +21,15 @@ export const EngineTokenKind = z.enum(['subscription', 'api_key']);
 export type EngineTokenKind = z.infer<typeof EngineTokenKind>;
 
 /**
+ * The name to hold a saved token under from now on.
+ * generated from [RenameEngineTokenRequest](../../data/contracts/engine.tokens.ck)
+ */
+export const RenameEngineTokenRequest = z.strictObject({
+    name: z.string(),
+});
+export type RenameEngineTokenRequest = z.infer<typeof RenameEngineTokenRequest>;
+
+/**
  * A usage limit an account has hit that has not reset. `account` is a saved token's name, `local` for
  * the sign-in of engines on this machine, or `worker:<host>` for a worker's own.
  * generated from [EngineLimit](../../data/contracts/engine.tokens.ck)

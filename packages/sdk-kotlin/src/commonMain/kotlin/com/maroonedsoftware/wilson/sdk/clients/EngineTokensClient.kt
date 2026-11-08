@@ -6,6 +6,7 @@ import com.maroonedsoftware.wilson.sdk.models.EngineAccountUsageQuery
 import com.maroonedsoftware.wilson.sdk.models.EngineLimit
 import com.maroonedsoftware.wilson.sdk.models.EngineTokenSummary
 import com.maroonedsoftware.wilson.sdk.models.PutEngineTokenRequest
+import com.maroonedsoftware.wilson.sdk.models.RenameEngineTokenRequest
 import com.maroonedsoftware.wilson.sdk.models.UpdateEngineTokenRequest
 import com.maroonedsoftware.wilson.sdk.runtime.SdkHttp
 import io.ktor.http.HttpMethod
@@ -65,6 +66,36 @@ class EngineTokensClient(private val http: SdkHttp) {
         http.execute(HttpMethod.Delete) {
             path("api", "engine-tokens", segment(name))
         }
+    }
+
+    /**
+     * Rename engine token
+     * A sub-resource action rather than a `name` field on `UpdateEngineTokenRequest`, which would change
+     * what the generated `updateEngineToken` means for every caller. The name is the key, so this is the
+     * only way to change it without removing the token and saving it again, which loses it: the token
+     * cannot be read back.
+     *
+     * What moves: the token's own row, and the assignment of every worker host that holds it — the latter
+     * by the foreign key's `ON UPDATE CASCADE`, not by a second write. What does not: the token itself, its
+     * `provider`, `kind`, `priority`, `pooled`, `createdAt` and `updatedAt` (a rename is not a re-save);
+     * recorded spend, which keeps the old name, so `GET /api/engine-accounts/usage` lists the old and the
+     * new name separately for a window that straddles a rename; and a usage limit in force, which stays
+     * recorded against the old name. Renaming to the current name is a no-op, not an error.
+     *
+     * A rename does not reach a running engine. An engine is started with the account name resolved then
+     * and handed the token's value, never its name, so a run in flight carries on untouched and the next
+     * engine started gets the new name. A limit a running engine reports after the rename is therefore
+     * recorded against the old name: it shows as a stray account in `GET /api/engine-limits` until it
+     * resets, and the renamed account shows no badge for it — as `put` never reaches a running engine
+     * either.
+     * @throws SdkError on 400, 404
+     */
+    suspend fun renameEngineToken(name: String, body: RenameEngineTokenRequest): EngineTokenSummary {
+        val response = http.execute(HttpMethod.Post) {
+            path("api", "engine-tokens", segment(name), "rename")
+            jsonBody(body, "application/json")
+        }
+        return http.decodeJson(response)
     }
 
     /**

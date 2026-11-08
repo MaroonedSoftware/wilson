@@ -66,6 +66,22 @@ export class EngineTokenRepository {
         return result.numUpdatedRows > 0n;
     }
 
+    /**
+     * Hold the token saved as `from` under `to` instead, keeping its token, account and both timestamps:
+     * a rename is not a re-save, so `updatedAt` is left alone. Returns whether a row matched.
+     *
+     * There is no `wilson.hosts` statement here: a host assigned the token follows it by the foreign
+     * key's `ON UPDATE CASCADE`. One statement, but a transaction all the same, because moving the
+     * `wilson.engine_limits` rows standing against `from` belongs in this one when it lands, not a second.
+     */
+    async rename(from: string, to: string): Promise<boolean> {
+        return this.db.transaction().execute(async trx => {
+            const result = await trx.updateTable('wilson.engineTokens').set({ name: to }).where('name', '=', from).executeTakeFirst();
+            if (result.numUpdatedRows === 0n) return false;
+            return true;
+        });
+    }
+
     /** The stored ciphertext for `name`, or undefined when none is saved. */
     async ciphertext(name: string): Promise<string | undefined> {
         const row = await this.db.selectFrom('wilson.engineTokens').select('ciphertext').where('name', '=', name).executeTakeFirst();

@@ -8,6 +8,7 @@ import {
     EngineLimit,
     EngineTokenSummary,
     PutEngineTokenRequest,
+    RenameEngineTokenRequest,
     UpdateEngineTokenRequest,
 } from '../generated/engine.tokens.js';
 import { parseAndValidate } from '@maroonedsoftware/zod';
@@ -103,6 +104,45 @@ EngineTokensRouter.delete('/api/engine-tokens/:name', requirePolicy({ policy: 'w
     await service.remove(name);
 
     ctx.status = 204;
+});
+
+/**
+ * A sub-resource action rather than a `name` field on `UpdateEngineTokenRequest`, which would change
+ * what the generated `updateEngineToken` means for every caller. The name is the key, so this is the
+ * only way to change it without removing the token and saving it again, which loses it: the token
+ * cannot be read back.
+ *
+ * What moves: the token's own row, and the assignment of every worker host that holds it — the latter
+ * by the foreign key's `ON UPDATE CASCADE`, not by a second write. What does not: the token itself, its
+ * `provider`, `kind`, `priority`, `pooled`, `createdAt` and `updatedAt` (a rename is not a re-save);
+ * recorded spend, which keeps the old name, so `GET /api/engine-accounts/usage` lists the old and the
+ * new name separately for a window that straddles a rename; and a usage limit in force, which stays
+ * recorded against the old name. Renaming to the current name is a no-op, not an error.
+ *
+ * A rename does not reach a running engine. An engine is started with the account name resolved then
+ * and handed the token's value, never its name, so a run in flight carries on untouched and the next
+ * engine started gets the new name. A limit a running engine reports after the rename is therefore
+ * recorded against the old name: it shows as a stray account in `GET /api/engine-limits` until it
+ * resets, and the renamed account shows no badge for it — as `put` never reaches a running engine
+ * either.
+ * from [engine.tokens.ck](../../data/contracts/engine.tokens.ck) `POST /api/engine-tokens/{name}/rename`
+ */
+EngineTokensRouter.post('/api/engine-tokens/:name/rename', requirePolicy({ policy: 'wilson.manage' }), bodyParserMiddleware(['json']), async ctx => {
+    const { name } = await parseAndValidate(
+        ctx.params,
+        z.strictObject({
+            name: z.string(),
+        }),
+    );
+
+    const body = await parseAndValidate(ctx.parsedBody, RenameEngineTokenRequest);
+
+    const service = ctx.container.get(EngineTokensService);
+    const result: EngineTokenSummary = await service.rename(name, body);
+
+    ctx.status = 200;
+    ctx.type = 'application/json';
+    ctx.body = result;
 });
 
 /**

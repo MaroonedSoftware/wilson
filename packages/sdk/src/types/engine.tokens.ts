@@ -21,6 +21,14 @@ export type EngineTokenProvider = 'anthropic' | 'openai' | 'xai';
 export type EngineTokenKind = 'subscription' | 'api_key';
 
 /**
+ * The name to hold a saved token under from now on.
+ * generated from [RenameEngineTokenRequest](../../../../apps/api/data/contracts/engine.tokens.ck)
+ */
+export interface RenameEngineTokenRequest {
+    name: string;
+}
+
+/**
  * A usage limit an account has hit that has not reset. `account` is a saved token's name, `local` for
  * the sign-in of engines on this machine, or `worker:<host>` for a worker's own.
  * generated from [EngineLimit](../../../../apps/api/data/contracts/engine.tokens.ck)
