@@ -49,6 +49,12 @@ object EngineTokenKindSerializer : SdkEnumSerializer<EngineTokenKind>(
     EngineTokenKind.API_KEY to "api_key",
 )
 
+/** The name to hold a saved token under from now on. */
+@Serializable
+data class RenameEngineTokenRequest(
+    val name: String,
+)
+
 /**
  * A usage limit an account has hit that has not reset. `account` is a saved token's name, `local` for
  * the sign-in of engines on this machine, or `worker:<host>` for a worker's own.

@@ -4,6 +4,7 @@ import type {
     EngineLimit,
     EngineTokenSummary,
     PutEngineTokenRequest,
+    RenameEngineTokenRequest,
     UpdateEngineTokenRequest,
 } from './types/engine.tokens.js';
 import { reviveEngineLimit, reviveEngineTokenSummary } from './types/engine.tokens.js';
@@ -62,6 +63,36 @@ export class EngineTokensClient {
      */
     async removeEngineToken(name: string): Promise<void> {
         await this.fetch(`/api/engine-tokens/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    }
+
+    /**
+     * @name Rename engine token
+     * @description A sub-resource action rather than a `name` field on `UpdateEngineTokenRequest`, which would change
+     * what the generated `updateEngineToken` means for every caller. The name is the key, so this is the
+     * only way to change it without removing the token and saving it again, which loses it: the token
+     * cannot be read back.
+     *
+     * What moves: the token's own row, and the assignment of every worker host that holds it — the latter
+     * by the foreign key's `ON UPDATE CASCADE`, not by a second write. What does not: the token itself, its
+     * `provider`, `kind`, `priority`, `pooled`, `createdAt` and `updatedAt` (a rename is not a re-save);
+     * recorded spend, which keeps the old name, so `GET /api/engine-accounts/usage` lists the old and the
+     * new name separately for a window that straddles a rename; and a usage limit in force, which stays
+     * recorded against the old name. Renaming to the current name is a no-op, not an error.
+     *
+     * A rename does not reach a running engine. An engine is started with the account name resolved then
+     * and handed the token's value, never its name, so a run in flight carries on untouched and the next
+     * engine started gets the new name. A limit a running engine reports after the rename is therefore
+     * recorded against the old name: it shows as a stray account in `GET /api/engine-limits` until it
+     * resets, and the renamed account shows no badge for it — as `put` never reaches a running engine
+     * either.
+     */
+    async renameEngineToken(name: string, body: RenameEngineTokenRequest): Promise<EngineTokenSummary> {
+        const result = await this.fetch(`/api/engine-tokens/${encodeURIComponent(name)}/rename`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body, bigIntReplacer),
+        });
+        return reviveEngineTokenSummary(await parseJson<EngineTokenSummary>(result));
     }
 
     /**

@@ -301,4 +301,43 @@ describe('EngineTokensService', () => {
 
         await expect(hosts.setEngineToken(ssh, name)).rejects.toThrow();
     });
+
+    it('renames a token, keeping the token, its account and when it was saved', async () => {
+        const [name, renamed] = [uniqueName(), uniqueName()];
+        await tokens.put(name, { token: 'kept-value', kind: 'api_key', priority: 4, pooled: true });
+        const row = await db.selectFrom('wilson.engineTokens').selectAll().where('name', '=', name).executeTakeFirstOrThrow();
+        const before = (await tokens.list()).find(token => token.name === name)!;
+
+        expect(await tokens.rename(name, { name: ` ${name} ` })).toEqual(before);
+
+        const after = await tokens.rename(name, { name: renamed });
+
+        await expect(tokens.resolve(renamed)).resolves.toBe('kept-value');
+        await expect(tokens.resolve(name)).resolves.toBeUndefined();
+        expect(after).toMatchObject({ name: renamed, provider: 'anthropic', kind: 'api_key', priority: 4, pooled: true });
+        expect(after.createdAt.toMillis()).toBe(row.createdAt.toMillis());
+        expect(after.updatedAt.toMillis()).toBe(row.updatedAt.toMillis());
+        await tokens.remove(renamed);
+    });
+
+    it('renames a token assigned to a host, and the host follows', async () => {
+        const [host, name, renamed] = [uniqueName(), uniqueName(), uniqueName()];
+        await hosts.create({ name: host, kind: 'worker', slots: 1 });
+        await tokens.put(name, { token: 'value' });
+        await tokens.assign(host, { name });
+
+        const after = await tokens.rename(name, { name: renamed });
+
+        expect((await hosts.find(host))?.engineToken).toBe(renamed);
+        expect(after.hosts).toEqual([host]);
+    });
+
+    it('refuses to rename an unknown token with 404', async () => {
+        const name = uniqueName();
+
+        await expect(tokens.rename(name, { name: uniqueName() })).rejects.toMatchObject({
+            statusCode: 404,
+            details: { reason: `no engine token is saved as "${name}"` },
+        });
+    });
 });

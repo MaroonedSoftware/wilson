@@ -130,6 +130,13 @@ public sealed class EngineTokenKindConverter : JsonConverter<EngineTokenKind>
     };
 }
 
+/// <summary>The name to hold a saved token under from now on.</summary>
+public sealed record RenameEngineTokenRequest
+{
+    [JsonPropertyName("name")]
+    public required string Name { get; init; }
+}
+
 /// <summary>
 /// A usage limit an account has hit that has not reset. `account` is a saved token's name, `local` for
 /// the sign-in of engines on this machine, or `worker:&lt;host&gt;` for a worker's own.
