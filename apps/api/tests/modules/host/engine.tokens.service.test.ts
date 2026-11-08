@@ -309,14 +309,18 @@ describe('EngineTokensService', () => {
         const before = (await tokens.list()).find(token => token.name === name)!;
 
         expect(await tokens.rename(name, { name: ` ${name} ` })).toEqual(before);
+        expect(await db.selectFrom('wilson.engineTokens').selectAll().where('name', '=', name).executeTakeFirstOrThrow()).toEqual(row);
 
-        const after = await tokens.rename(name, { name: renamed });
+        const after = await tokens.rename(name, { name: `  ${renamed}\n` });
 
         await expect(tokens.resolve(renamed)).resolves.toBe('kept-value');
         await expect(tokens.resolve(name)).resolves.toBeUndefined();
         expect(after).toMatchObject({ name: renamed, provider: 'anthropic', kind: 'api_key', priority: 4, pooled: true });
+        expect(after).toEqual({ ...before, name: renamed });
         expect(after.createdAt.toMillis()).toBe(row.createdAt.toMillis());
         expect(after.updatedAt.toMillis()).toBe(row.updatedAt.toMillis());
+        const listed = (await tokens.list()).filter(token => token.name === name || token.name === renamed);
+        expect(listed).toEqual([after]);
         await tokens.remove(renamed);
     });
 
@@ -330,6 +334,7 @@ describe('EngineTokensService', () => {
 
         expect((await hosts.find(host))?.engineToken).toBe(renamed);
         expect(after.hosts).toEqual([host]);
+        expect((await tokens.list()).find(token => token.name === renamed)?.hosts).toEqual([host]);
     });
 
     it('refuses to rename an unknown token with 404', async () => {
